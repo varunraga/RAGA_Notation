@@ -1,0 +1,1361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kriti Notation Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.min.js"></script>
+<style>
+  :root{
+    --leaf:#ececeb;
+    --leaf-deep:#e0e0de;
+    --ink:#1a1a2e;
+    --ink-soft:#5c5f6e;
+    --maroon:#4a4aef;
+    --maroon-deep:#2e2ecc;
+    --gold:#8f8fff;
+    --line:#ddd9d0;
+    --panel:#faf9f5;
+    --paper:#ffffff;
+    --good:#3b6d11;
+    --warn:#b23a3a;
+    --warn-deep:#8f2c2c;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--leaf);
+    background-image:
+      radial-gradient(circle at 10% 10%, rgba(74,74,239,0.045), transparent 40%),
+      radial-gradient(circle at 90% 30%, rgba(74,74,239,0.035), transparent 45%);
+    color:var(--ink);
+    font-family:'Inter',sans-serif;
+    min-height:100vh;
+  }
+  .app{ display:grid; grid-template-columns:280px 1fr; min-height:100vh; }
+
+  /* Tablet: sidebar collapses above content but keeps a bounded, scrollable height
+     instead of the old 100vh (which pushed the whole page down on mobile). */
+  @media (max-width:900px){
+    .app{ grid-template-columns:1fr; }
+    .sidebar{ position:static; height:auto; max-height:320px; border-right:none; border-bottom:1px solid var(--line); }
+    .main{ padding:24px 20px 60px; max-width:100%; }
+    .hero h1{ font-size:28px; }
+  }
+
+  /* Phone: tighter paddings, smaller type, single-column fields, buttons stay tappable. */
+  @media (max-width:600px){
+    .sidebar{ padding:16px 12px; max-height:220px; gap:10px; }
+    .brand .mark{ font-size:21px; }
+    .newbtn{ padding:12px; font-size:14px; }
+    .main{ padding:16px 12px 50px; }
+    .hero{ margin-bottom:18px; }
+    .hero h1{ font-size:23px; }
+    .hero p{ font-size:12.5px; }
+    .toolbar{ gap:6px; }
+    .toolbar .btn{ font-size:12.5px; padding:10px 12px; }
+    .card{ padding:16px 14px; }
+    .beat-cell{ min-width:54px; }
+    .line-top{ gap:6px; }
+    .aksh-badge{ font-size:9px; }
+  }
+
+  /* ---------- Sidebar ---------- */
+  .sidebar{
+    background:var(--panel);
+    border-right:1px solid var(--line);
+    padding:22px 16px;
+    display:flex; flex-direction:column; gap:14px;
+    position:sticky; top:0; height:100vh; overflow-y:auto;
+  }
+  .brand{ display:flex; flex-direction:column; gap:2px; padding:0 4px 10px; border-bottom:1px solid var(--line); margin-bottom:4px;}
+  .brand .mark{ font-family:'Inter',sans-serif; font-weight:600; font-size:26px; color:var(--maroon-deep); letter-spacing:.3px; }
+  .brand .sub{ font-size:11px; text-transform:uppercase; letter-spacing:1.6px; color:var(--ink-soft); }
+  .newbtn{
+    display:flex; align-items:center; justify-content:center; gap:8px;
+    background:var(--maroon); color:var(--paper); border:none; border-radius:8px;
+    padding:11px 12px; font-size:13.5px; font-weight:600; cursor:pointer; letter-spacing:.2px;
+    transition:background .15s;
+  }
+  .newbtn:hover{ background:var(--maroon-deep); }
+  .search{
+    width:100%; padding:9px 11px; border-radius:7px; border:1px solid var(--line);
+    background:var(--paper); font-size:13px; color:var(--ink); font-family:'Inter',sans-serif;
+  }
+  .song-list{ display:flex; flex-direction:column; gap:6px; margin-top:4px; }
+  .song-item{
+    padding:10px 12px; border-radius:8px; cursor:pointer; border:1px solid transparent;
+    display:flex; flex-direction:column; gap:2px;
+  }
+  .song-item:hover{ background:var(--leaf-deep); }
+  .song-item.active{ background:var(--paper); border-color:var(--gold); box-shadow:0 1px 0 rgba(0,0,0,0.03); }
+  .song-item .t{ font-weight:600; font-size:13.5px; color:var(--ink); }
+  .song-item .m{ font-size:11px; color:var(--ink-soft); }
+  .empty-note{ font-size:12.5px; color:var(--ink-soft); padding:8px 4px; line-height:1.5; }
+
+  /* ---------- Main ---------- */
+  .main{ padding:32px 40px 80px; max-width:980px; }
+
+  .hero{
+    display:flex; align-items:baseline; justify-content:space-between; gap:20px; margin-bottom:28px; flex-wrap:wrap;
+  }
+  .hero h1{ font-family:'Inter',sans-serif; font-weight:600; font-size:34px; margin:0; color:var(--maroon-deep); }
+  .hero p{ margin:4px 0 0; color:var(--ink-soft); font-size:13.5px; }
+
+  .placeholder{
+    background:var(--paper); border:1px dashed var(--line); border-radius:14px;
+    padding:60px 30px; text-align:center; color:var(--ink-soft);
+  }
+  .placeholder .glyph{ font-size:38px; color:var(--gold); margin-bottom:10px; font-family:'Inter',sans-serif; }
+  .placeholder h2{ font-family:'Inter',sans-serif; color:var(--ink); font-weight:600; margin:0 0 8px; }
+
+  .card{
+    background:var(--paper); border:1px solid var(--line); border-radius:14px;
+    padding:24px 26px; margin-bottom:20px; box-shadow:0 1px 2px rgba(44,32,19,0.04);
+  }
+  .card h3{
+    font-family:'Inter',sans-serif; font-size:19px; font-weight:600; margin:0 0 14px;
+    color:var(--maroon-deep); display:flex; align-items:center; gap:8px;
+  }
+  .field-grid{ display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  @media (max-width:700px){ .field-grid{ grid-template-columns:1fr; } }
+  label{ font-size:11.5px; text-transform:uppercase; letter-spacing:1px; color:var(--ink-soft); font-weight:600; display:block; margin-bottom:5px; }
+  input[type=text], select, textarea{
+    width:100%; padding:9px 10px; border-radius:7px; border:1px solid var(--line);
+    background:var(--panel); font-size:14px; color:var(--ink); font-family:'Inter',sans-serif;
+  }
+  textarea{ font-family:'Courier Prime',monospace; font-size:13.5px; line-height:1.7; resize:vertical; min-height:70px; }
+  .fieldwrap{ margin-bottom:12px; }
+
+  .toolbar{ display:flex; gap:10px; flex-wrap:wrap; margin-bottom:22px; }
+  .btn{
+    border:1px solid var(--line); background:var(--paper); color:var(--ink);
+    padding:9px 14px; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer;
+    display:flex; align-items:center; gap:7px; transition:all .15s;
+  }
+  .btn:hover{ border-color:var(--gold); background:var(--leaf-deep); }
+  .btn.primary{ background:var(--maroon); color:var(--paper); border-color:var(--maroon); }
+  .btn.primary:hover{ background:var(--maroon-deep); }
+  .btn.danger{ color:var(--warn); }
+  .btn.danger:hover{ background:#f7e6e6; border-color:var(--warn); }
+  .btn.small{ padding:6px 10px; font-size:12px; }
+
+  .section-block{ border-top:1px solid var(--line); padding-top:16px; margin-top:16px; }
+  .section-head{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; }
+  .section-head input{ font-family:'Inter',sans-serif; font-size:19px; font-weight:600; color:var(--maroon-deep); border:none; background:transparent; padding:2px 4px; }
+  .section-head input:focus{ outline:1px solid var(--gold); border-radius:5px; }
+
+  .line-row{ margin-bottom:16px; padding:12px; background:var(--panel); border-radius:10px; border:1px solid var(--line); }
+  .line-top{ display:flex; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
+  .line-top input.label{ width:56px; font-weight:700; font-family:'Courier Prime',monospace; text-align:center; padding:6px 4px;}
+  .line-top .spacer{ flex:1; }
+
+  .grid-wrap{ overflow-x:auto; }
+  .beat-grid{ display:grid; gap:4px; align-items:stretch; min-width:max-content; }
+  .beat-cell{ display:flex; flex-direction:column; gap:4px; min-width:64px; }
+  .beat-cell input{
+    font-family:'Courier Prime',monospace; font-size:14px; text-align:left;
+    padding:7px 6px; border-radius:5px;
+  }
+  .beat-cell input.swara{ background:var(--paper); border:1px solid var(--line); font-weight:700; }
+  .beat-cell input.lyric{ background:#fff; border:1px solid #e3dfd3; font-size:12px; color:var(--ink-soft); }
+  .aksh-badge{ font-size:9.5px; text-align:center; height:12px; line-height:12px; font-weight:700; letter-spacing:.3px; }
+  .aksh-badge.ok{ color:var(--good); }
+  .aksh-badge.bad{ color:var(--warn); }
+  .align-badge{ font-size:8.5px; text-align:left; min-height:11px; line-height:11px; font-weight:700; color:var(--warn); letter-spacing:.2px; }
+  .sep-cell{ display:flex; align-items:center; justify-content:center; color:var(--gold); font-size:20px; font-weight:700; padding:0 2px; }
+  .edge-mark{ display:flex; align-items:center; justify-content:center; color:var(--maroon); font-size:20px; font-weight:700; padding:0 4px; }
+
+  .hint{ font-size:11.5px; color:var(--ink-soft); margin-top:10px; line-height:1.6; }
+  .hint code{ background:var(--leaf-deep); padding:1px 5px; border-radius:4px; font-family:'Courier Prime',monospace; }
+
+  .preview{
+    font-family:'Courier Prime',monospace; background:var(--ink); color:var(--leaf);
+    border-radius:10px; padding:16px 18px; font-size:14px; line-height:2; overflow-x:auto; margin-top:14px;
+  }
+  .preview .p-swara{ color:#ececeb; font-weight:700; white-space:pre; }
+  .preview .p-swara .ul-sgl{ text-decoration:underline; text-decoration-color:#8484ff; text-decoration-thickness:2px; }
+  .preview .p-swara .ul-dbl{ text-decoration:underline; text-decoration-style:double; text-decoration-color:#8484ff; text-decoration-thickness:2px; }
+  .preview .p-lyric{ color:#a8acbf; white-space:pre; font-size:12.5px; }
+
+  .toast{
+    position:fixed; bottom:22px; left:50%; transform:translateX(-50%) translateY(20px);
+    background:var(--ink); color:var(--leaf); padding:11px 20px; border-radius:9px; font-size:13px;
+    opacity:0; pointer-events:none; transition:all .25s; z-index:50; font-weight:600;
+  }
+  .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+
+  .add-line-btn{ display:flex; align-items:center; gap:6px; }
+
+  /* ---------- Preview modal ---------- */
+  .preview-overlay{
+    position:fixed; inset:0; background:rgba(44,32,19,0.55); z-index:100;
+    display:none; align-items:flex-start; justify-content:center; padding:30px 16px; overflow-y:auto;
+  }
+  .preview-overlay.show{ display:flex; }
+  .preview-modal{
+    background:#fffef9; border-radius:14px; max-width:1000px; width:100%;
+    box-shadow:0 20px 60px rgba(0,0,0,0.35); overflow:hidden;
+  }
+  .preview-modal-head{
+    padding:18px 26px; border-bottom:1px solid var(--line); background:var(--panel);
+    display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+  }
+  .preview-modal-title{ font-family:'Inter',sans-serif; font-weight:600; font-size:20px; color:var(--maroon-deep); }
+  .preview-modal-sub{ font-size:12px; color:var(--ink-soft); flex:1; }
+  .preview-modal-body{ padding:30px 36px 50px; overflow-x:auto; }
+
+  .doc-title{ font-family:'Courier Prime',monospace; font-weight:700; text-decoration:underline; text-align:center; font-size:15px; color:#111; }
+  .doc-meta{ font-family:'Courier Prime',monospace; font-size:13.5px; color:#111; }
+  .doc-meta b{ font-weight:700; }
+  .doc-blank{ height:16px; }
+  .doc-heading{ font-family:'Courier Prime',monospace; font-weight:700; text-decoration:underline; font-size:13.5px; color:#111; }
+  .doc-lyric-line{ font-family:'Courier Prime',monospace; font-size:13px; color:#222; }
+  .doc-swara{ font-family:'Courier Prime',monospace; font-size:12.5px; font-weight:700; color:#111; white-space:pre; }
+  .doc-swara .ul-sgl{ text-decoration:underline; }
+  .doc-swara .ul-dbl{ text-decoration:underline; text-decoration-style:double; }
+  .doc-lyric{ font-family:'Courier Prime',monospace; font-size:11px; color:#444; white-space:pre; margin-bottom:6px; }
+  .doc-refnote{ font-family:'Courier Prime',monospace; font-weight:700; font-size:13px; color:#111; }
+  .doc-end{ font-family:'Courier Prime',monospace; text-align:center; font-size:13px; color:#111; }
+
+  /* ---------- Print ---------- */
+  #printArea{ display:none; }
+  @media print{
+    @page{ margin:0.5in; }
+    body{ background:#fff !important; }
+    .app, .toast, .preview-overlay{ display:none !important; }
+    #printArea{ display:block !important; background:#fff; }
+    #printArea .doc-blank{ height:14px; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="mark">Kriti Notation Studio</div>
+      <div class="sub">your permanent swara library</div>
+    </div>
+    <button class="newbtn" id="newSongBtn">+ New Kriti</button>
+    <input class="search" id="searchBox" type="text" placeholder="Search by title or raga…">
+    <div class="song-list" id="songList"></div>
+  </aside>
+
+  <main class="main" id="main"></main>
+</div>
+<div class="toast" id="toast"></div>
+<div id="printArea"></div>
+
+<div class="preview-overlay" id="previewOverlay">
+  <div class="preview-modal">
+    <div class="preview-modal-head">
+      <div class="preview-modal-title">Document Preview</div>
+      <div class="preview-modal-sub">Approximation of the exported layout — actual docx/pdf spacing may vary slightly.</div>
+      <button class="btn small" id="closePreviewBtn">✕ Close</button>
+    </div>
+    <div class="preview-modal-body" id="previewBody"></div>
+  </div>
+</div>
+
+<script>
+/* ===================== Data / Tala config ===================== */
+// rowCells: akshara-capacity of each cell in ONE printed row.
+// For Adi this is a single avartanam (8 cells x 4 = 32 aksharas); Adi is kalai-aware,
+// so a "line" may print as 1 row (1 kalai) or 2 stacked rows (2 kalai, 32 each, no edge
+// bar between them since it's one continuous 64-akshara avartanam).
+// For Rupakam/Khanda/Misra, rowCells already packs 2 full avartanams per row (your
+// convention), with a "‖" avartanam-boundary divider mid-row and no "|" ever.
+const TALAS = {
+  adi: {
+    label: 'Adi', rowCells: [4,4,4,4,4,4,4,4],
+    dividerType: 'pipe', dividerAfter: 3, kalaiAware: true,
+    aksharasPerAvartanam: 32
+  },
+  rupakam: {
+    label: 'Rupakam', rowCells: [4,4,4,4,4,4],
+    dividerType: 'avartanam', dividerAfter: 2, kalaiAware: false,
+    aksharasPerAvartanam: 12
+  },
+  khanda_chapu: {
+    label: 'Khanda Chapu', rowCells: [4,6,4,6],
+    dividerType: 'avartanam', dividerAfter: 1, kalaiAware: false,
+    aksharasPerAvartanam: 10
+  },
+  misra_chapu: {
+    label: 'Misra Chapu', rowCells: [6,4,4,6,4,4],
+    dividerType: 'avartanam', dividerAfter: 2, kalaiAware: false,
+    aksharasPerAvartanam: 14
+  },
+};
+
+function numRowsForLine(cfg, kalai){
+  return (cfg.kalaiAware && kalai === 2) ? 2 : 1;
+}
+
+let library = [];
+let currentId = null;
+
+const uid = () => 'k_' + Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+
+function blankRow(n){
+  return { swara: Array(n).fill(''), lyric: Array(n).fill('') };
+}
+function blankLine(cfg, kalai){
+  const n = numRowsForLine(cfg, kalai);
+  return { label: '', rows: Array.from({length:n}, () => blankRow(cfg.rowCells.length)) };
+}
+function blankSection(name, cfg, kalai, isFirst){
+  return { name, sahitya: '', lines: [ blankLine(cfg, kalai) ], showPallaviRef: !isFirst, pallaviOverride: '', noSahitya: false };
+}
+function newSong(){
+  const cfg = TALAS.adi;
+  return {
+    id: uid(),
+    title: 'Untitled Kriti',
+    raga: '', melakarta: '', arohanam: '', avarohanam: '',
+    tala: 'adi', kalai: 1, composer: '',
+    sections: [ blankSection('Pallavi', cfg, 1, true), blankSection('Anupallavi', cfg, 1, false), blankSection('Charanam', cfg, 1, false) ]
+  };
+}
+
+/* pulls the first 2 words of the Pallavi's opening sahitya line, used for the
+   "(Pallavi opening line)" reference note after Anupallavi/Charanam */
+function derivedPallaviOpening(song){
+  const first = song.sections[0];
+  if(!first) return '';
+  const line = (first.sahitya||'').split('\n').map(s=>s.trim()).find(s=>s.length>0);
+  if(!line) return '';
+  return line.split(/\s+/).slice(0,2).join(' ');
+}
+
+/* migrate a pre-Step-1 line (flat swara/ul/lyric arrays) into the rows[] shape,
+   and a pre-Step-2 row (boolean ul[] per cell) into inline *single*-markup text */
+function migrateLine(line){
+  if(line && line.rows){
+    line.rows.forEach(migrateRowUl);
+    return line;
+  }
+  const r = { swara: line?.swara||[], lyric: line?.lyric||[] };
+  const ul = line?.ul || [];
+  r.swara = r.swara.map((s,i)=> (ul[i] && s && !/^\*/.test(s)) ? `*${s}*` : s);
+  return { label: (line && line.label) || '', rows: [ r ] };
+}
+function migrateRowUl(r){
+  if(!r.ul) return;
+  r.swara = r.swara.map((s,i)=> (r.ul[i] && s && !/^\*/.test(s)) ? `*${s}*` : s);
+  delete r.ul;
+}
+
+/* ===================== Storage ===================== */
+async function loadLibrary(){
+  try{
+    const r = await window.storage.get('library', false);
+    library = r && r.value ? JSON.parse(r.value) : [];
+  }catch(e){ library = []; }
+  library.forEach(s=>{
+    if(s.kalai === undefined) s.kalai = 1;
+    if(s.melakarta === undefined) s.melakarta = '';
+    (s.sections||[]).forEach((sec, si)=>{
+      sec.lines = (sec.lines||[]).map(migrateLine);
+      if(sec.showPallaviRef === undefined) sec.showPallaviRef = si !== 0;
+      if(sec.pallaviOverride === undefined) sec.pallaviOverride = '';
+      if(sec.noSahitya === undefined) sec.noSahitya = false;
+    });
+  });
+}
+/* combines raga + melakarta into the display/export string, e.g. "Mohanam (28th Melakarta Janya)" */
+function ragaDisplay(song){
+  const m = (song.melakarta||'').trim();
+  if(!m) return song.raga || '';
+  return `${song.raga || ''} (${m} Melakarta Janya)`;
+}
+let saveInFlight = false;
+let saveQueued = false;
+async function persist(){
+  try{
+    await window.storage.set('library', JSON.stringify(library), false);
+  }catch(e){
+    console.error('[persist] first attempt failed:', e);
+    // one silent retry — covers transient/rate-limited failures without bothering the user
+    try{
+      await new Promise(r=>setTimeout(r, 400));
+      await window.storage.set('library', JSON.stringify(library), false);
+      console.warn('[persist] retry succeeded');
+    }catch(e2){
+      // Background autosave failures are silent now — typing shouldn't be
+      // interrupted by a toast. It'll be retried on the next edit, and the
+      // explicit "Save now" button still reports success/failure directly.
+      console.error('[persist] retry also failed:', e2);
+    }
+  }
+}
+/* Debounced: waits until typing pauses (800ms of silence) before actually
+   writing to storage, instead of firing on every keystroke. This is the main
+   fix for the rate-limit errors during fast typing — far fewer save calls
+   go out overall. Still guards against overlapping in-flight calls. */
+let saveDebounceTimer = null;
+function queueSave(){
+  clearTimeout(saveDebounceTimer);
+  saveDebounceTimer = setTimeout(()=>{
+    if(saveInFlight){ saveQueued = true; return; }
+    saveInFlight = true;
+    persist().finally(()=>{
+      saveInFlight = false;
+      if(saveQueued){ saveQueued = false; queueSave(); }
+    });
+  }, 800);
+}
+
+/* ===================== Rendering ===================== */
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(t._hideT);
+  t._hideT = setTimeout(()=>t.classList.remove('show'), 1400);
+}
+
+function renderSongList(){
+  const list = document.getElementById('songList');
+  const q = (document.getElementById('searchBox').value || '').toLowerCase();
+  list.innerHTML = '';
+  const filtered = library.filter(s => (s.title+' '+s.raga).toLowerCase().includes(q));
+  if(!library.length){
+    list.innerHTML = '<div class="empty-note">No kritis yet. Click <b>+ New Kriti</b> to start your library — everything you add stays saved here.</div>';
+    return;
+  }
+  if(!filtered.length){
+    list.innerHTML = '<div class="empty-note">No matches.</div>';
+    return;
+  }
+  filtered.forEach(s=>{
+    const el = document.createElement('div');
+    el.className = 'song-item' + (s.id===currentId ? ' active' : '');
+    el.innerHTML = `<div class="t">${escapeHtml(s.title||'Untitled')}</div><div class="m">${escapeHtml(s.raga||'—')} · ${TALAS[s.tala]?.label||s.tala}</div>`;
+    el.onclick = ()=>{ currentId = s.id; renderAll(); };
+    list.appendChild(el);
+  });
+}
+
+/* Forces case (upper for swara, lower for sahitya) while typing, preserving
+   cursor position. Markup chars (* , ; ' .) are untouched automatically since
+   toUpperCase/toLowerCase only affect cased letters. */
+function forceCaseLive(inp, mode){
+  const start = inp.selectionStart, end = inp.selectionEnd;
+  const converted = mode === 'upper' ? inp.value.toUpperCase() : inp.value.toLowerCase();
+  if(converted !== inp.value){
+    inp.value = converted;
+    inp.setSelectionRange(start, end);
+  }
+  return inp.value;
+}
+
+/* Custom keyboard navigation for a physical row's cells:
+   - Tab: all swara cells left-to-right, then all lyric cells left-to-right.
+     At the very end of lyrics, Tab falls through to native flow (leaves the row).
+   - Shift+Tab: reverse of the above; at the very start of swara, falls through natively.
+   Ctrl+Arrow navigation is handled separately by wireGlobalCtrlNavigation(), since it
+   now spans every line in every section rather than staying within one physical row. */
+function wireCellNavigation(swaraInputs, lyricInputs){
+  const all = { swara: Array.from(swaraInputs), lyric: Array.from(lyricInputs) };
+  function focusAt(type, idx){
+    const arr = all[type];
+    if(idx >= 0 && idx < arr.length){ arr[idx].focus(); return true; }
+    return false;
+  }
+  function handler(type, idx){
+    return (e)=>{
+      if(e.key !== 'Tab' || e.ctrlKey) return;
+      if(!e.shiftKey){
+        if(type === 'swara'){
+          if(idx < all.swara.length - 1){ e.preventDefault(); focusAt('swara', idx+1); }
+          else { e.preventDefault(); focusAt('lyric', 0); }
+        } else {
+          if(idx < all.lyric.length - 1){ e.preventDefault(); focusAt('lyric', idx+1); }
+          /* else: let native Tab leave the row */
+        }
+      } else {
+        if(type === 'lyric'){
+          if(idx > 0){ e.preventDefault(); focusAt('lyric', idx-1); }
+          else { e.preventDefault(); focusAt('swara', all.swara.length-1); }
+        } else {
+          if(idx > 0){ e.preventDefault(); focusAt('swara', idx-1); }
+          /* else: let native Shift+Tab leave the row backward */
+        }
+      }
+    };
+  }
+  all.swara.forEach((inp,i)=> inp.addEventListener('keydown', handler('swara', i)));
+  all.lyric.forEach((inp,i)=> inp.addEventListener('keydown', handler('lyric', i)));
+}
+
+/* Song-wide Ctrl+Arrow navigation, wired once (in DOM order) across every physical
+   row, every line, and every section of the current song:
+   - Ctrl+Right/Left: next/prev cell of the same type (swara<->swara, lyric<->lyric),
+     continuing seamlessly across line and section boundaries.
+   - Ctrl+Down: swara cell -> the lyric cell in that same beat-cell (if the section
+     has sahitya at all).
+   - Ctrl+Up: lyric cell -> the swara cell in that same beat-cell.
+   Matched by DOM sibling (closest '.beat-cell') rather than index, so it's correct
+   even though different talas/sections can have different cell counts per row. */
+function wireGlobalCtrlNavigation(host){
+  const swaraInputs = Array.from(host.querySelectorAll('input.swara'));
+  const lyricInputs = Array.from(host.querySelectorAll('input.lyric'));
+  function focusAt(arr, idx){
+    if(idx >= 0 && idx < arr.length) arr[idx].focus();
+  }
+  function wire(inp, idx, arr){
+    inp.addEventListener('keydown', (e)=>{
+      if(!e.ctrlKey) return;
+      if(e.key === 'ArrowRight'){ e.preventDefault(); focusAt(arr, idx+1); }
+      else if(e.key === 'ArrowLeft'){ e.preventDefault(); focusAt(arr, idx-1); }
+      else if(e.key === 'ArrowDown'){
+        const lyricInp = inp.closest('.beat-cell')?.querySelector('input.lyric');
+        if(lyricInp){ e.preventDefault(); lyricInp.focus(); }
+      } else if(e.key === 'ArrowUp'){
+        const swaraInp = inp.closest('.beat-cell')?.querySelector('input.swara');
+        if(swaraInp){ e.preventDefault(); swaraInp.focus(); }
+      }
+    });
+  }
+  swaraInputs.forEach((inp,i)=> wire(inp, i, swaraInputs));
+  lyricInputs.forEach((inp,i)=> wire(inp, i, lyricInputs));
+}
+
+function escapeHtml(str){
+  return (str||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/* convert typed shortcuts: S' -> upper octave dot, S. -> lower octave dot */
+function octaveDisplay(text){
+  if(!text) return '';
+  return text
+    .replace(/([A-Za-z])'/g, (m,c)=> c + '\u0307')
+    .replace(/([A-Za-z])\./g, (m,c)=> c + '\u0323');
+}
+
+/* ---------- Akshara counting ----------
+   Outside any underline (1st speed): letter=2, ","=1, ";"=2.
+   Inside *single* (2nd speed): every symbol (letter, comma, semicolon) = 1.
+   Inside **double** (3rd speed): every symbol (letter, comma, semicolon) = 0.5.
+   This keeps every underlined cell at a hard ceiling of its capacity (4 or 6). */
+function computeCellAkshara(raw){
+  if(!raw) return { total: 0 };
+  const markupRe = /\*\*(.+?)\*\*|\*(.+?)\*/g;
+  const tokenRe = /[A-Za-z][\'\.]?|,|;/g;
+  let total = 0, last = 0, m;
+
+  function tallyPlain(text){
+    let tm; tokenRe.lastIndex = 0;
+    while((tm = tokenRe.exec(text)) !== null){
+      const tok = tm[0];
+      if(tok === ',') total += 1;
+      else if(tok === ';') total += 2;
+      else total += 2;
+    }
+  }
+  function tallyUnderlined(text, flatVal){
+    let tm; tokenRe.lastIndex = 0;
+    while((tm = tokenRe.exec(text)) !== null){ total += flatVal; }
+  }
+
+  while((m = markupRe.exec(raw)) !== null){
+    if(m.index > last) tallyPlain(raw.slice(last, m.index));
+    if(m[1] !== undefined) tallyUnderlined(m[1], 0.5);
+    else tallyUnderlined(m[2], 1);
+    last = markupRe.lastIndex;
+  }
+  if(last < raw.length) tallyPlain(raw.slice(last));
+  return { total };
+}
+function formatAksh(n){ return Number.isInteger(n) ? String(n) : n.toFixed(1); }
+
+function updateAksharaBadge(cellDiv, raw, capacity){
+  const badge = cellDiv.querySelector('.aksh-badge');
+  if(!badge) return;
+  if(!raw){ badge.textContent = ''; badge.className = 'aksh-badge'; return; }
+  const { total } = computeCellAkshara(raw);
+  const ok = Math.abs(total - capacity) < 1e-9;
+  badge.textContent = ok ? `${formatAksh(total)} \u2713` : `${formatAksh(total)}/${capacity} \u26A0`;
+  badge.className = 'aksh-badge ' + (ok ? 'ok' : 'bad');
+}
+/* parse inline underline markup: **text** -> double underline (3rd speed),
+   *text* -> single underline (2nd speed). Returns escaped+styled HTML. */
+function parseSwaraMarkup(raw){
+  if(!raw) return ' ';
+  const re = /\*\*(.+?)\*\*|\*(.+?)\*/g;
+  let out = '', last = 0, m;
+  while((m = re.exec(raw)) !== null){
+    if(m.index > last) out += escapeHtml(octaveDisplay(raw.slice(last, m.index)));
+    if(m[1] !== undefined) out += `<span class="ul-dbl">${escapeHtml(octaveDisplay(m[1]))}</span>`;
+    else out += `<span class="ul-sgl">${escapeHtml(octaveDisplay(m[2]))}</span>`;
+    last = re.lastIndex;
+  }
+  if(last < raw.length) out += escapeHtml(octaveDisplay(raw.slice(last)));
+  return out || ' ';
+}
+
+/* ---------- Syllable-to-swara alignment (Option B) ----------
+   Tokenizes a cell's swara text into individual display tokens (letters incl.
+   octave marks, commas, semicolons), each carrying its underline level.
+   Sahitya is split on whitespace into one syllable per token, left to right. */
+function tokenizeSwaraForAlign(raw){
+  if(!raw) return [];
+  const markupRe = /\*\*(.+?)\*\*|\*(.+?)\*/g;
+  const tokenRe = /[A-Za-z][\'\.]?|,|;/g;
+  const tokens = [];
+  let last = 0, m;
+  function pushSeg(text, underline){
+    tokenRe.lastIndex = 0;
+    let tm;
+    while((tm = tokenRe.exec(text)) !== null){
+      tokens.push({ display: octaveDisplay(tm[0]), underline });
+    }
+  }
+  while((m = markupRe.exec(raw)) !== null){
+    if(m.index > last) pushSeg(raw.slice(last, m.index), 0);
+    if(m[1] !== undefined) pushSeg(m[1], 2);
+    else pushSeg(m[2], 1);
+    last = markupRe.lastIndex;
+  }
+  if(last < raw.length) pushSeg(raw.slice(last), 0);
+  return tokens;
+}
+
+/* Builds column-aligned {swaraCols, lyricCols, mismatch}. Column width is
+   driven ONLY by the swara token + the confirmed spacing rule (2 trailing
+   spaces after a plain letter, 1 after a plain , or ;, 0 inside an underlined
+   speed-group) — NEVER by syllable length. This keeps spacing capped exactly
+   as defined and keeps every table's column widths uniform regardless of how
+   long any particular line's sahitya happens to be. An unusually long
+   syllable is still shown in full (never truncated) via padEnd's natural
+   behavior of leaving a string unchanged once it's already >= the target
+   width — it just isn't allowed to stretch the shared column width itself. */
+function buildAlignedColumns(rawSwara, rawLyric){
+  const tokens = tokenizeSwaraForAlign(rawSwara);
+  const syllables = (rawLyric||'').trim() ? rawLyric.trim().split(/\s+/) : [];
+  const n = Math.max(tokens.length, syllables.length);
+  const swaraCols = [], lyricCols = [];
+  for(let i=0;i<n;i++){
+    const tok = tokens[i];
+    const tokDisplay = tok ? tok.display : '';
+    const syl = syllables[i] || '';
+    const underline = tok ? tok.underline : 0;
+    const base = Math.max(tokDisplay.length, 1);
+    let w;
+    if(underline){
+      w = base; // no spacing at all inside a speed group — tight packing
+    } else {
+      const isPunct = tokDisplay === ',' || tokDisplay === ';';
+      w = base + (isPunct ? 1 : 2); // matches the confirmed rule exactly
+    }
+    swaraCols.push({ text: tokDisplay.padEnd(w), underline });
+    lyricCols.push(syl.padEnd(w));
+  }
+  return { swaraCols, lyricCols, tokenCount: tokens.length, syllableCount: syllables.length, mismatch: tokens.length !== syllables.length };
+}
+
+function updateAlignBadge(cellDiv, rawSwara, rawLyric){
+  const badge = cellDiv.querySelector('.align-badge');
+  if(!badge) return;
+  if(!rawSwara && !rawLyric){ badge.textContent = ''; badge.className = 'align-badge'; return; }
+  const { tokenCount, syllableCount, mismatch } = buildAlignedColumns(rawSwara, rawLyric);
+  if(!rawLyric){ badge.textContent = ''; badge.className = 'align-badge'; return; }
+  badge.textContent = mismatch ? `${syllableCount}/${tokenCount} syl \u26A0` : '';
+  badge.className = 'align-badge' + (mismatch ? ' bad' : '');
+}
+
+function getSong(){ return library.find(s=>s.id===currentId); }
+
+function renderMain(){
+  const main = document.getElementById('main');
+  const song = getSong();
+  if(!song){
+    main.innerHTML = `
+      <div class="hero"><div><h1>Kriti Notation Studio</h1><p>Pick a kriti on the left, or start a new one.</p></div></div>
+      <div class="placeholder">
+        <div class="glyph">॥</div>
+        <h2>Your library is ready</h2>
+        <div>Click <b>+ New Kriti</b> to notate your first song in your own grid format.</div>
+      </div>`;
+    return;
+  }
+
+  main.innerHTML = `
+    <div class="hero">
+      <div>
+        <h1 contenteditable="true" id="titleEdit" style="outline:none;">${escapeHtml(song.title)}</h1>
+        <p>Edits save automatically to your library.</p>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <button class="btn primary" id="previewBtn">👁 Preview</button>
+      <button class="btn primary" id="downloadDocxBtn">⬇ Download Word (.docx)</button>
+      <button class="btn" id="saveBtn">💾 Save now</button>
+      <button class="btn" id="copyDataBtn">📋 Copy data for Claude (→ .docx)</button>
+      <button class="btn" id="printBtn">🖨️ Print / Save as PDF</button>
+      <button class="btn danger" id="deleteBtn">🗑️ Delete kriti</button>
+    </div>
+
+    <div class="card">
+      <h3>Song details</h3>
+      <div class="field-grid">
+        <div class="fieldwrap"><label>Raga</label><input type="text" id="f_raga" value="${escapeHtml(song.raga)}"></div>
+        <div class="fieldwrap"><label>Melakarta # (optional)</label><input type="text" id="f_mela" value="${escapeHtml(song.melakarta)}" placeholder="e.g. 28th"></div>
+        <div class="fieldwrap"><label>Composer</label><input type="text" id="f_composer" value="${escapeHtml(song.composer)}"></div>
+        <div class="fieldwrap"><label>Arohanam</label><input type="text" id="f_aro" value="${escapeHtml(song.arohanam)}" placeholder="S R2 G3 M1 P D2 N3 S"></div>
+        <div class="fieldwrap"><label>Avarohanam</label><input type="text" id="f_ava" value="${escapeHtml(song.avarohanam)}" placeholder="S N3 D2 P M1 G3 R2 S"></div>
+        <div class="fieldwrap">
+          <label>Talam</label>
+          <select id="f_tala">
+            ${Object.entries(TALAS).map(([k,v])=>`<option value="${k}" ${song.tala===k?'selected':''}>${v.label} (${v.aksharasPerAvartanam}/avartanam)</option>`).join('')}
+          </select>
+        </div>
+        <div class="fieldwrap" id="kalaiWrap" style="${TALAS[song.tala].kalaiAware?'':'display:none;'}">
+          <label>Kalai (Adi only)</label>
+          <select id="f_kalai">
+            <option value="1" ${song.kalai===1?'selected':''}>1 kalai (32/row)</option>
+            <option value="2" ${song.kalai===2?'selected':''}>2 kalai (64 total, shown as 2 rows of 32)</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div id="sectionsHost"></div>
+
+    <button class="btn add-line-btn" id="addSectionBtn">+ Add section (e.g. Chittaswaram)</button>
+    <div class="hint" style="margin-top:18px;">
+      Octave shortcuts — <code>S'</code> → upper-octave dot (tāra sthāyi) &nbsp; <code>S.</code> → lower-octave dot (mandra sthāyi).<br>
+      Speed underline — wrap part (or all) of a cell in <code>*text*</code> for single underline (2nd speed) or <code>**text**</code> for double underline (3rd speed), e.g. <code>SR*GSR*</code>.<br>
+      Each cell checks its own akshara count live as you type — a small green ✓ under the cell means it matches that cell's capacity; a red count/⚠ means it doesn't.
+    </div>
+  `;
+
+  document.getElementById('titleEdit').oninput = e=>{ song.title = e.target.textContent; renderSongList(); queueSave(); };
+  document.getElementById('f_raga').oninput = e=>{ song.raga=e.target.value; renderSongList(); queueSave(); };
+  document.getElementById('f_mela').oninput = e=>{ song.melakarta=e.target.value; renderSongList(); queueSave(); };
+  document.getElementById('f_composer').oninput = e=>{ song.composer=e.target.value; queueSave(); };
+  document.getElementById('f_aro').oninput = e=>{ song.arohanam=e.target.value; queueSave(); };
+  document.getElementById('f_ava').oninput = e=>{ song.avarohanam=e.target.value; queueSave(); };
+  document.getElementById('f_tala').onchange = e=>{
+    song.tala = e.target.value;
+    document.getElementById('kalaiWrap').style.display = TALAS[song.tala].kalaiAware ? '' : 'none';
+    queueSave(); renderMain();
+  };
+  const kalaiEl = document.getElementById('f_kalai');
+  if(kalaiEl) kalaiEl.onchange = e=>{ song.kalai = Number(e.target.value); queueSave(); renderMain(); };
+
+  document.getElementById('saveBtn').onclick = async ()=>{ await persist(); showToast('Saved'); };
+  document.getElementById('previewBtn').onclick = openPreview;
+  document.getElementById('downloadDocxBtn').onclick = ()=>downloadDocxFile(song);
+  document.getElementById('copyDataBtn').onclick = ()=>copyForClaude(song);
+  document.getElementById('printBtn').onclick = ()=>printFormattedDocument(song);
+  document.getElementById('deleteBtn').onclick = ()=>deleteSong(song.id);
+  document.getElementById('addSectionBtn').onclick = ()=>{
+    song.sections.push(blankSection('New Section', TALAS[song.tala], song.kalai, false));
+    queueSave(); renderSections();
+  };
+
+  renderSections();
+}
+
+function renderSections(){
+  const song = getSong();
+  const host = document.getElementById('sectionsHost');
+  const cfg = TALAS[song.tala];
+  const kalai = song.kalai || 1;
+  const derived = derivedPallaviOpening(song);
+  host.innerHTML = '';
+  song.sections.forEach((sec, si)=>{
+    const card = document.createElement('div');
+    card.className = 'card';
+    const refBlock = si === 0 ? '' : `
+      <div class="fieldwrap" style="border-top:1px dashed var(--line); padding-top:10px; margin-top:14px;">
+        <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+          <input type="checkbox" data-si="${si}" class="secShowRef" ${sec.showPallaviRef ? 'checked' : ''} style="width:auto;">
+          Insert "(Pallavi opening line)" note once, after this section
+        </label>
+        <input type="text" data-si="${si}" class="secPallaviOverride" placeholder="(auto: ${escapeHtml(derived || 'first 2 words of Pallavi sahitya')})" value="${escapeHtml(sec.pallaviOverride)}" style="margin-top:6px; ${sec.showPallaviRef?'':'display:none;'}">
+      </div>`;
+    card.innerHTML = `
+      <div class="section-head">
+        <input value="${escapeHtml(sec.name)}" data-si="${si}" class="secName">
+        <button class="btn small danger" data-si="${si}" data-act="delSec">Remove section</button>
+      </div>
+      <div class="fieldwrap">
+        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; text-transform:none; letter-spacing:0; font-weight:600; font-size:12.5px;">
+          <input type="checkbox" data-si="${si}" class="secNoSahitya" ${sec.noSahitya ? 'checked' : ''} style="width:auto;">
+          No sahitya for this section (e.g. Chittaswaram)
+        </label>
+      </div>
+      <div class="fieldwrap secSahityaWrap" data-si="${si}" style="${sec.noSahitya ? 'display:none;' : ''}"><label>Sahitya (plain lyrics)</label><textarea data-si="${si}" class="secSahitya" placeholder="Plain lyric lines, as in your original template…">${escapeHtml(sec.sahitya)}</textarea></div>
+      <div class="linesHost" data-si="${si}"></div>
+      <button class="btn small add-line-btn" data-si="${si}" data-act="addLine">+ Add line (avartanam / sangati)</button>
+      ${refBlock}
+    `;
+    host.appendChild(card);
+
+    card.querySelector('.secName').oninput = e=>{ sec.name = e.target.value; queueSave(); };
+    card.querySelector('.secSahitya').oninput = e=>{
+      sec.sahitya = e.target.value; queueSave();
+      // Previously called renderSections() here when si===0, which tore down and
+      // rebuilt the whole sections list on every keystroke — destroying this very
+      // textarea and dropping cursor focus mid-type. All that was actually needed
+      // is to keep the "(auto: first two words…)" placeholder hint on OTHER
+      // sections' Pallavi-override fields in sync, so just patch those directly.
+      if(si === 0){
+        const derived = derivedPallaviOpening(getSong());
+        document.querySelectorAll('.secPallaviOverride').forEach(el=>{
+          el.placeholder = `(auto: ${derived || 'first 2 words of Pallavi sahitya'})`;
+        });
+      }
+    };
+    card.querySelector('.secNoSahitya').onchange = e=>{
+      sec.noSahitya = e.target.checked;
+      card.querySelector('.secSahityaWrap').style.display = sec.noSahitya ? 'none' : '';
+      queueSave();
+      renderLines(card.querySelector('.linesHost'), sec, cfg, kalai);
+    };
+    const refCheck = card.querySelector('.secShowRef');
+    if(refCheck){
+      refCheck.onchange = e=>{
+        sec.showPallaviRef = e.target.checked;
+        card.querySelector('.secPallaviOverride').style.display = sec.showPallaviRef ? '' : 'none';
+        queueSave();
+      };
+    }
+    const refOverride = card.querySelector('.secPallaviOverride');
+    if(refOverride){ refOverride.oninput = e=>{ sec.pallaviOverride = e.target.value; queueSave(); }; }
+    card.querySelector('[data-act="delSec"]').onclick = ()=>{
+      if(confirm('Remove this section?')){ song.sections.splice(si,1); queueSave(); renderSections(); }
+    };
+    card.querySelector('[data-act="addLine"]').onclick = ()=>{
+      sec.lines.push(blankLine(cfg, kalai)); queueSave(); renderSections();
+    };
+
+    renderLines(card.querySelector('.linesHost'), sec, cfg, kalai);
+  });
+
+  wireGlobalCtrlNavigation(host);
+}
+
+function cellWidthPx(capacity){ return Math.max(46, capacity*13+18); }
+
+/* builds the cell markup + column widths for ONE physical row (no edge marks) */
+function buildRowGrid(cfg, noSahitya){
+  let cellsHtml = '';
+  const cols = [];
+  cfg.rowCells.forEach((cap, i)=>{
+    cols.push(cellWidthPx(cap) + 'px');
+    cellsHtml += `
+      <div class="beat-cell" data-cap="${cap}" title="${cap} aksharas — wrap text in *single* or **double** for speed underline">
+        <input class="swara" placeholder="swara">
+        <div class="aksh-badge"></div>
+        ${noSahitya ? '' : `
+        <input class="lyric" placeholder="sahitya, space-separated per note">
+        <div class="align-badge"></div>`}
+      </div>`;
+    if(i === cfg.dividerAfter && i !== cfg.rowCells.length - 1){
+      cols.push('22px');
+      const glyph = cfg.dividerType === 'pipe' ? '|' : '\u2551';
+      cellsHtml += `<div class="sep-cell">${glyph}</div>`;
+    }
+  });
+  return { cellsHtml, cols };
+}
+
+function ensureLineShape(line, cfg, kalai){
+  const n = numRowsForLine(cfg, kalai);
+  const cellCount = cfg.rowCells.length;
+  while(line.rows.length < n) line.rows.push(blankRow(cellCount));
+  line.rows.length = n;
+  line.rows.forEach(r=>{
+    while(r.swara.length < cellCount){ r.swara.push(''); r.lyric.push(''); }
+    r.swara.length = cellCount; r.lyric.length = cellCount;
+  });
+}
+
+function renderLines(host, sec, cfg, kalai){
+  host.innerHTML = '';
+  const noSahitya = !!sec.noSahitya;
+  sec.lines.forEach((line, li)=>{
+    ensureLineShape(line, cfg, kalai);
+
+    const row = document.createElement('div');
+    row.className = 'line-row';
+
+    const rowsHtml = line.rows.map((r, ri)=>{
+      const { cellsHtml, cols } = buildRowGrid(cfg, noSahitya);
+      const edgeLeft = ri === 0 ? '\u2551' : '';
+      const edgeRight = ri === line.rows.length - 1 ? '\u2551' : '';
+      return `
+        <div class="grid-wrap phys-row" data-ri="${ri}">
+          <div class="beat-grid" style="grid-template-columns:22px ${cols.join(' ')} 22px;">
+            <div class="edge-mark">${edgeLeft}</div>
+            ${cellsHtml}
+            <div class="edge-mark">${edgeRight}</div>
+          </div>
+        </div>`;
+    }).join('');
+
+    row.innerHTML = `
+      <div class="line-top">
+        <input class="label" placeholder="1)" value="${escapeHtml(line.label)}">
+        <div class="spacer"></div>
+        <button class="btn small" data-act="dup">⧉ Duplicate</button>
+        <button class="btn small danger" data-act="del">✕ Remove line</button>
+      </div>
+      ${rowsHtml}
+      <div class="preview"></div>
+    `;
+    host.appendChild(row);
+
+    const labelInput = row.querySelector('.label');
+    labelInput.oninput = e=>{ line.label = e.target.value; queueSave(); updatePreview(row, line, noSahitya); };
+    row.querySelector('[data-act="dup"]').onclick = ()=>{
+      sec.lines.splice(li+1, 0, JSON.parse(JSON.stringify(line))); queueSave(); renderSections();
+    };
+    row.querySelector('[data-act="del"]').onclick = ()=>{
+      sec.lines.splice(li,1); queueSave(); renderSections();
+    };
+
+    row.querySelectorAll('.phys-row').forEach(physEl=>{
+      const ri = Number(physEl.dataset.ri);
+      const r = line.rows[ri];
+      const swaraInputs = physEl.querySelectorAll('input.swara');
+      const lyricInputs = physEl.querySelectorAll('input.lyric');
+      swaraInputs.forEach((inp,i)=>{
+        if(r.swara[i] && r.swara[i] !== r.swara[i].toUpperCase()) r.swara[i] = r.swara[i].toUpperCase();
+        inp.value = r.swara[i];
+        const cap = cfg.rowCells[i];
+        const cellDiv = inp.closest('.beat-cell');
+        updateAksharaBadge(cellDiv, r.swara[i], cap);
+        if(!noSahitya) updateAlignBadge(cellDiv, r.swara[i], r.lyric[i]);
+        inp.oninput = e=>{
+          r.swara[i] = forceCaseLive(inp, 'upper');
+          updateAksharaBadge(cellDiv, r.swara[i], cap);
+          if(!noSahitya) updateAlignBadge(cellDiv, r.swara[i], r.lyric[i]);
+          queueSave(); updatePreview(row, line, noSahitya);
+        };
+      });
+      lyricInputs.forEach((inp,i)=>{
+        if(r.lyric[i] && r.lyric[i] !== r.lyric[i].toLowerCase()) r.lyric[i] = r.lyric[i].toLowerCase();
+        inp.value = r.lyric[i];
+        const cellDiv = inp.closest('.beat-cell');
+        inp.oninput = e=>{
+          r.lyric[i] = forceCaseLive(inp, 'lower');
+          updateAlignBadge(cellDiv, r.swara[i], r.lyric[i]);
+          queueSave(); updatePreview(row, line, noSahitya);
+        };
+      });
+      wireCellNavigation(swaraInputs, lyricInputs);
+    });
+
+    updatePreview(row, line, noSahitya);
+  });
+}
+
+/* Renders one cell's swara/lyric as column-aligned HTML/text using buildAlignedColumns. */
+function renderAlignedCell(rawSwara, rawLyric){
+  const { swaraCols, lyricCols } = buildAlignedColumns(rawSwara, rawLyric);
+  if(!swaraCols.length) return { swaraHtml: ' ', lyricText: ' ' };
+  let swaraHtml = '';
+  swaraCols.forEach((c,ci)=>{
+    if(ci > 0){
+      const prevU = swaraCols[ci-1].underline;
+      // Each token's own text already carries its full trailing gap (2 after a
+      // plain letter, 1 after , or ; , 0 inside a same-speed underline group) —
+      // baked in via padEnd in buildAlignedColumns. Adding another space here
+      // would double it. The ONLY case needing an explicit space is the boundary
+      // where we enter or leave an underlined speed-group, since both sides pad
+      // to 0 there and would otherwise glue together.
+      if((prevU && !c.underline) || (!prevU && c.underline)) swaraHtml += ' ';
+    }
+    const esc = escapeHtml(c.text);
+    if(c.underline === 1) swaraHtml += `<span class="ul-sgl">${esc}</span>`;
+    else if(c.underline === 2) swaraHtml += `<span class="ul-dbl">${esc}</span>`;
+    else swaraHtml += esc;
+  });
+  const lyricText = lyricCols.join(' ') || ' ';
+  return { swaraHtml, lyricText };
+}
+
+/* The edge "‖" marks bracket the whole row (first cell's left side, last cell's
+   right side). Since swara and lyric are separately-flowed text lines sharing
+   the same column positions, the lyric line needs an equal-width blank
+   placeholder wherever the swara line has a "‖ " so tokens keep lining up. */
+const EDGE_MARK = '\u2551';
+function applyRowEdgeMarks(rendered, idx, total){
+  let { swaraHtml, lyricText } = rendered;
+  if(idx === 0){
+    swaraHtml = escapeHtml(EDGE_MARK + ' ') + swaraHtml;
+    lyricText = '  ' + lyricText;
+  }
+  if(idx === total - 1){
+    swaraHtml = swaraHtml + escapeHtml(EDGE_MARK);
+    lyricText = lyricText + '  ';
+  }
+  return { swaraHtml, lyricText };
+}
+
+function updatePreview(rowEl, line, noSahitya){
+  const prev = rowEl.querySelector('.preview');
+  const labelPad = ' '.repeat((line.label||'').length);
+  const html = line.rows.map(r=>{
+    const rendered = r.swara.map((s,i)=> applyRowEdgeMarks(renderAlignedCell(s, noSahitya ? '' : r.lyric[i]), i, r.swara.length));
+    const swaraParts = rendered.map(c=>c.swaraHtml);
+    const swaraLine = `<div class="p-swara">${line.label?escapeHtml(line.label)+'  ':''}${swaraParts.join('  ')}</div>`;
+    if(noSahitya) return swaraLine;
+    const lyricParts = rendered.map(c=>escapeHtml(c.lyricText));
+    return swaraLine + `<div class="p-lyric">${labelPad}${lyricParts.join('  ')}</div>`;
+  }).join('');
+  prev.innerHTML = html;
+}
+
+/* ===================== Full-document Preview ===================== */
+/* Renders an HTML approximation of the actual exported document: title,
+   metadata block (with the confirmed spacing), plain-lyric sections, notated
+   sections (with a blank row after each heading, per-token alignment, and the
+   2-word Pallavi reference note), and the closing marker. */
+function buildFullPreviewHTML(song){
+  const cfg = TALAS[song.tala] || TALAS.adi;
+  const kalai = song.kalai || 1;
+  const talaLabel = cfg.kalaiAware ? `${cfg.label}${kalai===2?' (2 kalai)':''}` : cfg.label;
+  const derived = derivedPallaviOpening(song);
+
+  let h = '';
+  h += `<div class="doc-title">${escapeHtml(song.title||'Untitled Kriti')}</div>`;
+  h += `<div class="doc-blank"></div>`;
+  h += `<div class="doc-meta"><b>Raga:</b> ${escapeHtml(ragaDisplay(song))}</div>`;
+  h += `<div class="doc-blank"></div>`;
+  h += `<div class="doc-meta"><b>Arohana:</b> ${escapeHtml(song.arohanam)}</div>`;
+  h += `<div class="doc-meta"><b>Avarohana:</b> ${escapeHtml(song.avarohanam)}</div>`;
+  h += `<div class="doc-blank"></div>`;
+  h += `<div class="doc-meta"><b>Tala:</b> ${escapeHtml(talaLabel)}</div>`;
+  h += `<div class="doc-meta"><b>Composer:</b> ${escapeHtml(song.composer)}</div>`;
+  h += `<div class="doc-blank"></div>`;
+
+  song.sections.forEach(sec=>{
+    if(sec.noSahitya) return;
+    h += `<div class="doc-heading">${escapeHtml(sec.name)}</div>`;
+    (sec.sahitya||'').split('\n').forEach(ln=> h += `<div class="doc-lyric-line">${escapeHtml(ln)||'&nbsp;'}</div>`);
+    h += `<div class="doc-blank"></div>`;
+  });
+
+  song.sections.forEach((sec, si)=>{
+    h += `<div class="doc-heading">${escapeHtml(sec.name)}:</div>`;
+    h += `<div class="doc-blank"></div>`;
+    sec.lines.forEach(line=>{
+      const labelPad = ' '.repeat((line.label||'').length);
+      line.rows.forEach(r=>{
+        const rendered = r.swara.map((s,i)=> applyRowEdgeMarks(renderAlignedCell(s, sec.noSahitya ? '' : r.lyric[i]), i, r.swara.length));
+        const swaraParts = rendered.map(c=>c.swaraHtml);
+        h += `<div class="doc-swara">${line.label?escapeHtml(line.label)+'  ':''}${swaraParts.join('  ')}</div>`;
+        if(!sec.noSahitya){
+          const lyricParts = rendered.map(c=>escapeHtml(c.lyricText));
+          h += `<div class="doc-lyric">${labelPad}${lyricParts.join('  ')}</div>`;
+        }
+      });
+    });
+    h += `<div class="doc-blank"></div>`;
+    if(si !== 0 && sec.showPallaviRef){
+      const text = sec.pallaviOverride && sec.pallaviOverride.trim() ? sec.pallaviOverride.trim() : derived;
+      if(text){
+        h += `<div class="doc-refnote">(${escapeHtml(text)})</div>`;
+        h += `<div class="doc-blank"></div>`;
+      }
+    }
+  });
+
+  h += `<div class="doc-blank"></div><div class="doc-blank"></div>`;
+  h += `<div class="doc-end">**********</div>`;
+  return h;
+}
+
+function openPreview(){
+  const song = getSong();
+  if(!song) return;
+  document.getElementById('previewBody').innerHTML = buildFullPreviewHTML(song);
+  document.getElementById('previewOverlay').classList.add('show');
+}
+function closePreview(){
+  document.getElementById('previewOverlay').classList.remove('show');
+}
+
+/* ===================== In-browser .docx export ===================== */
+/* Ported 1:1 from the verified Node generator. Reuses TALAS, octaveDisplay,
+   buildAlignedColumns, ragaDisplay, and derivedPallaviOpening already defined
+   above so this can never silently drift out of sync with the app's own rules. */
+function ensureDocxLib(){
+  if(typeof window.docx === 'undefined'){
+    showToast('Word-export library failed to load — check your connection and reload the page.');
+    return null;
+  }
+  return window.docx;
+}
+
+async function downloadDocxFile(song){
+  const lib = ensureDocxLib();
+  if(!lib) return;
+  const {
+    Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
+    WidthType, AlignmentType, BorderStyle, VerticalAlign, UnderlineType, TableLayoutType
+  } = lib;
+
+  const FONT_D = 'Consolas';
+  const SZ_D = 22, GRID_SZ_D = 20; // 11pt sheet text, 10pt grid (Legal-length landscape page)
+  const EDGE_D = '\u2551', AVART_DIV_D = '\u2551', PIPE_DIV_D = '|';
+  const LABEL_W_D = 567, DIV_W_D = 389;
+
+  function underlineProp(level){
+    if(level === 1) return { type: UnderlineType.SINGLE };
+    if(level === 2) return { type: UnderlineType.DOUBLE };
+    return undefined;
+  }
+  function drun(text, opts={}){
+    return new TextRun({
+      text, font: FONT_D, size: opts.size || SZ_D, bold: !!opts.bold,
+      underline: opts.underline ? {} : (opts.underlineLevel ? underlineProp(opts.underlineLevel) : undefined),
+      color: '000000',
+    });
+  }
+  function dPlainPara(text, opts={}){
+    return new Paragraph({
+      alignment: opts.center ? AlignmentType.CENTER : undefined,
+      spacing: { after: opts.after !== undefined ? opts.after : 0 },
+      // Always carry a real run, even when text is '' — an empty Paragraph with
+      // no children falls back to Word's default line-height instead of the
+      // sheet's font/size, so blank spacer rows can render visibly thinner than
+      // a real row.
+      children: [drun(text, opts)],
+    });
+  }
+  /* Half-height blank spacer, used to build a "1.5 row" gap: a full dPlainPara('')
+     row plus one of these gives ~1.5 rows without guessing exact twip values. */
+  function dHalfRowSpacer(size){
+    return new Paragraph({
+      spacing: { after: 0 },
+      children: [drun('', { size: Math.round((size || SZ_D) / 2) })],
+    });
+  }
+  function dMetaLine(label, value){
+    return new Paragraph({ spacing:{after:0}, children:[drun(label+':',{bold:true}), drun(' '+(value||''))] });
+  }
+  function dSectionHeading(name, withColon){
+    return new Paragraph({ spacing:{after:0}, children:[drun(name+(withColon?':':''), {bold:true, underline:true})] });
+  }
+  const NOBORDER_D = { style: BorderStyle.NONE, size:0, color:'FFFFFF' };
+  const CELL_BORDERS_D = { top:NOBORDER_D, bottom:NOBORDER_D, left:NOBORDER_D, right:NOBORDER_D };
+  function dCell(children, widthDxa){
+    return new TableCell({ width:{size:widthDxa,type:WidthType.DXA}, verticalAlign:VerticalAlign.CENTER, borders:CELL_BORDERS_D, children });
+  }
+  function dBeatPara(children){
+    return new Paragraph({ alignment: AlignmentType.LEFT, spacing:{after:0}, children });
+  }
+
+  function dBuildLineTable(cfg, line, kalai, noSahitya){
+    const numRows = numRowsForLine(cfg, kalai);
+    const rowsOut = [];
+    // Fixed width per akshara of cell capacity — deterministic, content-independent,
+    // so every table for a given tala is exactly the same width throughout the
+    // whole document (matches the reference template; content only ever affects
+    // spacing within a cell, never the cell's box size).
+    const CELL_UNIT_D = 470; // scaled from 423 (9pt-tuned) by 20/18 for the 10pt grid
+    for(let ri=0; ri<numRows; ri++){
+      const r = line.rows[ri] || { swara:[], lyric:[] };
+      const swaraCells=[], lyricCells=[], cellWidths=[];
+      const edgeLeft = ri===0, edgeRight = ri===numRows-1;
+
+      swaraCells.push(dCell([dBeatPara(ri===0 && line.label ? [drun(line.label,{bold:true,size:GRID_SZ_D})] : [])], LABEL_W_D));
+      if(!noSahitya) lyricCells.push(dCell([dBeatPara([])], LABEL_W_D));
+
+      cfg.rowCells.forEach((cap,i)=>{
+        const { swaraCols, lyricCols } = buildAlignedColumns(r.swara[i]||'', noSahitya ? '' : (r.lyric[i]||''));
+        const isEdgeL = edgeLeft && i===0;
+        const isEdgeR = edgeRight && i===cfg.rowCells.length-1;
+        const children = [];
+        swaraCols.forEach((c,ci)=>{
+          if(ci > 0){
+            const prevU = swaraCols[ci-1].underline;
+            // Same rule as the on-screen preview: each token's own text already
+            // carries its full trailing gap, so only an underline-group boundary
+            // (entering/leaving) needs an explicit single space here.
+            if((prevU && !c.underline) || (!prevU && c.underline)){
+              children.push(drun(' ', {size:GRID_SZ_D}));
+            }
+          }
+          children.push(drun(c.text, {underlineLevel:c.underline, size:GRID_SZ_D}));
+        });
+        if(isEdgeL) children.unshift(drun(EDGE_D+' ', {size:GRID_SZ_D}));
+        if(isEdgeR) children.push(drun(EDGE_D, {size:GRID_SZ_D}));
+        const width = cap * CELL_UNIT_D;
+        swaraCells.push(dCell([dBeatPara(children)], width));
+        if(!noSahitya){
+          let lyricText = lyricCols.join(' ');
+          if(isEdgeL) lyricText = '  ' + lyricText;
+          if(isEdgeR) lyricText = lyricText + '  ';
+          lyricCells.push(dCell([dBeatPara(lyricText.trim() ? [drun(lyricText,{size:GRID_SZ_D})] : [])], width));
+        }
+        cellWidths.push(width);
+        if(i === cfg.dividerAfter && i !== cfg.rowCells.length-1){
+          swaraCells.push(dCell([dBeatPara([drun(cfg.dividerType === 'pipe' ? PIPE_DIV_D : AVART_DIV_D,{size:GRID_SZ_D})])], DIV_W_D));
+          if(!noSahitya) lyricCells.push(dCell([dBeatPara([])], DIV_W_D));
+          cellWidths.push(DIV_W_D);
+        }
+      });
+
+      const colWidths = [LABEL_W_D, ...cellWidths];
+      const tableRows = [ new TableRow({children:swaraCells}) ];
+      if(!noSahitya) tableRows.push(new TableRow({children:lyricCells}));
+      rowsOut.push(new Table({
+        width: { size: colWidths.reduce((a,b)=>a+b,0), type: WidthType.DXA },
+        columnWidths: colWidths,
+        layout: TableLayoutType.FIXED,
+        borders: { top:NOBORDER_D, bottom:NOBORDER_D, left:NOBORDER_D, right:NOBORDER_D, insideHorizontal:NOBORDER_D, insideVertical:NOBORDER_D },
+        rows: tableRows,
+      }));
+
+      // Small gap between the two half-avartanam tables of a 2-kalai line — kept
+      // noticeably tighter than the full blank row used between different lines,
+      // so the two halves still read as one continuous line rather than two
+      // separate ones, while no longer sitting flush against each other.
+      if(ri < numRows - 1){
+        rowsOut.push(dHalfRowSpacer());
+      }
+    }
+    return rowsOut;
+  }
+
+  function dBuildDocBody(song){
+    const cfg = TALAS[song.tala] || TALAS.adi;
+    const kalai = song.kalai || 1;
+    const talaLabel = cfg.kalaiAware ? `${cfg.label}${kalai===2?' (2 kalai)':''}` : cfg.label;
+    const body = [];
+
+    body.push(new Paragraph({ alignment: AlignmentType.CENTER, children:[drun(song.title||'Untitled Kriti', {bold:true, underline:true})] }));
+    body.push(dPlainPara(''));
+    body.push(dHalfRowSpacer());
+    body.push(dMetaLine('Raga', ragaDisplay(song)));
+    body.push(dPlainPara(''));
+    body.push(dMetaLine('Arohana', song.arohanam));
+    body.push(dMetaLine('Avarohana', song.avarohanam));
+    body.push(dPlainPara(''));
+    body.push(dMetaLine('Tala', talaLabel));
+    body.push(dMetaLine('Composer', song.composer));
+    body.push(dPlainPara(''));
+
+    song.sections.forEach(sec=>{
+      if(sec.noSahitya) return;
+      body.push(dSectionHeading(sec.name, false));
+      (sec.sahitya||'').split('\n').forEach(ln=>body.push(dPlainPara(ln)));
+      body.push(dPlainPara(''));
+    });
+
+    const derivedOpening = derivedPallaviOpening(song);
+
+    song.sections.forEach((sec, si)=>{
+      body.push(dSectionHeading(sec.name, true));
+      body.push(dPlainPara(''));
+      sec.lines.forEach(line=>{
+        dBuildLineTable(cfg, line, kalai, sec.noSahitya).forEach(t=>body.push(t));
+        body.push(dPlainPara(''));
+      });
+      if(si !== 0 && sec.showPallaviRef){
+        const text = sec.pallaviOverride && sec.pallaviOverride.trim() ? sec.pallaviOverride.trim() : derivedOpening;
+        if(text){
+          body.push(dPlainPara(`(${text})`, {bold:true}));
+          body.push(dPlainPara(''));
+        }
+      }
+    });
+
+    body.push(dPlainPara(''));
+    body.push(dPlainPara(''));
+    body.push(dPlainPara('**********', {center:true}));
+    return body;
+  }
+
+  try{
+    const doc = new Document({
+      sections: [{
+        properties: { page: { size:{width:20160,height:12240}, margin:{top:1008,bottom:720,left:1008,right:720} } },
+        children: dBuildDocBody(song),
+      }],
+    });
+    const blob = await Packer.toBlob(doc);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = (song.title || 'kriti').replace(/[\\/:*?"<>|]/g,'_') + '.docx';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 4000);
+    showToast('Downloaded .docx');
+  }catch(e){
+    console.error(e);
+    showToast('Could not generate .docx — see console for details');
+  }
+}
+
+/* ===================== Actions ===================== */
+function deleteSong(id){
+  if(!confirm('Delete this kriti from your library? This cannot be undone.')) return;
+  library = library.filter(s=>s.id!==id);
+  currentId = library.length ? library[0].id : null;
+  persist(); renderAll();
+  showToast('Deleted');
+}
+
+function copyForClaude(song){
+  const payload = Object.assign({}, song, {
+    derivedPallaviOpening: derivedPallaviOpening(song),
+    endMarker: true
+  });
+  const text = JSON.stringify(payload, null, 2);
+  navigator.clipboard.writeText(text).then(()=>{
+    showToast('Copied — paste this to Claude along with the source PDF to get your .docx');
+  }).catch(()=> showToast('Could not copy — select and copy manually'));
+}
+
+/* Populates the hidden print-only area with the same formatted document used
+   by the Preview modal, then invokes the browser's print dialog — so
+   "Print / Save as PDF" produces a clean document instead of the raw editing UI. */
+function printFormattedDocument(song){
+  const area = document.getElementById('printArea');
+  area.innerHTML = buildFullPreviewHTML(song);
+  window.print();
+}
+
+/* ===================== Boot ===================== */
+async function renderAll(){
+  renderSongList();
+  renderMain();
+}
+
+document.getElementById('newSongBtn').onclick = ()=>{
+  const s = newSong();
+  library.unshift(s);
+  currentId = s.id;
+  persist();
+  renderAll();
+};
+document.getElementById('searchBox').oninput = renderSongList;
+document.getElementById('closePreviewBtn').onclick = closePreview;
+document.getElementById('previewOverlay').addEventListener('click', e=>{
+  if(e.target.id === 'previewOverlay') closePreview();
+});
+document.addEventListener('keydown', e=>{
+  if(e.key === 'Escape') closePreview();
+});
+
+(async function init(){
+  await loadLibrary();
+  if(library.length) currentId = library[0].id;
+  renderAll();
+})();
+</script>
+</body>
+</html>
