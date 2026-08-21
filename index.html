@@ -22,6 +22,7 @@
     --good:#3b6d11;
     --warn:#b23a3a;
     --warn-deep:#8f2c2c;
+    --heading:#000000; /* app name, song title, section labels, card headings, preview modal title */
   }
   *{box-sizing:border-box;}
   body{
@@ -71,7 +72,7 @@
     position:sticky; top:0; height:100vh; overflow-y:auto;
   }
   .brand{ display:flex; flex-direction:column; gap:2px; padding:0 4px 10px; border-bottom:1px solid var(--line); margin-bottom:4px;}
-  .brand .mark{ font-family:'Inter',sans-serif; font-weight:600; font-size:26px; color:var(--maroon-deep); letter-spacing:.3px; }
+  .brand .mark{ font-family:'Inter',sans-serif; font-weight:600; font-size:26px; color:var(--heading); letter-spacing:.3px; }
   .brand .sub{ font-size:11px; text-transform:uppercase; letter-spacing:1.6px; color:var(--ink-soft); }
   .newbtn{
     display:flex; align-items:center; justify-content:center; gap:8px;
@@ -101,7 +102,7 @@
   .hero{
     display:flex; align-items:baseline; justify-content:space-between; gap:20px; margin-bottom:28px; flex-wrap:wrap;
   }
-  .hero h1{ font-family:'Inter',sans-serif; font-weight:600; font-size:34px; margin:0; color:var(--maroon-deep); }
+  .hero h1{ font-family:'Inter',sans-serif; font-weight:600; font-size:34px; margin:0; color:var(--heading); }
   .hero p{ margin:4px 0 0; color:var(--ink-soft); font-size:13.5px; }
 
   .placeholder{
@@ -117,7 +118,7 @@
   }
   .card h3{
     font-family:'Inter',sans-serif; font-size:19px; font-weight:600; margin:0 0 14px;
-    color:var(--maroon-deep); display:flex; align-items:center; gap:8px;
+    color:var(--heading); display:flex; align-items:center; gap:8px;
   }
   .field-grid{ display:grid; grid-template-columns:1fr 1fr; gap:14px; }
   @media (max-width:700px){ .field-grid{ grid-template-columns:1fr; } }
@@ -144,7 +145,7 @@
 
   .section-block{ border-top:1px solid var(--line); padding-top:16px; margin-top:16px; }
   .section-head{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; }
-  .section-head input{ font-family:'Inter',sans-serif; font-size:19px; font-weight:600; color:var(--maroon-deep); border:none; background:transparent; padding:2px 4px; }
+  .section-head input{ font-family:'Inter',sans-serif; font-size:19px; font-weight:600; color:var(--heading); border:none; background:transparent; padding:2px 4px; }
   .section-head input:focus{ outline:1px solid var(--gold); border-radius:5px; }
 
   .line-row{ margin-bottom:16px; padding:12px; background:var(--panel); border-radius:10px; border:1px solid var(--line); }
@@ -172,13 +173,26 @@
   .hint code{ background:var(--leaf-deep); padding:1px 5px; border-radius:4px; font-family:'Courier Prime',monospace; }
 
   .preview{
-    font-family:'Courier Prime',monospace; background:var(--ink); color:var(--leaf);
+    font-family:'Consolas','Courier Prime',monospace; background:var(--ink); color:var(--leaf);
     border-radius:10px; padding:16px 18px; font-size:14px; line-height:2; overflow-x:auto; margin-top:14px;
   }
-  .preview .p-swara{ color:#ececeb; font-weight:700; white-space:pre; }
-  .preview .p-swara .ul-sgl{ text-decoration:underline; text-decoration-color:#8484ff; text-decoration-thickness:2px; }
-  .preview .p-swara .ul-dbl{ text-decoration:underline; text-decoration-style:double; text-decoration-color:#8484ff; text-decoration-thickness:2px; }
-  .preview .p-lyric{ color:#a8acbf; white-space:pre; font-size:12.5px; }
+  /* ---------- Notation grid tables (shared by live preview and the full
+     Preview modal — mirrors the .docx export's real table structure:
+     fixed per-cell widths, an explicit divider cell, Consolas font. ---------- */
+  .grid-table-dark, .grid-table-doc{ border-collapse:collapse; table-layout:fixed; font-family:'Consolas','Courier Prime',monospace; }
+  .grid-table-dark{ margin:2px 0; }
+  .grid-table-doc{ margin:1px 0; }
+  .grid-table-dark td, .grid-table-doc td{ padding:0 1px; vertical-align:middle; white-space:pre-wrap; overflow-wrap:break-word; }
+  .grid-table-dark .grid-label-cell, .grid-table-doc .grid-label-cell{ font-weight:700; }
+  .grid-table-dark .grid-div-cell, .grid-table-doc .grid-div-cell{ text-align:center; font-weight:700; }
+  .grid-table-dark .swara-row td{ color:#ececeb; font-weight:700; font-size:14px; }
+  .grid-table-dark .lyric-row td{ color:#a8acbf; font-size:12.5px; font-weight:400; }
+  .grid-table-doc .swara-row td{ color:#111; font-weight:700; font-size:12.5px; }
+  .grid-table-doc .lyric-row td{ color:#444; font-size:11px; font-weight:400; }
+  .grid-table-dark .swara-row .ul-sgl, .grid-table-dark .swara-row .ul-dbl{ text-decoration-color:#8484ff; text-decoration-thickness:2px; }
+  .grid-table-dark .swara-row .ul-sgl, .grid-table-doc .swara-row .ul-sgl{ text-decoration:underline; }
+  .grid-table-dark .swara-row .ul-dbl, .grid-table-doc .swara-row .ul-dbl{ text-decoration:underline; text-decoration-style:double; }
+  .grid-half-gap{ height:6px; }
 
   .toast{
     position:fixed; bottom:22px; left:50%; transform:translateX(-50%) translateY(20px);
@@ -203,32 +217,18 @@
     padding:18px 26px; border-bottom:1px solid var(--line); background:var(--panel);
     display:flex; align-items:center; gap:14px; flex-wrap:wrap;
   }
-  .preview-modal-title{ font-family:'Inter',sans-serif; font-weight:600; font-size:20px; color:var(--maroon-deep); }
+  .preview-modal-title{ font-family:'Inter',sans-serif; font-weight:600; font-size:20px; color:var(--heading); }
   .preview-modal-sub{ font-size:12px; color:var(--ink-soft); flex:1; }
   .preview-modal-body{ padding:30px 36px 50px; overflow-x:auto; }
 
-  .doc-title{ font-family:'Courier Prime',monospace; font-weight:700; text-decoration:underline; text-align:center; font-size:15px; color:#111; }
-  .doc-meta{ font-family:'Courier Prime',monospace; font-size:13.5px; color:#111; }
+  .doc-title{ font-family:'Consolas','Courier Prime',monospace; font-weight:700; text-decoration:underline; text-align:center; font-size:15px; color:#111; }
+  .doc-meta{ font-family:'Consolas','Courier Prime',monospace; font-size:13.5px; color:#111; }
   .doc-meta b{ font-weight:700; }
   .doc-blank{ height:16px; }
-  .doc-heading{ font-family:'Courier Prime',monospace; font-weight:700; text-decoration:underline; font-size:13.5px; color:#111; }
-  .doc-lyric-line{ font-family:'Courier Prime',monospace; font-size:13px; color:#222; }
-  .doc-swara{ font-family:'Courier Prime',monospace; font-size:12.5px; font-weight:700; color:#111; white-space:pre; }
-  .doc-swara .ul-sgl{ text-decoration:underline; }
-  .doc-swara .ul-dbl{ text-decoration:underline; text-decoration-style:double; }
-  .doc-lyric{ font-family:'Courier Prime',monospace; font-size:11px; color:#444; white-space:pre; margin-bottom:6px; }
-  .doc-refnote{ font-family:'Courier Prime',monospace; font-weight:700; font-size:13px; color:#111; }
-  .doc-end{ font-family:'Courier Prime',monospace; text-align:center; font-size:13px; color:#111; }
-
-  /* ---------- Print ---------- */
-  #printArea{ display:none; }
-  @media print{
-    @page{ margin:0.5in; }
-    body{ background:#fff !important; }
-    .app, .toast, .preview-overlay{ display:none !important; }
-    #printArea{ display:block !important; background:#fff; }
-    #printArea .doc-blank{ height:14px; }
-  }
+  .doc-heading{ font-family:'Consolas','Courier Prime',monospace; font-weight:700; text-decoration:underline; font-size:13.5px; color:#111; }
+  .doc-lyric-line{ font-family:'Consolas','Courier Prime',monospace; font-size:13px; color:#222; }
+  .doc-refnote{ font-family:'Consolas','Courier Prime',monospace; font-weight:700; font-size:13px; color:#111; }
+  .doc-end{ font-family:'Consolas','Courier Prime',monospace; text-align:center; font-size:13px; color:#111; }
 </style>
 </head>
 <body>
@@ -246,7 +246,6 @@
   <main class="main" id="main"></main>
 </div>
 <div class="toast" id="toast"></div>
-<div id="printArea"></div>
 
 <div class="preview-overlay" id="previewOverlay">
   <div class="preview-modal">
@@ -451,6 +450,43 @@ function forceCaseLive(inp, mode){
   return inp.value;
 }
 
+/* Shared filter-while-typing helper: applies a case transform, then strips any
+   character not in `allowed`, adjusting the cursor position by however many
+   characters were removed ahead of it (so typing stays smooth instead of the
+   caret jumping to the end). Used for both swara and per-cell sahitya inputs. */
+function filterCaseLive(inp, mode, allowed){
+  const start = inp.selectionStart, end = inp.selectionEnd;
+  const cased = mode === 'upper' ? inp.value.toUpperCase() : inp.value.toLowerCase();
+  let filtered = '', removedBeforeStart = 0, removedBeforeEnd = 0;
+  for(let i = 0; i < cased.length; i++){
+    const ch = cased[i];
+    if(allowed.test(ch)){
+      filtered += ch;
+    } else {
+      if(i < start) removedBeforeStart++;
+      if(i < end) removedBeforeEnd++;
+    }
+  }
+  if(filtered !== inp.value){
+    inp.value = filtered;
+    inp.setSelectionRange(Math.max(0, start - removedBeforeStart), Math.max(0, end - removedBeforeEnd));
+  }
+  return inp.value;
+}
+/* Swara cells: only the 7 swara letters S R G M P D N (lowercase auto-capitalized,
+   same as before), plus "*" (speed markup), ";", "," (symbols), "'" and "."
+   (octave marks), and space (used e.g. to visually group an underlined run into
+   syllable-pairs, per the notation convention). Everything else is blocked. */
+const SWARA_ALLOWED = /[SRGMPDN*;,'. ]/;
+function sanitizeSwaraLive(inp){ return filterCaseLive(inp, 'upper', SWARA_ALLOWED); }
+/* Per-cell sahitya (aligned lyric) inputs: letters unrestricted (any, lowercased
+   as before), plus only "-" and "." as symbols, and space (needed for splitting
+   into aligned syllables). Everything else — digits, other punctuation — blocked.
+   Note: this does NOT apply to the free-text "Sahitya (plain lyrics)" textarea,
+   which still allows normal prose punctuation. */
+const LYRIC_CELL_ALLOWED = /[a-z\-. ]/;
+function sanitizeLyricCellLive(inp){ return filterCaseLive(inp, 'lower', LYRIC_CELL_ALLOWED); }
+
 /* Custom keyboard navigation for a physical row's cells:
    - Tab: all swara cells left-to-right, then all lyric cells left-to-right.
      At the very end of lyrics, Tab falls through to native flow (leaves the row).
@@ -597,30 +633,95 @@ function parseSwaraMarkup(raw){
 }
 
 /* ---------- Syllable-to-swara alignment (Option B) ----------
-   Tokenizes a cell's swara text into individual display tokens (letters incl.
-   octave marks, commas, semicolons), each carrying its underline level.
-   Sahitya is split on whitespace into one syllable per token, left to right. */
+   Tokenizes a cell's swara text into an ordered list of alignment "items",
+   each carrying a .display string and .underline level. Outside any
+   underline, this is unchanged: every letter/,/; is its own item (1 note =
+   1 syllable), exactly as before.
+
+   Inside a *...* or **...** span, a space (which the swara display itself
+   has always silently ignored — 0 printed spacing inside underline, per the
+   spacing rules) now doubles as an explicit "syllable group" boundary marker
+   for the SAHITYA aligner only:
+     - No space anywhere in that underline span -> legacy behavior, every
+       note in it is still its own item (1 note = 1 syllable), unchanged.
+     - At least one space somewhere in that span -> grouping mode for that
+       span only: notes with no space between them merge into one item
+       (one syllable spans however many notes are in the group); a space
+       marks where one group ends and the next begins.
+   A fully-spaced-out run (space before every note) lands on the same
+   1-note-1-group result as the no-space case, so there's no conflict
+   between the two rules. The printed swara text is completely unaffected
+   either way — grouping only changes how sahitya syllables line up. */
+/* Tokenizes a cell's swara text into an ordered list of alignment "items",
+   each carrying .display and .underline. Outside underline, unchanged: every
+   letter/,/; is its own item (1 note = 1 syllable). Inside an underlined
+   span (single or double):
+     - No space anywhere in that span -> legacy: every note its own item.
+     - At least one space -> grouping mode: notes with no space between them
+       merge into one item; a space marks where one group ends and the next
+       begins.
+   Each group item now also carries .gapBefore — the exact number of literal
+   space characters that were typed right before it (only meaningful between
+   two groups of the SAME underline span). This lets buildAlignedColumns tell
+   "1 space, just marking the group boundary" (0 visible gap, as always)
+   apart from "2+ spaces, an explicit visual gap request" (visible gap of
+   count-1), per the confirmed rule: 1 space is purely structural, anything
+   beyond that is a deliberate formatting choice that should show up in the
+   Word file. */
 function tokenizeSwaraForAlign(raw){
   if(!raw) return [];
   const markupRe = /\*\*(.+?)\*\*|\*(.+?)\*/g;
   const tokenRe = /[A-Za-z][\'\.]?|,|;/g;
-  const tokens = [];
-  let last = 0, m;
-  function pushSeg(text, underline){
+  const items = [];
+
+  function makeItem(toks, underline, gapBefore){
+    return { display: toks.map(t=>t.display).join(''), underline, gapBefore: gapBefore || 0 };
+  }
+  function pushPlain(text){
     tokenRe.lastIndex = 0;
     let tm;
     while((tm = tokenRe.exec(text)) !== null){
-      tokens.push({ display: octaveDisplay(tm[0]), underline });
+      items.push(makeItem([{ display: octaveDisplay(tm[0]) }], 0, 0));
     }
   }
+  function pushUnderlined(text, underline){
+    tokenRe.lastIndex = 0;
+    const matches = [...text.matchAll(tokenRe)];
+    if(!matches.length) return;
+    const raw2 = matches.map((tm, idx) => {
+      let gapLen = 0;
+      if(idx > 0){
+        const prevEnd = matches[idx-1].index + matches[idx-1][0].length;
+        gapLen = (text.slice(prevEnd, tm.index).match(/ /g) || []).length;
+      }
+      return { display: octaveDisplay(tm[0]), gapLen };
+    });
+    const hasAnyBreak = raw2.some(t => t.gapLen > 0);
+    if(hasAnyBreak){
+      let cur = [];
+      let curGapBefore = 0; // gap that led INTO the group currently being built
+      raw2.forEach(t=>{
+        if(t.gapLen > 0 && cur.length){
+          items.push(makeItem(cur, underline, curGapBefore));
+          cur = [];
+          curGapBefore = t.gapLen;
+        }
+        cur.push(t);
+      });
+      if(cur.length) items.push(makeItem(cur, underline, curGapBefore));
+    } else {
+      raw2.forEach(t => items.push(makeItem([t], underline, 0)));
+    }
+  }
+  let last = 0, m;
   while((m = markupRe.exec(raw)) !== null){
-    if(m.index > last) pushSeg(raw.slice(last, m.index), 0);
-    if(m[1] !== undefined) pushSeg(m[1], 2);
-    else pushSeg(m[2], 1);
+    if(m.index > last) pushPlain(raw.slice(last, m.index));
+    if(m[1] !== undefined) pushUnderlined(m[1], 2);
+    else pushUnderlined(m[2], 1);
     last = markupRe.lastIndex;
   }
-  if(last < raw.length) pushSeg(raw.slice(last), 0);
-  return tokens;
+  if(last < raw.length) pushPlain(raw.slice(last));
+  return items;
 }
 
 /* Builds column-aligned {swaraCols, lyricCols, mismatch}. Column width is
@@ -632,6 +733,23 @@ function tokenizeSwaraForAlign(raw){
    syllable is still shown in full (never truncated) via padEnd's natural
    behavior of leaving a string unchanged once it's already >= the target
    width — it just isn't allowed to stretch the shared column width itself. */
+/* Column-aligns swara tokens against space-separated sahitya syllables.
+   For every boundary between token i and token i+1, ONE shared "gap" (a
+   literal space count) is computed and applied identically to both the
+   swara and sahitya lines, so they're always built on the same ruler:
+     - no next token (last in the cell)              -> 0
+     - both tokens inside a speed-group               -> 0, UNLESS the user
+       typed 2+ literal spaces at that exact group boundary, in which case
+       the gap is (typed count - 1) — 1 space is just the grouping marker,
+       anything beyond that is a deliberate visible-gap request
+     - crossing into/out of a speed-group             -> 1 (fixed, overrides
+       everything else, same as before)
+     - both plain, left is a swara letter              -> 2
+     - both plain, left is ',' or ';'                  -> 1
+   Neither line is ever truncated: a syllable longer than its token (or vice
+   versa) simply occupies more character positions — nothing pads or clips
+   it to a fixed column width. Gap size depends only on the swara tokens,
+   never on syllable length. */
 function buildAlignedColumns(rawSwara, rawLyric){
   const tokens = tokenizeSwaraForAlign(rawSwara);
   const syllables = (rawLyric||'').trim() ? rawLyric.trim().split(/\s+/) : [];
@@ -639,19 +757,38 @@ function buildAlignedColumns(rawSwara, rawLyric){
   const swaraCols = [], lyricCols = [];
   for(let i=0;i<n;i++){
     const tok = tokens[i];
+    const nextTok = tokens[i+1];
     const tokDisplay = tok ? tok.display : '';
     const syl = syllables[i] || '';
     const underline = tok ? tok.underline : 0;
-    const base = Math.max(tokDisplay.length, 1);
-    let w;
-    if(underline){
-      w = base; // no spacing at all inside a speed group — tight packing
+
+    let gap;
+    if(!tok || !nextTok){
+      gap = 0;
+    } else if(underline && nextTok.underline){
+      const typed = nextTok.gapBefore || 0;
+      gap = typed >= 2 ? typed - 1 : 0;
+    } else if(!!underline !== !!nextTok.underline){
+      gap = 1;
     } else {
       const isPunct = tokDisplay === ',' || tokDisplay === ';';
-      w = base + (isPunct ? 1 : 2); // matches the confirmed rule exactly
+      gap = isPunct ? 1 : 2;
     }
-    swaraCols.push({ text: tokDisplay.padEnd(w), underline });
-    lyricCols.push(syl.padEnd(w));
+
+    // Pad whichever of {swara-group text, sahitya syllable} is shorter up to
+    // match the longer one's length, with purely invisible trailing space,
+    // BEFORE the deliberate `gap` spacing is added. This guarantees the next
+    // item starts at the same character column on both lines, regardless of
+    // which side is longer — fixes "de" landing under "N" instead of "PN"
+    // when the syllable (van/de) is longer than its swara group (PG/PN).
+    // Never adds a visible gap you didn't type; only ever fills in the
+    // length difference that already exists between the two.
+    const core = Math.max(tokDisplay.length, syl.length, 1);
+    const swaraCore = tok ? tokDisplay.padEnd(core) : tokDisplay;
+    const lyricCore = syl.padEnd(core);
+
+    swaraCols.push({ text: swaraCore + ' '.repeat(gap), underline });
+    lyricCols.push(lyricCore + ' '.repeat(gap));
   }
   return { swaraCols, lyricCols, tokenCount: tokens.length, syllableCount: syllables.length, mismatch: tokens.length !== syllables.length };
 }
@@ -695,7 +832,6 @@ function renderMain(){
       <button class="btn primary" id="downloadDocxBtn">⬇ Download Word (.docx)</button>
       <button class="btn" id="saveBtn">💾 Save now</button>
       <button class="btn" id="copyDataBtn">📋 Copy data for Claude (→ .docx)</button>
-      <button class="btn" id="printBtn">🖨️ Print / Save as PDF</button>
       <button class="btn danger" id="deleteBtn">🗑️ Delete kriti</button>
     </div>
 
@@ -751,7 +887,6 @@ function renderMain(){
   document.getElementById('previewBtn').onclick = openPreview;
   document.getElementById('downloadDocxBtn').onclick = ()=>downloadDocxFile(song);
   document.getElementById('copyDataBtn').onclick = ()=>copyForClaude(song);
-  document.getElementById('printBtn').onclick = ()=>printFormattedDocument(song);
   document.getElementById('deleteBtn').onclick = ()=>deleteSong(song.id);
   document.getElementById('addSectionBtn').onclick = ()=>{
     song.sections.push(blankSection('New Section', TALAS[song.tala], song.kalai, false));
@@ -913,7 +1048,7 @@ function renderLines(host, sec, cfg, kalai){
     host.appendChild(row);
 
     const labelInput = row.querySelector('.label');
-    labelInput.oninput = e=>{ line.label = e.target.value; queueSave(); updatePreview(row, line, noSahitya); };
+    labelInput.oninput = e=>{ line.label = e.target.value; queueSave(); updatePreview(row, line, noSahitya, cfg, kalai); };
     row.querySelector('[data-act="dup"]').onclick = ()=>{
       sec.lines.splice(li+1, 0, JSON.parse(JSON.stringify(line))); queueSave(); renderSections();
     };
@@ -934,10 +1069,10 @@ function renderLines(host, sec, cfg, kalai){
         updateAksharaBadge(cellDiv, r.swara[i], cap);
         if(!noSahitya) updateAlignBadge(cellDiv, r.swara[i], r.lyric[i]);
         inp.oninput = e=>{
-          r.swara[i] = forceCaseLive(inp, 'upper');
+          r.swara[i] = sanitizeSwaraLive(inp);
           updateAksharaBadge(cellDiv, r.swara[i], cap);
           if(!noSahitya) updateAlignBadge(cellDiv, r.swara[i], r.lyric[i]);
-          queueSave(); updatePreview(row, line, noSahitya);
+          queueSave(); updatePreview(row, line, noSahitya, cfg, kalai);
         };
       });
       lyricInputs.forEach((inp,i)=>{
@@ -945,73 +1080,88 @@ function renderLines(host, sec, cfg, kalai){
         inp.value = r.lyric[i];
         const cellDiv = inp.closest('.beat-cell');
         inp.oninput = e=>{
-          r.lyric[i] = forceCaseLive(inp, 'lower');
+          r.lyric[i] = sanitizeLyricCellLive(inp);
           updateAlignBadge(cellDiv, r.swara[i], r.lyric[i]);
-          queueSave(); updatePreview(row, line, noSahitya);
+          queueSave(); updatePreview(row, line, noSahitya, cfg, kalai);
         };
       });
       wireCellNavigation(swaraInputs, lyricInputs);
     });
 
-    updatePreview(row, line, noSahitya);
+    updatePreview(row, line, noSahitya, cfg, kalai);
   });
 }
 
-/* Renders one cell's swara/lyric as column-aligned HTML/text using buildAlignedColumns. */
-function renderAlignedCell(rawSwara, rawLyric){
-  const { swaraCols, lyricCols } = buildAlignedColumns(rawSwara, rawLyric);
-  if(!swaraCols.length) return { swaraHtml: ' ', lyricText: ' ' };
-  let swaraHtml = '';
-  swaraCols.forEach((c,ci)=>{
-    if(ci > 0){
-      const prevU = swaraCols[ci-1].underline;
-      // Each token's own text already carries its full trailing gap (2 after a
-      // plain letter, 1 after , or ; , 0 inside a same-speed underline group) —
-      // baked in via padEnd in buildAlignedColumns. Adding another space here
-      // would double it. The ONLY case needing an explicit space is the boundary
-      // where we enter or leave an underlined speed-group, since both sides pad
-      // to 0 there and would otherwise glue together.
-      if((prevU && !c.underline) || (!prevU && c.underline)) swaraHtml += ' ';
-    }
-    const esc = escapeHtml(c.text);
-    if(c.underline === 1) swaraHtml += `<span class="ul-sgl">${esc}</span>`;
-    else if(c.underline === 2) swaraHtml += `<span class="ul-dbl">${esc}</span>`;
-    else swaraHtml += esc;
-  });
-  const lyricText = lyricCols.join(' ') || ' ';
-  return { swaraHtml, lyricText };
+/* Builds one physical row's notation grid as a real HTML <table> — mirroring
+   dBuildLineTable's structure exactly (same fixed per-cell widths, same
+   divider placement, same character-spacing stretch), just in pt instead of
+   dxa. This is the single renderer shared by the mini live preview and the
+   full Preview modal — so neither can ever again drift from what the actual
+   .docx export produces. tableClass picks the color theme ('grid-table-dark'
+   for the in-editor live preview, 'grid-table-doc'
+   for the full preview/print, which are on light backgrounds). */
+function buildGridRowsHTML(cfg, line, kalai, noSahitya, tableClass){
+  const numRows = numRowsForLine(cfg, kalai);
+  let out = '';
+  for(let ri=0; ri<numRows; ri++){
+    const r = line.rows[ri] || { swara:[], lyric:[] };
+    const edgeLeft = ri===0, edgeRight = ri===numRows-1;
+    const colWidths = [GRID_LABEL_W];
+    let swaraRow = `<td class="grid-label-cell">${ri===0 && line.label ? escapeHtml(line.label) : ''}</td>`;
+    let lyricRow = `<td class="grid-label-cell"></td>`;
+
+    cfg.rowCells.forEach((cap, i)=>{
+      const { swaraCols, lyricCols } = buildAlignedColumns(r.swara[i]||'', noSahitya ? '' : (r.lyric[i]||''));
+      const isEdgeL = edgeLeft && i===0;
+      const isEdgeR = edgeRight && i===cfg.rowCells.length-1;
+      const width = cap * GRID_CELL_UNIT;
+      const contentLen = swaraCols.reduce((a,c)=>a + c.text.length, 0);
+      const spacing = computeCellSpacing(contentLen, width);
+      const spacingCss = spacing ? `letter-spacing:${dxaToPt(spacing)}pt;` : '';
+
+      let swaraHtml = '';
+      swaraCols.forEach(c=>{
+        const esc = escapeHtml(c.text);
+        if(c.underline===1) swaraHtml += `<span class="ul-sgl">${esc}</span>`;
+        else if(c.underline===2) swaraHtml += `<span class="ul-dbl">${esc}</span>`;
+        else swaraHtml += esc;
+      });
+      if(isEdgeL) swaraHtml = escapeHtml(GRID_EDGE + ' ') + swaraHtml;
+      if(isEdgeR) swaraHtml = swaraHtml + escapeHtml(GRID_EDGE);
+      colWidths.push(width);
+      swaraRow += `<td class="grid-beat-cell" style="width:${dxaToPt(width)}pt;${spacingCss}">${swaraHtml || '&nbsp;'}</td>`;
+
+      if(!noSahitya){
+        let lyricText = lyricCols.join('');
+        if(isEdgeL) lyricText = '  ' + lyricText;
+        if(isEdgeR) lyricText = lyricText + '  ';
+        lyricRow += `<td class="grid-beat-cell" style="width:${dxaToPt(width)}pt;${spacingCss}">${lyricText.trim() ? escapeHtml(lyricText) : '&nbsp;'}</td>`;
+      }
+
+      if(i === cfg.dividerAfter && i !== cfg.rowCells.length-1){
+        colWidths.push(GRID_DIV_W);
+        const glyph = cfg.dividerType === 'pipe' ? GRID_PIPE_DIV : GRID_AVART_DIV;
+        swaraRow += `<td class="grid-div-cell" style="width:${dxaToPt(GRID_DIV_W)}pt;">${escapeHtml(glyph)}</td>`;
+        if(!noSahitya) lyricRow += `<td class="grid-div-cell" style="width:${dxaToPt(GRID_DIV_W)}pt;"></td>`;
+      }
+    });
+
+    out += `<table class="${tableClass}"><colgroup>${colWidths.map(w=>`<col style="width:${dxaToPt(w)}pt;">`).join('')}</colgroup>`
+         + `<tr class="swara-row">${swaraRow}</tr>`
+         + (noSahitya ? '' : `<tr class="lyric-row">${lyricRow}</tr>`)
+         + `</table>`;
+
+    // Small gap between the two half-avartanam tables of a 2-kalai line —
+    // matches dHalfRowSpacer's intent: noticeably tighter than the gap
+    // between different lines, so the two halves still read as one line.
+    if(ri < numRows - 1) out += `<div class="grid-half-gap"></div>`;
+  }
+  return out;
 }
 
-/* The edge "‖" marks bracket the whole row (first cell's left side, last cell's
-   right side). Since swara and lyric are separately-flowed text lines sharing
-   the same column positions, the lyric line needs an equal-width blank
-   placeholder wherever the swara line has a "‖ " so tokens keep lining up. */
-const EDGE_MARK = '\u2551';
-function applyRowEdgeMarks(rendered, idx, total){
-  let { swaraHtml, lyricText } = rendered;
-  if(idx === 0){
-    swaraHtml = escapeHtml(EDGE_MARK + ' ') + swaraHtml;
-    lyricText = '  ' + lyricText;
-  }
-  if(idx === total - 1){
-    swaraHtml = swaraHtml + escapeHtml(EDGE_MARK);
-    lyricText = lyricText + '  ';
-  }
-  return { swaraHtml, lyricText };
-}
-
-function updatePreview(rowEl, line, noSahitya){
+function updatePreview(rowEl, line, noSahitya, cfg, kalai){
   const prev = rowEl.querySelector('.preview');
-  const labelPad = ' '.repeat((line.label||'').length);
-  const html = line.rows.map(r=>{
-    const rendered = r.swara.map((s,i)=> applyRowEdgeMarks(renderAlignedCell(s, noSahitya ? '' : r.lyric[i]), i, r.swara.length));
-    const swaraParts = rendered.map(c=>c.swaraHtml);
-    const swaraLine = `<div class="p-swara">${line.label?escapeHtml(line.label)+'  ':''}${swaraParts.join('  ')}</div>`;
-    if(noSahitya) return swaraLine;
-    const lyricParts = rendered.map(c=>escapeHtml(c.lyricText));
-    return swaraLine + `<div class="p-lyric">${labelPad}${lyricParts.join('  ')}</div>`;
-  }).join('');
-  prev.innerHTML = html;
+  prev.innerHTML = buildGridRowsHTML(cfg, line, kalai, noSahitya, 'grid-table-dark');
 }
 
 /* ===================== Full-document Preview ===================== */
@@ -1048,16 +1198,8 @@ function buildFullPreviewHTML(song){
     h += `<div class="doc-heading">${escapeHtml(sec.name)}:</div>`;
     h += `<div class="doc-blank"></div>`;
     sec.lines.forEach(line=>{
-      const labelPad = ' '.repeat((line.label||'').length);
-      line.rows.forEach(r=>{
-        const rendered = r.swara.map((s,i)=> applyRowEdgeMarks(renderAlignedCell(s, sec.noSahitya ? '' : r.lyric[i]), i, r.swara.length));
-        const swaraParts = rendered.map(c=>c.swaraHtml);
-        h += `<div class="doc-swara">${line.label?escapeHtml(line.label)+'  ':''}${swaraParts.join('  ')}</div>`;
-        if(!sec.noSahitya){
-          const lyricParts = rendered.map(c=>escapeHtml(c.lyricText));
-          h += `<div class="doc-lyric">${labelPad}${lyricParts.join('  ')}</div>`;
-        }
-      });
+      h += buildGridRowsHTML(cfg, line, kalai, sec.noSahitya, 'grid-table-doc');
+      h += `<div class="doc-blank"></div>`;
     });
     h += `<div class="doc-blank"></div>`;
     if(si !== 0 && sec.showPallaviRef){
@@ -1096,6 +1238,35 @@ function ensureDocxLib(){
   return window.docx;
 }
 
+/* ===================== Shared grid layout constants ===================== */
+/* Single source of truth for the notation grid's physical layout — used
+   identically by the docx exporter AND the HTML preview/print renderer, so
+   the two can never silently drift apart (that drift was the root cause of
+   the missing-divider / wrong-width bug). All widths are in dxa (twips,
+   1/20 pt) to match Word's native unit; the HTML renderer converts to pt
+   (dxa/20) for CSS, which is a lossless, exact conversion. */
+const GRID_FONT = 'Consolas';
+const GRID_SZ = 20; // 10pt, in half-points (Word's TextRun.size unit)
+const SHEET_SZ = 22; // 11pt
+const GRID_EDGE = '\u2551', GRID_AVART_DIV = '\u2551', GRID_PIPE_DIV = '|';
+const GRID_LABEL_W = 567, GRID_DIV_W = 389;
+const GRID_CELL_UNIT = 470; // dxa per akshara of cell capacity — content-independent
+/* Point 3: per-cell character spacing, so a tight/underlined cell (few
+   characters) doesn't look empty next to a fixed-width box sized for the
+   tala's full capacity. Word's "Expanded" character spacing (and CSS
+   letter-spacing, its exact visual equivalent) adds space after every glyph
+   without inserting real space characters, so it can't affect the tokenizer,
+   spacing rules, or alignment — purely cosmetic stretch to fill the box. */
+const GRID_CHAR_WIDTH_TWIPS = 120; // ~0.6em advance width for Consolas at 10pt
+const GRID_MAX_CHAR_SPACING_TWIPS = 60;
+function computeCellSpacing(contentLen, targetWidthTwips){
+  if(contentLen <= 0) return 0;
+  const naturalWidth = contentLen * GRID_CHAR_WIDTH_TWIPS;
+  const extra = (targetWidthTwips - naturalWidth) / contentLen;
+  return Math.max(0, Math.min(GRID_MAX_CHAR_SPACING_TWIPS, Math.round(extra)));
+}
+const dxaToPt = dxa => dxa / 20;
+
 async function downloadDocxFile(song){
   const lib = ensureDocxLib();
   if(!lib) return;
@@ -1104,10 +1275,10 @@ async function downloadDocxFile(song){
     WidthType, AlignmentType, BorderStyle, VerticalAlign, UnderlineType, TableLayoutType
   } = lib;
 
-  const FONT_D = 'Consolas';
-  const SZ_D = 22, GRID_SZ_D = 20; // 11pt sheet text, 10pt grid (Legal-length landscape page)
-  const EDGE_D = '\u2551', AVART_DIV_D = '\u2551', PIPE_DIV_D = '|';
-  const LABEL_W_D = 567, DIV_W_D = 389;
+  const FONT_D = GRID_FONT;
+  const SZ_D = SHEET_SZ, GRID_SZ_D = GRID_SZ;
+  const EDGE_D = GRID_EDGE, AVART_DIV_D = GRID_AVART_DIV, PIPE_DIV_D = GRID_PIPE_DIV;
+  const LABEL_W_D = GRID_LABEL_W, DIV_W_D = GRID_DIV_W;
 
   function underlineProp(level){
     if(level === 1) return { type: UnderlineType.SINGLE };
@@ -1119,8 +1290,12 @@ async function downloadDocxFile(song){
       text, font: FONT_D, size: opts.size || SZ_D, bold: !!opts.bold,
       underline: opts.underline ? {} : (opts.underlineLevel ? underlineProp(opts.underlineLevel) : undefined),
       color: '000000',
+      characterSpacing: opts.spacing || undefined,
     });
   }
+  /* Point 3: per-cell character spacing — uses the shared computeCellSpacing
+     defined at top level, so this can never drift from the preview/print
+     renderer's own use of the exact same function. */
   function dPlainPara(text, opts={}){
     return new Paragraph({
       alignment: opts.center ? AlignmentType.CENTER : undefined,
@@ -1162,7 +1337,8 @@ async function downloadDocxFile(song){
     // so every table for a given tala is exactly the same width throughout the
     // whole document (matches the reference template; content only ever affects
     // spacing within a cell, never the cell's box size).
-    const CELL_UNIT_D = 470; // scaled from 423 (9pt-tuned) by 20/18 for the 10pt grid
+    // Uses the shared GRID_CELL_UNIT constant (defined at top level) so this
+    // can never drift from the preview/print renderer's own cell widths.
     for(let ri=0; ri<numRows; ri++){
       const r = line.rows[ri] || { swara:[], lyric:[] };
       const swaraCells=[], lyricCells=[], cellWidths=[];
@@ -1175,28 +1351,27 @@ async function downloadDocxFile(song){
         const { swaraCols, lyricCols } = buildAlignedColumns(r.swara[i]||'', noSahitya ? '' : (r.lyric[i]||''));
         const isEdgeL = edgeLeft && i===0;
         const isEdgeR = edgeRight && i===cfg.rowCells.length-1;
+        const width = cap * GRID_CELL_UNIT;
+        const contentLen = swaraCols.reduce((a,c)=>a + c.text.length, 0);
+        const spacing = computeCellSpacing(contentLen, width);
         const children = [];
-        swaraCols.forEach((c,ci)=>{
-          if(ci > 0){
-            const prevU = swaraCols[ci-1].underline;
-            // Same rule as the on-screen preview: each token's own text already
-            // carries its full trailing gap, so only an underline-group boundary
-            // (entering/leaving) needs an explicit single space here.
-            if((prevU && !c.underline) || (!prevU && c.underline)){
-              children.push(drun(' ', {size:GRID_SZ_D}));
-            }
-          }
-          children.push(drun(c.text, {underlineLevel:c.underline, size:GRID_SZ_D}));
+        // Each token's text already carries its full, correctly-computed
+        // trailing gap (baked in by buildAlignedColumns) — direct
+        // concatenation, no extra boundary space needed or added here.
+        swaraCols.forEach(c=>{
+          children.push(drun(c.text, {underlineLevel:c.underline, size:GRID_SZ_D, spacing}));
         });
         if(isEdgeL) children.unshift(drun(EDGE_D+' ', {size:GRID_SZ_D}));
         if(isEdgeR) children.push(drun(EDGE_D, {size:GRID_SZ_D}));
-        const width = cap * CELL_UNIT_D;
         swaraCells.push(dCell([dBeatPara(children)], width));
         if(!noSahitya){
-          let lyricText = lyricCols.join(' ');
+          // Direct concatenation (not join(' ')) — each lyric column now
+          // carries the exact same gap as its corresponding swara column,
+          // so an extra separator space here would break that mirroring.
+          let lyricText = lyricCols.join('');
           if(isEdgeL) lyricText = '  ' + lyricText;
           if(isEdgeR) lyricText = lyricText + '  ';
-          lyricCells.push(dCell([dBeatPara(lyricText.trim() ? [drun(lyricText,{size:GRID_SZ_D})] : [])], width));
+          lyricCells.push(dCell([dBeatPara(lyricText.trim() ? [drun(lyricText,{size:GRID_SZ_D, spacing})] : [])], width));
         }
         cellWidths.push(width);
         if(i === cfg.dividerAfter && i !== cfg.rowCells.length-1){
@@ -1318,15 +1493,6 @@ function copyForClaude(song){
   navigator.clipboard.writeText(text).then(()=>{
     showToast('Copied — paste this to Claude along with the source PDF to get your .docx');
   }).catch(()=> showToast('Could not copy — select and copy manually'));
-}
-
-/* Populates the hidden print-only area with the same formatted document used
-   by the Preview modal, then invokes the browser's print dialog — so
-   "Print / Save as PDF" produces a clean document instead of the raw editing UI. */
-function printFormattedDocument(song){
-  const area = document.getElementById('printArea');
-  area.innerHTML = buildFullPreviewHTML(song);
-  window.print();
 }
 
 /* ===================== Boot ===================== */
