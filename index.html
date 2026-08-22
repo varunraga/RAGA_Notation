@@ -239,7 +239,8 @@
       <div class="mark">Kriti Notation Studio</div>
       <div class="sub">your permanent swara library</div>
     </div>
-    <button class="newbtn" id="syncBtn" style="margin-bottom:8px;">🔄 Sync</button>
+    <button class="newbtn" id="syncBtn" style="margin-bottom:2px;">🔄 Sync</button>
+    <div class="sub" id="syncStatus" style="margin-bottom:8px;min-height:14px;"></div>
     <button class="newbtn" id="newSongBtn">+ New Kriti</button>
     <input class="search" id="searchBox" type="text" placeholder="Search by title or raga…">
     <div class="song-list" id="songList"></div>
@@ -304,19 +305,62 @@ let currentId = null;
    The access token is kept in memory only (a module variable, never written to
    localStorage/cookies) since it's short-lived (~1hr) and GIS re-issues it as
    needed from a user gesture.
-   Step 2 adds: finding or creating the single "Kriti Notation Studio" Drive
-   folder once connected, and remembering its id (in localStorage — folder IDs
-   are not secrets, just Drive metadata, unlike the access token) so later
-   steps (JSON sync, docx upload) know where to write without searching again
-   every time. Sync status / "last synced" surfacing is still to come. */
+
+   Sync button behavior: when NOT connected (fresh load, or the in-memory token
+   has expired/gone stale) it acts as "Connect to Drive" (interactive consent).
+   Once connected, it just means "sync now" — no re-auth prompt. Separately,
+   every edit that gets saved locally also triggers a SILENT auto-sync to
+   Drive automatically, provided we're connected and the browser reports it's
+   online — no button click needed for that part. */
 const DRIVE_CLIENT_ID = '1039896529971-206omvkrp0er16kl5lisfns5tu7jhe5r.apps.googleusercontent.com';
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const DRIVE_FOLDER_NAME = 'Kriti Notation Studio';
 const DRIVE_FOLDER_ID_KEY = 'kriti-notation-studio.driveFolderId';
+const DRIVE_LIBRARY_FILE_ID_KEY = 'kriti-notation-studio.driveLibraryFileId';
+const DRIVE_LIBRARY_FILENAME = 'kriti-library.json';
+const DRIVE_LAST_SYNCED_KEY = 'kriti-notation-studio.driveLastSyncedAt';
 let driveTokenClient = null;
 let driveAccessToken = null;
 let driveFolderId = null;
+let driveLibraryFileId = null;
+let driveSyncInFlight = false;
+let driveSyncPending = false; // true when an edit happened while offline — retried once back online
+let driveLastSyncedAt = null; // ms epoch of the last successful sync, for the "Synced Xm ago" line
 try{ driveFolderId = localStorage.getItem(DRIVE_FOLDER_ID_KEY) || null; }catch(e){}
+try{ driveLibraryFileId = localStorage.getItem(DRIVE_LIBRARY_FILE_ID_KEY) || null; }catch(e){}
+try{ const ts = localStorage.getItem(DRIVE_LAST_SYNCED_KEY); if(ts) driveLastSyncedAt = parseInt(ts, 10) || null; }catch(e){}
+
+function formatRelativeTime(ms){
+  const diff = Date.now() - ms;
+  if(diff < 45000) return 'just now';
+  const mins = Math.round(diff / 60000);
+  if(mins < 60) return mins + 'm ago';
+  const hours = Math.round(mins / 60);
+  if(hours < 24) return hours + 'h ago';
+  return Math.round(hours / 24) + 'd ago';
+}
+function updateSyncStatusText(){
+  const el = document.getElementById('syncStatus');
+  if(!el) return;
+  if(!driveAccessToken){ el.textContent = ''; return; }
+  el.textContent = driveSyncPending ? 'Offline — will sync when back online'
+    : driveLastSyncedAt ? ('Synced ' + formatRelativeTime(driveLastSyncedAt)) : 'Not yet synced';
+}
+setInterval(updateSyncStatusText, 30000); // keeps the "Xm ago" text fresh even with no new activity
+window.addEventListener('online', ()=>{
+  if(driveSyncPending && driveAccessToken){
+    driveSyncPending = false;
+    syncLibraryToDrive(true);
+  }
+});
+
+function updateSyncButton(){
+  const b = document.getElementById('syncBtn');
+  if(!b) return;
+  b.textContent = driveAccessToken ? '☁️ Synced' : '🔄 Sync';
+  b.title = driveAccessToken ? 'Click to sync now' : 'Click to connect to Google Drive';
+  updateSyncStatusText();
+}
 
 function initDriveTokenClient(){
   if(driveTokenClient || !window.google || !google.accounts || !google.accounts.oauth2) return;
@@ -330,29 +374,46 @@ function initDriveTokenClient(){
         return;
       }
       driveAccessToken = resp.access_token;
+      updateSyncButton();
       setupDriveFolder();
     },
   });
 }
 
+/* This is what "opening the app newly, or after the token has timed out" both
+   funnel through — connectDrive() only runs when driveAccessToken is null,
+   which is true on first load AND whenever a 401 clears it out below. */
 function connectDrive(){
   if(!window.google || !google.accounts || !google.accounts.oauth2){
     showToast('Google sign-in library not loaded yet — try again in a moment');
     return;
   }
   if(!driveTokenClient) initDriveTokenClient();
-  driveTokenClient.requestAccessToken({ prompt: driveAccessToken ? '' : 'consent' });
+  driveTokenClient.requestAccessToken({ prompt: 'consent' });
+}
+
+/* The single click handler for the Sync button — its behavior depends
+   entirely on whether we're currently connected. */
+function onSyncButtonClick(){
+  if(!driveAccessToken){
+    connectDrive();
+  } else {
+    syncLibraryToDrive(false);
+  }
 }
 
 /* Thin fetch wrapper for Drive API calls — adds the bearer token, and treats
-   a 401 as "the in-memory token is stale" (simple version for now; proactive
-   refresh / silent retry comes in a later step once the basic flow is proven). */
+   a 401 as "the token has expired" — clearing it so the Sync button reverts
+   to "Connect" behavior next click, matching your "after timeout" case.
+   (Proactive refresh before expiry, so this path is rarely hit at all, is a
+   later refinement — this simple version is enough for now.) */
 async function driveFetch(url, opts){
   const merged = Object.assign({}, opts||{});
   merged.headers = Object.assign({}, merged.headers||{}, { Authorization: 'Bearer ' + driveAccessToken });
   const r = await fetch(url, merged);
   if(r.status === 401){
     driveAccessToken = null;
+    updateSyncButton();
     throw new Error('drive auth expired');
   }
   if(!r.ok) throw new Error('drive http ' + r.status);
@@ -383,10 +444,143 @@ async function setupDriveFolder(){
     driveFolderId = await driveFindOrCreateFolder(DRIVE_FOLDER_NAME);
     try{ localStorage.setItem(DRIVE_FOLDER_ID_KEY, driveFolderId); }catch(e){}
     showToast('Connected to Google Drive ✓ ("Kriti Notation Studio" folder ready)');
-    // JSON library sync and docx upload hook in here in the next steps.
+    await syncLibraryToDrive(true);
   }catch(e){
     console.error('[drive folder setup] failed:', e);
     showToast('Connected, but could not set up the Drive folder — try Sync again');
+  }
+}
+
+/* Finds the existing library JSON file inside the Drive folder, if one exists
+   (e.g. reconnecting later, or on a different browser) — so we PATCH the same
+   file going forward instead of creating a new one every time. */
+async function driveFindLibraryFile(){
+  if(!driveFolderId) return null;
+  const q = encodeURIComponent(`name='${DRIVE_LIBRARY_FILENAME}' and '${driveFolderId}' in parents and trashed=false`);
+  const r = await driveFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)&spaces=drive`);
+  const j = await r.json();
+  return (j.files && j.files[0]) ? j.files[0].id : null;
+}
+
+/* Uploads the current library JSON — PATCHes the existing file if we know its
+   id, otherwise creates it (multipart: metadata + content in one request). */
+async function driveUploadLibraryJSON(){
+  const body = JSON.stringify(library);
+  if(driveLibraryFileId){
+    const r = await driveFetch(`https://www.googleapis.com/upload/drive/v3/files/${driveLibraryFileId}?uploadType=media&fields=id`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    });
+    return r.json();
+  }
+  const boundary = 'kns' + Date.now();
+  const mp = `--${boundary}\r\nContent-Type: application/json\r\n\r\n`
+    + JSON.stringify({ name: DRIVE_LIBRARY_FILENAME, parents: [driveFolderId] })
+    + `\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${body}\r\n--${boundary}--`;
+  const r = await driveFetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
+    method: 'POST',
+    headers: { 'Content-Type': 'multipart/related; boundary=' + boundary },
+    body: mp,
+  });
+  return r.json();
+}
+
+/* Finds a file by exact name inside the Drive folder (any type — used for the
+   .docx exports, keyed by filename so re-exporting the same song updates the
+   same Drive file instead of piling up duplicates). */
+async function driveFindFileByName(name){
+  if(!driveFolderId) return null;
+  const q = encodeURIComponent(`name='${name.replace(/'/g,"\\'")}' and '${driveFolderId}' in parents and trashed=false`);
+  const r = await driveFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)&spaces=drive`);
+  const j = await r.json();
+  return (j.files && j.files[0]) ? j.files[0].id : null;
+}
+
+/* Generic binary-file upload to the Drive folder — used for .docx exports.
+   Unlike the JSON sync above (which always PATCHes the one known file id),
+   this looks the file up by name each time, since there can be many
+   differently-named exports (one per song) rather than a single fixed file. */
+async function driveUploadBlob(blob, filename, mimeType){
+  const existingId = await driveFindFileByName(filename);
+  if(existingId){
+    const r = await driveFetch(`https://www.googleapis.com/upload/drive/v3/files/${existingId}?uploadType=media&fields=id`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': mimeType },
+      body: blob,
+    });
+    return r.json();
+  }
+  const boundary = 'kns' + Date.now();
+  const metadata = JSON.stringify({ name: filename, parents: [driveFolderId] });
+  const body = new Blob([
+    `--${boundary}\r\nContent-Type: application/json\r\n\r\n${metadata}\r\n--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`,
+    blob,
+    `\r\n--${boundary}--`,
+  ]);
+  const r = await driveFetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
+    method: 'POST',
+    headers: { 'Content-Type': 'multipart/related; boundary=' + boundary },
+    body,
+  });
+  return r.json();
+}
+
+/* Uploads a generated .docx to the Drive folder, if connected and online.
+   Silent on success/failure either way — downloadDocxFile already reports
+   its own "Downloaded .docx" toast for the local save; this is a best-effort
+   extra, not the main action the user asked for by clicking Download. */
+async function syncDocxToDrive(blob, filename){
+  if(!driveAccessToken || !navigator.onLine) return;
+  try{
+    if(!driveFolderId) driveFolderId = await driveFindOrCreateFolder(DRIVE_FOLDER_NAME);
+    await driveUploadBlob(blob, filename, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    showToast('Also saved to Google Drive ✓');
+  }catch(e){
+    console.error('[drive docx upload] failed:', e);
+    showToast('Downloaded, but could not save a copy to Drive');
+  }
+}
+
+/* The one function both the manual Sync click and the automatic
+   after-every-edit sync funnel through. `auto`=true means this was triggered
+   silently by an edit — no toast on success, and failures don't nag either
+   (just logged; the next edit, or a manual click, will try again). `auto`=
+   false (an explicit Sync-button click while already connected) always
+   reports success or failure directly. */
+async function syncLibraryToDrive(auto){
+  if(!driveAccessToken){
+    if(!auto) connectDrive();
+    return;
+  }
+  if(!navigator.onLine){
+    driveSyncPending = true;
+    updateSyncStatusText();
+    if(!auto) showToast('Offline — will sync once you\u2019re back online');
+    return;
+  }
+  if(driveSyncInFlight) return;
+  driveSyncInFlight = true;
+  try{
+    if(!driveFolderId) driveFolderId = await driveFindOrCreateFolder(DRIVE_FOLDER_NAME);
+    if(!driveLibraryFileId) driveLibraryFileId = await driveFindLibraryFile();
+    const res = await driveUploadLibraryJSON();
+    if(res && res.id){
+      driveLibraryFileId = res.id;
+      try{ localStorage.setItem(DRIVE_LIBRARY_FILE_ID_KEY, driveLibraryFileId); }catch(e){}
+    }
+    driveSyncPending = false;
+    driveLastSyncedAt = Date.now();
+    try{ localStorage.setItem(DRIVE_LAST_SYNCED_KEY, String(driveLastSyncedAt)); }catch(e){}
+    updateSyncStatusText();
+    if(!auto) showToast('Synced to Google Drive ✓');
+  }catch(e){
+    console.error('[drive sync] failed:', e);
+    if(!auto){
+      showToast(e.message === 'drive auth expired' ? 'Drive session expired — click Sync to reconnect' : 'Sync failed — will retry on next edit');
+    }
+  } finally {
+    driveSyncInFlight = false;
   }
 }
 
@@ -483,6 +677,11 @@ async function persist(){
     // explicit "Save now" button still reports success/failure directly.
     console.error('[persist] localStorage save failed:', e);
   }
+  // Auto-sync to Drive on every save, but only if already connected and the
+  // browser reports it's online — silent either way (auto=true), since this
+  // fires on every single edit. If we're not connected, this is a no-op (the
+  // Sync button is how you connect in the first place).
+  if(driveAccessToken && navigator.onLine) syncLibraryToDrive(true);
 }
 /* Debounced: waits until typing pauses (800ms of silence) before actually
    writing to storage, instead of firing on every keystroke. This is the main
@@ -1645,12 +1844,14 @@ async function downloadDocxFile(song){
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = (song.title || 'kriti').replace(/[\\/:*?"<>|]/g,'_') + '.docx';
+    const filename = (song.title || 'kriti').replace(/[\\/:*?"<>|]/g,'_') + '.docx';
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     a.remove();
     setTimeout(()=>URL.revokeObjectURL(url), 4000);
     showToast('Downloaded .docx');
+    syncDocxToDrive(blob, filename);
   }catch(e){
     console.error(e);
     showToast('Could not generate .docx — see console for details');
@@ -1683,7 +1884,7 @@ async function renderAll(){
   renderMain();
 }
 
-document.getElementById('syncBtn').onclick = connectDrive;
+document.getElementById('syncBtn').onclick = onSyncButtonClick;
 document.getElementById('newSongBtn').onclick = ()=>{
   const s = newSong();
   library.unshift(s);
@@ -1704,6 +1905,7 @@ document.addEventListener('keydown', e=>{
   await loadLibrary();
   if(library.length) currentId = library[0].id;
   renderAll();
+  updateSyncButton();
 })();
 </script>
 </body>
