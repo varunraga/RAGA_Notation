@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
   :root{
     --leaf:#ececeb;
@@ -182,7 +183,7 @@
   .grid-table-dark, .grid-table-doc{ border-collapse:collapse; table-layout:fixed; font-family:'Consolas','Courier Prime',monospace; }
   .grid-table-dark{ margin:2px 0; }
   .grid-table-doc{ margin:1px 0; }
-  .grid-table-dark td, .grid-table-doc td{ padding:0 1px; vertical-align:middle; white-space:pre-wrap; overflow-wrap:break-word; }
+  .grid-table-dark td, .grid-table-doc td{ padding:0 1px; vertical-align:middle; white-space:pre; overflow:visible; }
   .grid-table-dark .grid-label-cell, .grid-table-doc .grid-label-cell{ font-weight:700; }
   .grid-table-dark .grid-div-cell, .grid-table-doc .grid-div-cell{ text-align:center; font-weight:700; }
   .grid-table-dark .swara-row td{ color:#ececeb; font-weight:700; font-size:14px; }
@@ -238,6 +239,7 @@
       <div class="mark">Kriti Notation Studio</div>
       <div class="sub">your permanent swara library</div>
     </div>
+    <button class="newbtn" id="syncBtn" style="margin-bottom:8px;">🔄 Sync</button>
     <button class="newbtn" id="newSongBtn">+ New Kriti</button>
     <input class="search" id="searchBox" type="text" placeholder="Search by title or raga…">
     <div class="song-list" id="songList"></div>
@@ -295,6 +297,46 @@ function numRowsForLine(cfg, kalai){
 
 let library = [];
 let currentId = null;
+
+/* ===================== Google Drive sync — Step 1: auth only =====================
+   Client-side OAuth via Google Identity Services (GIS), using the drive.file scope
+   (the app can only see/manage files it creates itself, never your whole Drive).
+   This step ONLY acquires an access token when you click Sync — no folder lookup,
+   no file upload yet; those come in later steps so this can be tested in isolation
+   first. The access token is kept in memory only (a module variable, never written
+   to localStorage/cookies) since it's short-lived (~1hr) and GIS re-issues it as
+   needed from a user gesture. */
+const DRIVE_CLIENT_ID = '1039896529971-206omvkrp0er16kl5lisfns5tu7jhe5r.apps.googleusercontent.com';
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+let driveTokenClient = null;
+let driveAccessToken = null;
+
+function initDriveTokenClient(){
+  if(driveTokenClient || !window.google || !google.accounts || !google.accounts.oauth2) return;
+  driveTokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: DRIVE_CLIENT_ID,
+    scope: DRIVE_SCOPE,
+    callback: (resp)=>{
+      if(resp.error){
+        console.error('[drive auth] failed:', resp);
+        showToast('Google Drive sign-in failed — try again');
+        return;
+      }
+      driveAccessToken = resp.access_token;
+      showToast('Connected to Google Drive ✓');
+      // Later steps (folder lookup, actual sync) hook in here.
+    },
+  });
+}
+
+function connectDrive(){
+  if(!window.google || !google.accounts || !google.accounts.oauth2){
+    showToast('Google sign-in library not loaded yet — try again in a moment');
+    return;
+  }
+  if(!driveTokenClient) initDriveTokenClient();
+  driveTokenClient.requestAccessToken({ prompt: driveAccessToken ? '' : 'consent' });
+}
 
 const uid = () => 'k_' + Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 
@@ -528,35 +570,77 @@ function wireCellNavigation(swaraInputs, lyricInputs){
 
 /* Song-wide Ctrl+Arrow navigation, wired once (in DOM order) across every physical
    row, every line, and every section of the current song:
-   - Ctrl+Right/Left: next/prev cell of the same type (swara<->swara, lyric<->lyric),
-     continuing seamlessly across line and section boundaries.
-   - Ctrl+Down: swara cell -> the lyric cell in that same beat-cell (if the section
-     has sahitya at all).
-   - Ctrl+Up: lyric cell -> the swara cell in that same beat-cell.
-   Matched by DOM sibling (closest '.beat-cell') rather than index, so it's correct
-   even though different talas/sections can have different cell counts per row. */
+   - Ctrl+Right/Left: one continuous sequence through EVERY cell — for each
+     physical row (in song order), all its swara cells left-to-right, then all
+     its lyric cells left-to-right (the same per-row order Tab already uses),
+     then straight on into the next physical row/line/section with no stop at
+     any boundary. So from the last lyric cell of one line, Ctrl+Right lands on
+     the first swara cell of the next line (or next section's first line).
+   - Ctrl+Down: from a swara cell -> the lyric cell in that same beat-cell (same
+     row). From a lyric cell -> the swara cell at the SAME position in the NEXT
+     physical row (crossing into the next line, or the next kalai-half).
+   - Ctrl+Up: from a lyric cell -> the swara cell in that same beat-cell (same
+     row). From a swara cell -> the lyric cell at the SAME position in the
+     PREVIOUS physical row (crossing into the previous line/kalai-half).
+   Up/Down give a continuous vertical cycle alternating swara/lyric down (or
+   up) the whole song; Right/Left now give the equivalent continuous
+   left-to-right reading order across everything. Same-row matches use DOM
+   sibling lookup ('.beat-cell'); cross-line matches use each cell's position
+   within its own physical row, since every physical row in a song has the
+   same cell count (one tala per song). */
 function wireGlobalCtrlNavigation(host){
   const swaraInputs = Array.from(host.querySelectorAll('input.swara'));
   const lyricInputs = Array.from(host.querySelectorAll('input.lyric'));
+  const physRows = Array.from(host.querySelectorAll('.phys-row'));
+
+  // One unified left-to-right sequence for Ctrl+Right/Left: walk the physical
+  // rows in song order, and within each row put all swara cells before all
+  // lyric cells — exactly Tab's own per-row order, just never stopping.
+  const sequence = [];
+  physRows.forEach(row=>{
+    Array.from(row.querySelectorAll('input.swara')).forEach(inp=> sequence.push(inp));
+    Array.from(row.querySelectorAll('input.lyric')).forEach(inp=> sequence.push(inp));
+  });
+  const seqIndex = new Map(sequence.map((inp,i)=>[inp,i]));
+
   function focusAt(arr, idx){
     if(idx >= 0 && idx < arr.length) arr[idx].focus();
   }
-  function wire(inp, idx, arr){
+  function wire(inp, type){
     inp.addEventListener('keydown', (e)=>{
       if(!e.ctrlKey) return;
-      if(e.key === 'ArrowRight'){ e.preventDefault(); focusAt(arr, idx+1); }
-      else if(e.key === 'ArrowLeft'){ e.preventDefault(); focusAt(arr, idx-1); }
-      else if(e.key === 'ArrowDown'){
-        const lyricInp = inp.closest('.beat-cell')?.querySelector('input.lyric');
-        if(lyricInp){ e.preventDefault(); lyricInp.focus(); }
+      if(e.key === 'ArrowRight'){ e.preventDefault(); focusAt(sequence, seqIndex.get(inp)+1); return; }
+      if(e.key === 'ArrowLeft'){ e.preventDefault(); focusAt(sequence, seqIndex.get(inp)-1); return; }
+
+      const physRow = inp.closest('.phys-row');
+      if(!physRow) return;
+      const physIdx = physRows.indexOf(physRow);
+
+      if(e.key === 'ArrowDown'){
+        if(type === 'swara'){
+          const lyricInp = inp.closest('.beat-cell')?.querySelector('input.lyric');
+          if(lyricInp){ e.preventDefault(); lyricInp.focus(); }
+        } else {
+          const posInRow = Array.from(physRow.querySelectorAll('input.lyric')).indexOf(inp);
+          const nextRow = physRows[physIdx+1];
+          const target = nextRow ? nextRow.querySelectorAll('input.swara')[posInRow] : null;
+          if(target){ e.preventDefault(); target.focus(); }
+        }
       } else if(e.key === 'ArrowUp'){
-        const swaraInp = inp.closest('.beat-cell')?.querySelector('input.swara');
-        if(swaraInp){ e.preventDefault(); swaraInp.focus(); }
+        if(type === 'lyric'){
+          const swaraInp = inp.closest('.beat-cell')?.querySelector('input.swara');
+          if(swaraInp){ e.preventDefault(); swaraInp.focus(); }
+        } else {
+          const posInRow = Array.from(physRow.querySelectorAll('input.swara')).indexOf(inp);
+          const prevRow = physRows[physIdx-1];
+          const target = prevRow ? prevRow.querySelectorAll('input.lyric')[posInRow] : null;
+          if(target){ e.preventDefault(); target.focus(); }
+        }
       }
     });
   }
-  swaraInputs.forEach((inp,i)=> wire(inp, i, swaraInputs));
-  lyricInputs.forEach((inp,i)=> wire(inp, i, lyricInputs));
+  swaraInputs.forEach(inp=> wire(inp, 'swara'));
+  lyricInputs.forEach(inp=> wire(inp, 'lyric'));
 }
 
 function escapeHtml(str){
@@ -724,15 +808,6 @@ function tokenizeSwaraForAlign(raw){
   return items;
 }
 
-/* Builds column-aligned {swaraCols, lyricCols, mismatch}. Column width is
-   driven ONLY by the swara token + the confirmed spacing rule (2 trailing
-   spaces after a plain letter, 1 after a plain , or ;, 0 inside an underlined
-   speed-group) — NEVER by syllable length. This keeps spacing capped exactly
-   as defined and keeps every table's column widths uniform regardless of how
-   long any particular line's sahitya happens to be. An unusually long
-   syllable is still shown in full (never truncated) via padEnd's natural
-   behavior of leaving a string unchanged once it's already >= the target
-   width — it just isn't allowed to stretch the shared column width itself. */
 /* Column-aligns swara tokens against space-separated sahitya syllables.
    For every boundary between token i and token i+1, ONE shared "gap" (a
    literal space count) is computed and applied identically to both the
@@ -749,10 +824,26 @@ function tokenizeSwaraForAlign(raw){
    Neither line is ever truncated: a syllable longer than its token (or vice
    versa) simply occupies more character positions — nothing pads or clips
    it to a fixed column width. Gap size depends only on the swara tokens,
-   never on syllable length. */
+   never on syllable length.
+
+   Sahitya wrapped in |...| (e.g. "|Krishna|") is a deliberate single,
+   unbreakable syllable for the whole cell — the pipes are stripped from the
+   rendered text (never printed), the content is treated as ONE syllable
+   even if it contains internal spaces, and the normal token-count-vs-
+   syllable-count mismatch check is skipped entirely for that cell, since
+   the pipes are the user's explicit signal that this is intentional. */
 function buildAlignedColumns(rawSwara, rawLyric){
   const tokens = tokenizeSwaraForAlign(rawSwara);
-  const syllables = (rawLyric||'').trim() ? rawLyric.trim().split(/\s+/) : [];
+  const trimmedLyric = (rawLyric||'').trim();
+  const isPipeWrapped = trimmedLyric.length >= 2 && trimmedLyric.startsWith('|') && trimmedLyric.endsWith('|');
+  let syllables, forcedNoMismatch = false;
+  if(isPipeWrapped){
+    const inner = trimmedLyric.slice(1, -1).replace(/\|/g, '').trim();
+    syllables = inner ? [inner] : [];
+    forcedNoMismatch = true;
+  } else {
+    syllables = trimmedLyric ? trimmedLyric.split(/\s+/) : [];
+  }
   const n = Math.max(tokens.length, syllables.length);
   const swaraCols = [], lyricCols = [];
   for(let i=0;i<n;i++){
@@ -790,7 +881,8 @@ function buildAlignedColumns(rawSwara, rawLyric){
     swaraCols.push({ text: swaraCore + ' '.repeat(gap), underline });
     lyricCols.push(lyricCore + ' '.repeat(gap));
   }
-  return { swaraCols, lyricCols, tokenCount: tokens.length, syllableCount: syllables.length, mismatch: tokens.length !== syllables.length };
+  const mismatch = forcedNoMismatch ? false : (tokens.length !== syllables.length);
+  return { swaraCols, lyricCols, tokenCount: tokens.length, syllableCount: syllables.length, mismatch };
 }
 
 function updateAlignBadge(cellDiv, rawSwara, rawLyric){
@@ -989,7 +1081,7 @@ function buildRowGrid(cfg, noSahitya){
         <input class="swara" placeholder="swara">
         <div class="aksh-badge"></div>
         ${noSahitya ? '' : `
-        <input class="lyric" placeholder="sahitya, space-separated per note">
+        <input class="lyric" placeholder="sahitya, space-separated per note (wrap in |word| for one unbreakable word)">
         <div class="align-badge"></div>`}
       </div>`;
     if(i === cfg.dividerAfter && i !== cfg.rowCells.length - 1){
@@ -1127,6 +1219,14 @@ function buildGridRowsHTML(cfg, line, kalai, noSahitya, tableClass){
         else swaraHtml += esc;
       });
       if(isEdgeL) swaraHtml = escapeHtml(GRID_EDGE + ' ') + swaraHtml;
+      // Second (or later) physical row's first cell — e.g. the start of the
+      // 2nd half-avartanam in a 2-kalai line — isn't the line's true left
+      // edge, so no real "‖" here, but it still needs to start 2 characters
+      // in (same width as "‖ ") to line up vertically with row 0's first
+      // cell above it. Kept in sync with the identical fix in both docx
+      // exporters.
+      const needsAlignPlaceholder = ri > 0 && i === 0 && !isEdgeL;
+      if(needsAlignPlaceholder) swaraHtml = '  ' + swaraHtml;
       if(isEdgeR) swaraHtml = swaraHtml + escapeHtml(GRID_EDGE);
       colWidths.push(width);
       swaraRow += `<td class="grid-beat-cell" style="width:${dxaToPt(width)}pt;${spacingCss}">${swaraHtml || '&nbsp;'}</td>`;
@@ -1134,6 +1234,7 @@ function buildGridRowsHTML(cfg, line, kalai, noSahitya, tableClass){
       if(!noSahitya){
         let lyricText = lyricCols.join('');
         if(isEdgeL) lyricText = '  ' + lyricText;
+        else if(needsAlignPlaceholder) lyricText = '  ' + lyricText;
         if(isEdgeR) lyricText = lyricText + '  ';
         lyricRow += `<td class="grid-beat-cell" style="width:${dxaToPt(width)}pt;${spacingCss}">${lyricText.trim() ? escapeHtml(lyricText) : '&nbsp;'}</td>`;
       }
@@ -1272,7 +1373,8 @@ async function downloadDocxFile(song){
   if(!lib) return;
   const {
     Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
-    WidthType, AlignmentType, BorderStyle, VerticalAlign, UnderlineType, TableLayoutType
+    WidthType, AlignmentType, BorderStyle, VerticalAlign, UnderlineType, TableLayoutType,
+    Tab, TabStopType
   } = lib;
 
   const FONT_D = GRID_FONT;
@@ -1291,6 +1393,22 @@ async function downloadDocxFile(song){
       underline: opts.underline ? {} : (opts.underlineLevel ? underlineProp(opts.underlineLevel) : undefined),
       color: '000000',
       characterSpacing: opts.spacing || undefined,
+    });
+  }
+  /* The closing "‖" of a row must sit at the true right edge of its cell no
+     matter how little (or much) content precedes it — a plain appended run
+     just trails after the text, wherever that happens to end. Instead, this
+     inserts a real Word tab character (w:tab), paired with a right-aligned
+     tab stop set at exactly the cell's width (see dBeatPara below) — the tab
+     jumps straight to that position, so "‖" always lands flush at the cell
+     boundary regardless of the cell's actual content length. Kept in sync
+     with the identical fix in kriti-docx-generator.js. */
+  function dTabThenRun(text, opts={}){
+    return new TextRun({
+      children: [new Tab(), text],
+      font: FONT_D, size: opts.size || SZ_D, bold: !!opts.bold,
+      underline: opts.underline ? {} : (opts.underlineLevel ? underlineProp(opts.underlineLevel) : undefined),
+      color: '000000',
     });
   }
   /* Point 3: per-cell character spacing — uses the shared computeCellSpacing
@@ -1326,8 +1444,8 @@ async function downloadDocxFile(song){
   function dCell(children, widthDxa){
     return new TableCell({ width:{size:widthDxa,type:WidthType.DXA}, verticalAlign:VerticalAlign.CENTER, borders:CELL_BORDERS_D, children });
   }
-  function dBeatPara(children){
-    return new Paragraph({ alignment: AlignmentType.LEFT, spacing:{after:0}, children });
+  function dBeatPara(children, tabStops){
+    return new Paragraph({ alignment: AlignmentType.LEFT, spacing:{after:0}, tabStops, children });
   }
 
   function dBuildLineTable(cfg, line, kalai, noSahitya){
@@ -1361,15 +1479,27 @@ async function downloadDocxFile(song){
         swaraCols.forEach(c=>{
           children.push(drun(c.text, {underlineLevel:c.underline, size:GRID_SZ_D, spacing}));
         });
+        // The second (or later) physical row's first cell — e.g. the start of
+        // the 2nd half-avartanam in a 2-kalai line — is NOT the line's true
+        // left edge, so it never gets a real "‖". But without correction its
+        // content would start 2 characters further left than row 0's first
+        // cell (which carries "‖ "), throwing off vertical alignment between
+        // the two half-avartanam rows. Reserve the same 2-character width
+        // here, invisibly (plain spaces, no "‖" glyph), purely so the
+        // swara/sahitya line up with the row above. Kept in sync with the
+        // identical fix in kriti-docx-generator.js.
+        const needsAlignPlaceholder = ri > 0 && i === 0 && !isEdgeL;
         if(isEdgeL) children.unshift(drun(EDGE_D+' ', {size:GRID_SZ_D}));
-        if(isEdgeR) children.push(drun(EDGE_D, {size:GRID_SZ_D}));
-        swaraCells.push(dCell([dBeatPara(children)], width));
+        else if(needsAlignPlaceholder) children.unshift(drun('  ', {size:GRID_SZ_D}));
+        if(isEdgeR) children.push(dTabThenRun(EDGE_D, {size:GRID_SZ_D}));
+        swaraCells.push(dCell([dBeatPara(children, isEdgeR ? [{type: TabStopType.RIGHT, position: width}] : undefined)], width));
         if(!noSahitya){
           // Direct concatenation (not join(' ')) — each lyric column now
           // carries the exact same gap as its corresponding swara column,
           // so an extra separator space here would break that mirroring.
           let lyricText = lyricCols.join('');
           if(isEdgeL) lyricText = '  ' + lyricText;
+          else if(needsAlignPlaceholder) lyricText = '  ' + lyricText;
           if(isEdgeR) lyricText = lyricText + '  ';
           lyricCells.push(dCell([dBeatPara(lyricText.trim() ? [drun(lyricText,{size:GRID_SZ_D, spacing})] : [])], width));
         }
@@ -1501,6 +1631,7 @@ async function renderAll(){
   renderMain();
 }
 
+document.getElementById('syncBtn').onclick = connectDrive;
 document.getElementById('newSongBtn').onclick = ()=>{
   const s = newSong();
   library.unshift(s);
