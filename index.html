@@ -230,6 +230,24 @@
   .doc-lyric-line{ font-family:'Consolas','Courier Prime',monospace; font-size:13px; color:#222; }
   .doc-refnote{ font-family:'Consolas','Courier Prime',monospace; font-weight:700; font-size:13px; color:#111; }
   .doc-end{ font-family:'Consolas','Courier Prime',monospace; text-align:center; font-size:13px; color:#111; }
+  /* ---------- Storage quota modal ---------- */
+  .quota-overlay{
+    position:fixed; inset:0; background:rgba(44,32,19,0.55); z-index:110;
+    display:none; align-items:center; justify-content:center; padding:16px;
+  }
+  .quota-overlay.show{ display:flex; }
+  .quota-modal{
+    background:#fffef9; border-radius:14px; max-width:360px; width:100%;
+    box-shadow:0 20px 60px rgba(0,0,0,0.35); padding:22px 24px 24px;
+  }
+  .quota-modal-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+  .quota-modal-title{ font-family:'Inter',sans-serif; font-weight:600; font-size:17px; color:var(--heading); }
+  .quota-bar-track{ background:var(--line); border-radius:6px; height:10px; overflow:hidden; margin:10px 0 8px; }
+  .quota-bar-fill{ background:var(--maroon); height:100%; border-radius:6px; transition:width .3s; }
+  .quota-bar-fill.warn{ background:var(--warn); }
+  .quota-text{ font-size:13px; color:var(--ink-soft); }
+  .quota-text b{ color:var(--ink); }
+  .quota-loading, .quota-error{ font-size:13px; color:var(--ink-soft); padding:6px 0; }
 </style>
 </head>
 <body>
@@ -240,15 +258,27 @@
       <div class="sub">your permanent swara library</div>
     </div>
     <button class="newbtn" id="syncBtn" style="margin-bottom:2px;">🔄 Sync</button>
-    <div class="sub" id="syncStatus" style="margin-bottom:8px;min-height:14px;"></div>
+    <div class="sub" id="syncStatus" style="margin-bottom:2px;min-height:14px;"></div>
+    <button class="btn small" id="storageQuotaBtn" style="margin-bottom:8px;width:100%;">📊 Storage used</button>
     <button class="newbtn" id="newSongBtn">+ New Kriti</button>
-    <input class="search" id="searchBox" type="text" placeholder="Search by title or raga…">
+    <input class="search" id="searchBox" type="text" placeholder="Search by title or raga…" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off">
     <div class="song-list" id="songList"></div>
   </aside>
 
   <main class="main" id="main"></main>
 </div>
 <div class="toast" id="toast"></div>
+
+<div class="quota-overlay" id="quotaOverlay">
+  <div class="quota-modal">
+    <div class="quota-modal-head">
+      <div class="quota-modal-title">Google Drive storage</div>
+      <button class="btn small" id="closeQuotaBtn">✕</button>
+    </div>
+    <div id="quotaBody"><div class="quota-loading">Loading…</div></div>
+  </div>
+</div>
+
 
 <div class="preview-overlay" id="previewOverlay">
   <div class="preview-modal">
@@ -360,11 +390,13 @@ function updateSyncStatusText(){
   const el = document.getElementById('syncStatus');
   if(!el) return;
   if(!driveAccessToken){ el.textContent = ''; return; }
-  if(driveDirtyCount > 0){
-    const noun = driveDirtyCount === 1 ? 'change' : 'changes';
-    el.textContent = driveSyncPending
-      ? `Offline — ${driveDirtyCount} ${noun} waiting to sync`
-      : `${driveDirtyCount} ${noun} waiting to sync`;
+  const pendingDeleteCount = (typeof pendingDriveDeletes !== 'undefined') ? pendingDriveDeletes.length : 0;
+  if(driveDirtyCount > 0 || pendingDeleteCount > 0){
+    const parts = [];
+    if(driveDirtyCount > 0) parts.push(`${driveDirtyCount} ${driveDirtyCount===1?'change':'changes'}`);
+    if(pendingDeleteCount > 0) parts.push(`${pendingDeleteCount} ${pendingDeleteCount===1?'deletion':'deletions'}`);
+    const summary = parts.join(', ') + ' waiting to sync';
+    el.textContent = driveSyncPending ? `Offline — ${summary}` : summary;
     return;
   }
   el.textContent = driveSyncPending ? 'Offline — will sync when back online'
@@ -376,7 +408,68 @@ window.addEventListener('online', ()=>{
     driveSyncPending = false;
     syncLibraryToDrive(true);
   }
+  flushPendingDriveDeletes();
 });
+
+/* ===================== Drive deletion handling =====================
+   Deleting a kriti locally used to leave its .docx sitting in Drive forever
+   — deliberately deciding this one instead of leaving it undecided-by-default:
+   a local delete now also removes the Drive copy. Queued + retried rather than
+   attempted once, since you might be offline or between Drive sessions right
+   when you delete something; a 404 (file already gone, e.g. you deleted it by
+   hand in Drive, or a previous attempt actually succeeded but the response
+   never got confirmed) counts as success, not failure — it only stays in the
+   queue for a genuine failure (offline, auth, a real API error). */
+const DRIVE_PENDING_DELETES_KEY = 'kriti-notation-studio.pendingDriveDeletes';
+let pendingDriveDeletes = [];
+try{ pendingDriveDeletes = JSON.parse(localStorage.getItem(DRIVE_PENDING_DELETES_KEY) || '[]'); }catch(e){ pendingDriveDeletes = []; }
+function savePendingDriveDeletes(){
+  try{ localStorage.setItem(DRIVE_PENDING_DELETES_KEY, JSON.stringify(pendingDriveDeletes)); }catch(e){}
+}
+function queueDriveDelete(filename){
+  if(!filename) return;
+  if(!pendingDriveDeletes.includes(filename)) pendingDriveDeletes.push(filename);
+  savePendingDriveDeletes();
+  updateSyncStatusText();
+  flushPendingDriveDeletes();
+}
+/* Deletes one named file from the Drive folder. A 404 (nothing found to
+   delete — already gone, or never actually made it up there) is treated as
+   success, not an error, per the "confirmed gone" rule above. */
+async function driveDeleteFileByName(filename){
+  if(!driveFolderId) driveFolderId = await driveFindOrCreateFolder(DRIVE_FOLDER_NAME);
+  const id = await driveFindFileByName(filename);
+  if(!id) return; // nothing there — already gone, counts as success
+  try{
+    await driveFetch(`https://www.googleapis.com/drive/v3/files/${id}`, { method: 'DELETE' });
+  }catch(e){
+    if(String(e.message).includes('404')) return; // race: gone between find and delete — still success
+    throw e;
+  }
+}
+let flushingDriveDeletes = false;
+async function flushPendingDriveDeletes(){
+  if(!driveAccessToken || !navigator.onLine) return;
+  if(flushingDriveDeletes || !pendingDriveDeletes.length) return;
+  flushingDriveDeletes = true;
+  try{
+    const remaining = [];
+    for(const filename of pendingDriveDeletes){
+      try{
+        await driveDeleteFileByName(filename);
+        // deleted, or already gone — either way, drop from the queue
+      }catch(e){
+        console.error('[drive delete] failed for', filename, e);
+        remaining.push(filename); // genuine failure — keep for next retry
+      }
+    }
+    pendingDriveDeletes = remaining;
+    savePendingDriveDeletes();
+    updateSyncStatusText();
+  } finally {
+    flushingDriveDeletes = false;
+  }
+}
 
 function updateSyncButton(){
   const b = document.getElementById('syncBtn');
@@ -530,6 +623,60 @@ async function driveFindOrCreateFolder(name){
   return cj.id;
 }
 
+/* ===================== Storage quota view =====================
+   A small modal showing overall Google Drive space used — just reassurance
+   now that .docx files are written there regularly, not a full storage
+   manager. Uses Drive's about.get endpoint (fields=storageQuota), which
+   drive.file already covers — no extra scope/re-consent needed. */
+function formatBytes(n){
+  if(n === undefined || n === null) return '—';
+  const units = ['B','KB','MB','GB','TB'];
+  let i = 0, v = Number(n);
+  while(v >= 1024 && i < units.length - 1){ v /= 1024; i++; }
+  return (i === 0 ? v : v.toFixed(v < 10 ? 2 : 1)) + ' ' + units[i];
+}
+
+async function openStorageQuota(){
+  const overlay = document.getElementById('quotaOverlay');
+  const body = document.getElementById('quotaBody');
+  overlay.classList.add('show');
+  body.innerHTML = '<div class="quota-loading">Loading…</div>';
+
+  if(!driveAccessToken){
+    body.innerHTML = '<div class="quota-error">Not connected to Google Drive yet. Close this and click Sync to connect first.</div>';
+    return;
+  }
+  try{
+    const r = await driveFetch('https://www.googleapis.com/drive/v3/about?fields=storageQuota');
+    const j = await r.json();
+    const q = j.storageQuota || {};
+    const usage = q.usage !== undefined ? Number(q.usage) : null;
+    const limit = q.limit !== undefined ? Number(q.limit) : null; // absent/undefined = unlimited (e.g. some Workspace plans)
+
+    if(usage === null){
+      body.innerHTML = '<div class="quota-error">Drive didn\u2019t return storage info — try again later.</div>';
+      return;
+    }
+    if(!limit){
+      body.innerHTML = `<div class="quota-text"><b>${formatBytes(usage)}</b> used — no storage limit on this account.</div>`;
+      return;
+    }
+    const pct = Math.min(100, (usage / limit) * 100);
+    const warn = pct >= 90;
+    body.innerHTML = `
+      <div class="quota-bar-track"><div class="quota-bar-fill${warn ? ' warn' : ''}" style="width:${pct.toFixed(1)}%"></div></div>
+      <div class="quota-text"><b>${formatBytes(usage)}</b> of <b>${formatBytes(limit)}</b> used (${pct.toFixed(1)}%)</div>
+      ${warn ? '<div class="quota-text" style="color:var(--warn);margin-top:6px;">Running low on space — consider freeing up some Drive storage.</div>' : ''}
+    `;
+  }catch(e){
+    console.error('[drive quota] failed:', e);
+    body.innerHTML = '<div class="quota-error">Couldn\u2019t load storage info — try again.</div>';
+  }
+}
+function closeStorageQuota(){
+  document.getElementById('quotaOverlay').classList.remove('show');
+}
+
 async function setupDriveFolder(){
   showToast('Connected — setting up Drive folder…');
   try{
@@ -537,6 +684,7 @@ async function setupDriveFolder(){
     try{ localStorage.setItem(DRIVE_FOLDER_ID_KEY, driveFolderId); }catch(e){}
     showToast('Connected to Google Drive ✓ ("Kriti Notation Studio" folder ready)');
     await syncLibraryToDrive(true);
+    flushPendingDriveDeletes();
   }catch(e){
     console.error('[drive folder setup] failed:', e);
     showToast('Connected, but could not set up the Drive folder — try Sync again');
@@ -1214,15 +1362,23 @@ function tokenizeSwaraForAlign(raw){
 function buildAlignedColumns(rawSwara, rawLyric){
   const tokens = tokenizeSwaraForAlign(rawSwara);
   const trimmedLyric = (rawLyric||'').trim();
-  const isPipeWrapped = trimmedLyric.length >= 2 && trimmedLyric.startsWith('|') && trimmedLyric.endsWith('|');
-  let syllables, forcedNoMismatch = false;
-  if(isPipeWrapped){
-    const inner = trimmedLyric.slice(1, -1).replace(/\|/g, '').trim();
-    syllables = inner ? [inner] : [];
-    forcedNoMismatch = true;
-  } else {
-    syllables = trimmedLyric ? trimmedLyric.split(/\s+/) : [];
-  }
+  // "|word|" marks ONE syllable as an intentional unbreakable word (e.g. a
+  // name that can't be split into one-per-note pieces) — the pipes are a
+  // typed marker only, stripped before rendering, never shown in the output.
+  // Checked PER WORD (not just whether the whole cell is wrapped), so this
+  // works both when the entire cell is one such word ("|vandenishamaham|")
+  // and when it's one word among several normal syllables in the same cell
+  // ("abc |defghij| klm") — previously only the whole-cell case was handled,
+  // so a mid-cell wrapped word kept its literal "|" characters in the output.
+  const rawWords = trimmedLyric ? trimmedLyric.split(/\s+/) : [];
+  let forcedNoMismatch = false;
+  const syllables = rawWords.map(w=>{
+    if(w.length >= 2 && w.startsWith('|') && w.endsWith('|')){
+      forcedNoMismatch = true;
+      return w.slice(1, -1).replace(/\|/g, '');
+    }
+    return w;
+  });
   const n = Math.max(tokens.length, syllables.length);
   const swaraCols = [], lyricCols = [];
   for(let i=0;i<n;i++){
@@ -1293,7 +1449,7 @@ function renderMain(){
   main.innerHTML = `
     <div class="hero">
       <div>
-        <h1 contenteditable="true" id="titleEdit" style="outline:none;">${escapeHtml(song.title)}</h1>
+        <h1 contenteditable="true" id="titleEdit" style="outline:none;" spellcheck="false" autocorrect="off" autocapitalize="off">${escapeHtml(song.title)}</h1>
         <p>Edits save automatically to your library.</p>
       </div>
     </div>
@@ -1309,11 +1465,11 @@ function renderMain(){
     <div class="card">
       <h3>Song details</h3>
       <div class="field-grid">
-        <div class="fieldwrap"><label>Raga</label><input type="text" id="f_raga" value="${escapeHtml(song.raga)}"></div>
-        <div class="fieldwrap"><label>Melakarta # (optional)</label><input type="text" id="f_mela" value="${escapeHtml(song.melakarta)}" placeholder="e.g. 28th"></div>
-        <div class="fieldwrap"><label>Composer</label><input type="text" id="f_composer" value="${escapeHtml(song.composer)}"></div>
-        <div class="fieldwrap"><label>Arohanam</label><input type="text" id="f_aro" value="${escapeHtml(song.arohanam)}" placeholder="S R2 G3 M1 P D2 N3 S"></div>
-        <div class="fieldwrap"><label>Avarohanam</label><input type="text" id="f_ava" value="${escapeHtml(song.avarohanam)}" placeholder="S N3 D2 P M1 G3 R2 S"></div>
+        <div class="fieldwrap"><label>Raga</label><input type="text" id="f_raga" value="${escapeHtml(song.raga)}" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off"></div>
+        <div class="fieldwrap"><label>Melakarta # (optional)</label><input type="text" id="f_mela" value="${escapeHtml(song.melakarta)}" placeholder="e.g. 28th" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off"></div>
+        <div class="fieldwrap"><label>Composer</label><input type="text" id="f_composer" value="${escapeHtml(song.composer)}" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off"></div>
+        <div class="fieldwrap"><label>Arohanam</label><input type="text" id="f_aro" value="${escapeHtml(song.arohanam)}" placeholder="S R2 G3 M1 P D2 N3 S" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off"></div>
+        <div class="fieldwrap"><label>Avarohanam</label><input type="text" id="f_ava" value="${escapeHtml(song.avarohanam)}" placeholder="S N3 D2 P M1 G3 R2 S" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off"></div>
         <div class="fieldwrap">
           <label>Talam</label>
           <select id="f_tala">
@@ -1383,11 +1539,11 @@ function renderSections(){
           <input type="checkbox" data-si="${si}" class="secShowRef" ${sec.showPallaviRef ? 'checked' : ''} style="width:auto;">
           Insert "(Pallavi opening line)" note once, after this section
         </label>
-        <input type="text" data-si="${si}" class="secPallaviOverride" placeholder="(auto: ${escapeHtml(derived || 'first 2 words of Pallavi sahitya')})" value="${escapeHtml(sec.pallaviOverride)}" style="margin-top:6px; ${sec.showPallaviRef?'':'display:none;'}">
+        <input type="text" data-si="${si}" class="secPallaviOverride" placeholder="(auto: ${escapeHtml(derived || 'first 2 words of Pallavi sahitya')})" value="${escapeHtml(sec.pallaviOverride)}" style="margin-top:6px; ${sec.showPallaviRef?'':'display:none;'}" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off">
       </div>`;
     card.innerHTML = `
       <div class="section-head">
-        <input value="${escapeHtml(sec.name)}" data-si="${si}" class="secName">
+        <input value="${escapeHtml(sec.name)}" data-si="${si}" class="secName" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off">
         <button class="btn small danger" data-si="${si}" data-act="delSec">Remove section</button>
       </div>
       <div class="fieldwrap">
@@ -1396,7 +1552,7 @@ function renderSections(){
           No sahitya for this section (e.g. Chittaswaram)
         </label>
       </div>
-      <div class="fieldwrap secSahityaWrap" data-si="${si}" style="${sec.noSahitya ? 'display:none;' : ''}"><label>Sahitya (plain lyrics)</label><textarea data-si="${si}" class="secSahitya" placeholder="Plain lyric lines, as in your original template…">${escapeHtml(sec.sahitya)}</textarea></div>
+      <div class="fieldwrap secSahityaWrap" data-si="${si}" style="${sec.noSahitya ? 'display:none;' : ''}"><label>Sahitya (plain lyrics)</label><textarea data-si="${si}" class="secSahitya" placeholder="Plain lyric lines, as in your original template…" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off">${escapeHtml(sec.sahitya)}</textarea></div>
       <div class="linesHost" data-si="${si}"></div>
       <button class="btn small add-line-btn" data-si="${si}" data-act="addLine">+ Add line (avartanam / sangati)</button>
       ${refBlock}
@@ -1457,10 +1613,10 @@ function buildRowGrid(cfg, noSahitya){
     cols.push(cellWidthPx(cap) + 'px');
     cellsHtml += `
       <div class="beat-cell" data-cap="${cap}" title="${cap} aksharas — wrap text in *single* or **double** for speed underline">
-        <input class="swara" placeholder="swara">
+        <input class="swara" placeholder="swara" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off">
         <div class="aksh-badge"></div>
         ${noSahitya ? '' : `
-        <input class="lyric" placeholder="sahitya, space-separated per note (wrap in |word| for one unbreakable word)">
+        <input class="lyric" placeholder="sahitya" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off">
         <div class="align-badge"></div>`}
       </div>`;
     if(i === cfg.dividerAfter && i !== cfg.rowCells.length - 1){
@@ -1508,7 +1664,7 @@ function renderLines(host, sec, cfg, kalai){
 
     row.innerHTML = `
       <div class="line-top">
-        <input class="label" placeholder="1)" value="${escapeHtml(line.label)}">
+        <input class="label" placeholder="1)" value="${escapeHtml(line.label)}" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off">
         <div class="spacer"></div>
         <button class="btn small" data-act="dup">⧉ Duplicate</button>
         <button class="btn small danger" data-act="del">✕ Remove line</button>
@@ -1989,10 +2145,18 @@ async function downloadDocxFile(song){
 /* ===================== Actions ===================== */
 function deleteSong(id){
   if(!confirm('Delete this kriti from your library? This cannot be undone.')) return;
+  const song = library.find(s=>s.id===id);
   library = library.filter(s=>s.id!==id);
   currentId = library.length ? library[0].id : null;
   persist(); renderAll();
   showToast('Deleted');
+  // Also removes the matching .docx from Drive (queued + retried — see
+  // flushPendingDriveDeletes — so this isn't lost if you're offline or not
+  // currently connected right when you delete something).
+  if(song){
+    const filename = (song.title || 'kriti').replace(/[\\/:*?"<>|]/g,'_') + '.docx';
+    queueDriveDelete(filename);
+  }
 }
 
 function copyForClaude(song){
@@ -2025,8 +2189,13 @@ document.getElementById('closePreviewBtn').onclick = closePreview;
 document.getElementById('previewOverlay').addEventListener('click', e=>{
   if(e.target.id === 'previewOverlay') closePreview();
 });
+document.getElementById('storageQuotaBtn').onclick = openStorageQuota;
+document.getElementById('closeQuotaBtn').onclick = closeStorageQuota;
+document.getElementById('quotaOverlay').addEventListener('click', e=>{
+  if(e.target.id === 'quotaOverlay') closeStorageQuota();
+});
 document.addEventListener('keydown', e=>{
-  if(e.key === 'Escape') closePreview();
+  if(e.key === 'Escape'){ closePreview(); closeStorageQuota(); }
 });
 
 (async function init(){
