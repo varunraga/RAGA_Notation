@@ -303,15 +303,20 @@ let currentId = null;
    Client-side OAuth via Google Identity Services (GIS), using the drive.file scope
    (the app can only see/manage files it creates itself, never your whole Drive).
    The access token is kept in memory only (a module variable, never written to
-   localStorage/cookies) since it's short-lived (~1hr) and GIS re-issues it as
-   needed from a user gesture.
+   localStorage/cookies) since it's short-lived (~1hr). A proactive silent
+   refresh is scheduled ~5 minutes before each expiry (see
+   scheduleDriveTokenRefresh), so in normal use the token renews itself in the
+   background and you'd rarely ever see a re-auth prompt mid-session. Every
+   Drive API call also retries transient failures (dropped connections, 429s,
+   5xx) with jittered exponential backoff (see driveFetch) before giving up.
 
-   Sync button behavior: when NOT connected (fresh load, or the in-memory token
-   has expired/gone stale) it acts as "Connect to Drive" (interactive consent).
-   Once connected, it just means "sync now" — no re-auth prompt. Separately,
-   every edit that gets saved locally also triggers a SILENT auto-sync to
-   Drive automatically, provided we're connected and the browser reports it's
-   online — no button click needed for that part. */
+   Sync button behavior: when NOT connected (fresh load, or the token has
+   truly expired/gone stale, e.g. the browser session itself was signed out)
+   it acts as "Connect to Drive" (interactive consent). Once connected, it
+   just means "sync now" — no re-auth prompt. Separately, every edit that
+   gets saved locally also triggers a SILENT auto-sync to Drive automatically,
+   provided we're connected and the browser reports it's online — no button
+   click needed for that part. */
 const DRIVE_CLIENT_ID = '1039896529971-206omvkrp0er16kl5lisfns5tu7jhe5r.apps.googleusercontent.com';
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const DRIVE_FOLDER_NAME = 'Kriti Notation Studio';
@@ -319,16 +324,28 @@ const DRIVE_FOLDER_ID_KEY = 'kriti-notation-studio.driveFolderId';
 const DRIVE_LIBRARY_FILE_ID_KEY = 'kriti-notation-studio.driveLibraryFileId';
 const DRIVE_LIBRARY_FILENAME = 'kriti-library.json';
 const DRIVE_LAST_SYNCED_KEY = 'kriti-notation-studio.driveLastSyncedAt';
+const DRIVE_DIRTY_COUNT_KEY = 'kriti-notation-studio.driveDirtyCount';
 let driveTokenClient = null;
 let driveAccessToken = null;
+let driveTokenExpiresAt = null; // ms epoch — when the current access token expires
+let driveRefreshTimer = null;   // setTimeout handle for the proactive silent refresh
 let driveFolderId = null;
 let driveLibraryFileId = null;
 let driveSyncInFlight = false;
 let driveSyncPending = false; // true when an edit happened while offline — retried once back online
 let driveLastSyncedAt = null; // ms epoch of the last successful sync, for the "Synced Xm ago" line
+let driveDirtyCount = 0; // # of local saves since the last successful Drive sync — surfaced
+                         // as "N changes waiting to sync" so a stuck/failing sync is visible
+                         // even without noticing a stale "Synced Xm ago" timestamp
 try{ driveFolderId = localStorage.getItem(DRIVE_FOLDER_ID_KEY) || null; }catch(e){}
 try{ driveLibraryFileId = localStorage.getItem(DRIVE_LIBRARY_FILE_ID_KEY) || null; }catch(e){}
 try{ const ts = localStorage.getItem(DRIVE_LAST_SYNCED_KEY); if(ts) driveLastSyncedAt = parseInt(ts, 10) || null; }catch(e){}
+try{ const dc = localStorage.getItem(DRIVE_DIRTY_COUNT_KEY); if(dc) driveDirtyCount = parseInt(dc, 10) || 0; }catch(e){}
+
+function setDriveDirtyCount(n){
+  driveDirtyCount = Math.max(0, n);
+  try{ localStorage.setItem(DRIVE_DIRTY_COUNT_KEY, String(driveDirtyCount)); }catch(e){}
+}
 
 function formatRelativeTime(ms){
   const diff = Date.now() - ms;
@@ -343,6 +360,13 @@ function updateSyncStatusText(){
   const el = document.getElementById('syncStatus');
   if(!el) return;
   if(!driveAccessToken){ el.textContent = ''; return; }
+  if(driveDirtyCount > 0){
+    const noun = driveDirtyCount === 1 ? 'change' : 'changes';
+    el.textContent = driveSyncPending
+      ? `Offline — ${driveDirtyCount} ${noun} waiting to sync`
+      : `${driveDirtyCount} ${noun} waiting to sync`;
+    return;
+  }
   el.textContent = driveSyncPending ? 'Offline — will sync when back online'
     : driveLastSyncedAt ? ('Synced ' + formatRelativeTime(driveLastSyncedAt)) : 'Not yet synced';
 }
@@ -362,20 +386,58 @@ function updateSyncButton(){
   updateSyncStatusText();
 }
 
+function clearDriveRefreshTimer(){
+  if(driveRefreshTimer){ clearTimeout(driveRefreshTimer); driveRefreshTimer = null; }
+}
+
+/* Schedules a silent, invisible access-token refresh ~5 minutes before the
+   current token expires (tokens last ~1hr), so in normal use you'd rarely
+   ever see "Reconnect" mid-session. Uses prompt:'' (no consent UI) — this is
+   the documented pattern for silently reissuing a token you already have
+   an active grant for, and doesn't need a fresh user gesture. If it ever
+   fails silently (e.g. the browser's Google session itself was signed out
+   elsewhere), that failure is swallowed here — the token just expires
+   normally and driveFetch's existing 401 handling takes over, exactly as if
+   this feature didn't exist. Re-scheduled every time a new token comes in
+   (initial connect or a previous silent refresh), so it's a self-renewing
+   chain for as long as the app stays open. */
+function scheduleDriveTokenRefresh(){
+  clearDriveRefreshTimer();
+  if(!driveTokenExpiresAt) return;
+  const refreshAt = driveTokenExpiresAt - 5*60*1000;
+  const delay = Math.max(refreshAt - Date.now(), 10000); // never less than 10s out
+  driveRefreshTimer = setTimeout(()=>{
+    if(!driveTokenClient) return;
+    driveTokenClient.requestAccessToken({ prompt: '' });
+  }, delay);
+}
+
 function initDriveTokenClient(){
   if(driveTokenClient || !window.google || !google.accounts || !google.accounts.oauth2) return;
   driveTokenClient = google.accounts.oauth2.initTokenClient({
     client_id: DRIVE_CLIENT_ID,
     scope: DRIVE_SCOPE,
     callback: (resp)=>{
+      const hadTokenAlready = !!driveAccessToken;
       if(resp.error){
         console.error('[drive auth] failed:', resp);
-        showToast('Google Drive sign-in failed — try again');
+        // Only surface an error for a real connection attempt. A failed
+        // SILENT background refresh should stay invisible — the still-valid
+        // token just keeps working until it naturally expires.
+        if(!hadTokenAlready){
+          showToast('Google Drive sign-in failed — try again');
+        }
         return;
       }
       driveAccessToken = resp.access_token;
+      const expiresInSec = Number(resp.expires_in) || 3600;
+      driveTokenExpiresAt = Date.now() + expiresInSec*1000;
+      scheduleDriveTokenRefresh();
       updateSyncButton();
-      setupDriveFolder();
+      // Only run full folder setup (+ its toasts, + an immediate sync) on a
+      // genuinely new connection this session — a background refresh just
+      // needs the token renewed, not the whole setup flow repeated.
+      if(!hadTokenAlready) setupDriveFolder();
     },
   });
 }
@@ -402,22 +464,52 @@ function onSyncButtonClick(){
   }
 }
 
-/* Thin fetch wrapper for Drive API calls — adds the bearer token, and treats
-   a 401 as "the token has expired" — clearing it so the Sync button reverts
-   to "Connect" behavior next click, matching your "after timeout" case.
-   (Proactive refresh before expiry, so this path is rarely hit at all, is a
-   later refinement — this simple version is enough for now.) */
+function sleep(ms){ return new Promise(resolve=>setTimeout(resolve, ms)); }
+/* ~0.5s / 1s / 2s / 4s base, with +/-25% jitter so simultaneous retries
+   (e.g. several Drive calls hitting a rate limit at once) don't all
+   collide again on the exact same schedule. */
+function driveBackoffDelay(attempt){
+  const base = 500 * Math.pow(2, attempt);
+  return Math.round(base * (0.75 + Math.random() * 0.5));
+}
+
+/* Thin fetch wrapper for Drive API calls — adds the bearer token, and retries
+   TRANSIENT failures up to 4 attempts total with jittered exponential
+   backoff: a network-level fetch rejection (dropped connection, brief
+   offline blip), a 429 (rate limit), or a 5xx (a Google server hiccup). None
+   of these are retried blindly forever — after the 4th attempt, the error
+   propagates and the caller's existing failure handling (logging, "will
+   retry on next edit", etc.) takes over exactly as before.
+   A 401 is NEVER retried — it means the token itself is expired/invalid, so
+   clearing it immediately (reverting the Sync button to "Connect") is
+   correct; retrying with the same bad token would just fail 4 more times
+   for no benefit. Other 4xx (bad request, not found, etc.) also aren't
+   retried, since the request itself won't succeed no matter how many times
+   it's repeated. */
 async function driveFetch(url, opts){
-  const merged = Object.assign({}, opts||{});
-  merged.headers = Object.assign({}, merged.headers||{}, { Authorization: 'Bearer ' + driveAccessToken });
-  const r = await fetch(url, merged);
-  if(r.status === 401){
-    driveAccessToken = null;
-    updateSyncButton();
-    throw new Error('drive auth expired');
+  const maxAttempts = 4;
+  for(let attempt=0; attempt<maxAttempts; attempt++){
+    let r;
+    try{
+      const merged = Object.assign({}, opts||{});
+      merged.headers = Object.assign({}, merged.headers||{}, { Authorization: 'Bearer ' + driveAccessToken });
+      r = await fetch(url, merged);
+    } catch(networkErr){
+      if(attempt < maxAttempts - 1){ await sleep(driveBackoffDelay(attempt)); continue; }
+      throw networkErr;
+    }
+    if(r.status === 401){
+      driveAccessToken = null;
+      updateSyncButton();
+      throw new Error('drive auth expired');
+    }
+    if(r.status === 429 || (r.status >= 500 && r.status < 600)){
+      if(attempt < maxAttempts - 1){ await sleep(driveBackoffDelay(attempt)); continue; }
+      throw new Error('drive http ' + r.status);
+    }
+    if(!r.ok) throw new Error('drive http ' + r.status);
+    return r;
   }
-  if(!r.ok) throw new Error('drive http ' + r.status);
-  return r;
 }
 
 /* Finds the "Kriti Notation Studio" folder by name (searched only within files
@@ -501,29 +593,59 @@ async function driveFindFileByName(name){
    Unlike the JSON sync above (which always PATCHes the one known file id),
    this looks the file up by name each time, since there can be many
    differently-named exports (one per song) rather than a single fixed file. */
+/* Flags a file's latest revision as "keep forever" so Drive's automatic
+   pruning of old revisions on a repeatedly-overwritten file (which is
+   exactly what happens here — .docx exports are matched by filename and
+   PATCHed in place on every re-export) never silently deletes an earlier
+   version. Best-effort and fire-and-safe: any failure here is only logged,
+   never surfaced to the user or allowed to fail the upload that already
+   succeeded by the time this runs — losing "keep forever" on one revision
+   isn't worth interrupting the workflow over. */
+async function driveKeepRevisionForever(fileId, revisionId){
+  if(!fileId || !revisionId) return;
+  try{
+    await driveFetch(`https://www.googleapis.com/drive/v3/files/${fileId}/revisions/${revisionId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keepForever: true }),
+    });
+  }catch(e){
+    console.error('[drive keep-forever] failed:', e);
+  }
+}
+
 async function driveUploadBlob(blob, filename, mimeType){
   const existingId = await driveFindFileByName(filename);
+  let result;
   if(existingId){
-    const r = await driveFetch(`https://www.googleapis.com/upload/drive/v3/files/${existingId}?uploadType=media&fields=id`, {
+    const r = await driveFetch(`https://www.googleapis.com/upload/drive/v3/files/${existingId}?uploadType=media&fields=id,headRevisionId`, {
       method: 'PATCH',
       headers: { 'Content-Type': mimeType },
       body: blob,
     });
-    return r.json();
+    result = await r.json();
+  } else {
+    const boundary = 'kns' + Date.now();
+    const metadata = JSON.stringify({ name: filename, parents: [driveFolderId] });
+    const body = new Blob([
+      `--${boundary}\r\nContent-Type: application/json\r\n\r\n${metadata}\r\n--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`,
+      blob,
+      `\r\n--${boundary}--`,
+    ]);
+    const r = await driveFetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,headRevisionId', {
+      method: 'POST',
+      headers: { 'Content-Type': 'multipart/related; boundary=' + boundary },
+      body,
+    });
+    result = await r.json();
   }
-  const boundary = 'kns' + Date.now();
-  const metadata = JSON.stringify({ name: filename, parents: [driveFolderId] });
-  const body = new Blob([
-    `--${boundary}\r\nContent-Type: application/json\r\n\r\n${metadata}\r\n--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`,
-    blob,
-    `\r\n--${boundary}--`,
-  ]);
-  const r = await driveFetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
-    method: 'POST',
-    headers: { 'Content-Type': 'multipart/related; boundary=' + boundary },
-    body,
-  });
-  return r.json();
+  // Every upload creates a new revision (or the file's first one) — flag
+  // that revision to keep forever so it's never quietly pruned once later
+  // re-exports push the revision history past Drive's normal retention.
+  if(result && result.id && result.headRevisionId){
+    await driveKeepRevisionForever(result.id, result.headRevisionId);
+  }
+  return result;
 }
 
 /* Uploads a generated .docx to the Drive folder, if connected and online.
@@ -572,6 +694,7 @@ async function syncLibraryToDrive(auto){
     driveSyncPending = false;
     driveLastSyncedAt = Date.now();
     try{ localStorage.setItem(DRIVE_LAST_SYNCED_KEY, String(driveLastSyncedAt)); }catch(e){}
+    setDriveDirtyCount(0);
     updateSyncStatusText();
     if(!auto) showToast('Synced to Google Drive ✓');
   }catch(e){
@@ -677,6 +800,11 @@ async function persist(){
     // explicit "Save now" button still reports success/failure directly.
     console.error('[persist] localStorage save failed:', e);
   }
+  // One more local change Drive doesn't have yet — shown as "N changes
+  // waiting to sync" until the next successful sync resets it to 0. Tracked
+  // regardless of connection state, so it's accurate the moment you do connect.
+  setDriveDirtyCount(driveDirtyCount + 1);
+  updateSyncStatusText();
   // Auto-sync to Drive on every save, but only if already connected and the
   // browser reports it's online — silent either way (auto=true), since this
   // fires on every single edit. If we're not connected, this is a no-op (the
@@ -777,7 +905,7 @@ function sanitizeSwaraLive(inp){ return filterCaseLive(inp, 'upper', SWARA_ALLOW
    into aligned syllables). Everything else — digits, other punctuation — blocked.
    Note: this does NOT apply to the free-text "Sahitya (plain lyrics)" textarea,
    which still allows normal prose punctuation. */
-const LYRIC_CELL_ALLOWED = /[a-z\-. ]/;
+const LYRIC_CELL_ALLOWED = /[a-z\-. |]/;
 function sanitizeLyricCellLive(inp){ return filterCaseLive(inp, 'lower', LYRIC_CELL_ALLOWED); }
 
 /* Custom keyboard navigation for a physical row's cells:
