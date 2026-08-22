@@ -305,6 +305,11 @@ const TALAS = {
     dividerType: 'pipe', dividerAfter: 3, kalaiAware: true,
     aksharasPerAvartanam: 32
   },
+  adi_tishra: {
+    label: 'Adi (Tishra Nadai)', rowCells: [6,6,6,6,6,6,6,6],
+    dividerType: 'pipe', dividerAfter: 3, kalaiAware: false,
+    aksharasPerAvartanam: 48
+  },
   rupakam: {
     label: 'Rupakam', rowCells: [4,4,4,4,4,4],
     dividerType: 'avartanam', dividerAfter: 2, kalaiAware: false,
@@ -2118,9 +2123,13 @@ async function downloadDocxFile(song){
   }
 
   try{
+    // Legal-length landscape (14in) fits every tala EXCEPT Adi (Tishra Nadai) —
+    // its 48 aksharas/row (vs Adi's 32) need ~17.5in of usable width at the
+    // current 10pt grid font, so only that tala gets a further-widened page.
+    const pageWidth = song.tala === 'adi_tishra' ? 25920 : 20160; // 18in vs 14in
     const doc = new Document({
       sections: [{
-        properties: { page: { size:{width:20160,height:12240}, margin:{top:1008,bottom:720,left:1008,right:720} } },
+        properties: { page: { size:{width:pageWidth,height:12240}, margin:{top:1008,bottom:720,left:1008,right:720} } },
         children: dBuildDocBody(song),
       }],
     });
