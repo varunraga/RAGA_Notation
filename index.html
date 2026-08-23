@@ -287,6 +287,19 @@
   </div>
 </div>
 
+<div class="quota-overlay" id="docxChoiceOverlay">
+  <div class="quota-modal">
+    <div class="quota-modal-head">
+      <div class="quota-modal-title">Download or Export</div>
+      <button class="btn small" id="closeDocxChoiceBtn">✕</button>
+    </div>
+    <div style="display:flex; flex-direction:column; gap:10px;">
+      <button class="btn primary" id="docxChoiceDownloadBtn" style="width:100%;">⬇ Download to this device</button>
+      <button class="btn" id="docxChoiceExportBtn" style="width:100%;">☁️ Export to Google Drive</button>
+    </div>
+  </div>
+</div>
+
 
 <div class="preview-overlay" id="previewOverlay">
   <div class="preview-modal">
@@ -826,19 +839,21 @@ async function driveUploadBlob(blob, filename, mimeType){
   return result;
 }
 
-/* Uploads a generated .docx to the Drive folder, if connected and online.
-   Silent on success/failure either way — downloadDocxFile already reports
-   its own "Downloaded .docx" toast for the local save; this is a best-effort
-   extra, not the main action the user asked for by clicking Download. */
+/* Uploads a generated .docx to the Drive folder. This is now its own
+   deliberate action (chosen from the Download/Export prompt), not a silent
+   side effect of downloading — reports its own success/failure toast. */
 async function syncDocxToDrive(blob, filename){
-  if(!driveAccessToken || !navigator.onLine) return;
+  if(!driveAccessToken || !navigator.onLine){
+    if(!navigator.onLine) showToast('Offline — could not export to Drive');
+    return;
+  }
   try{
     if(!driveFolderId) driveFolderId = await driveFindOrCreateFolder(DRIVE_FOLDER_NAME);
     await driveUploadBlob(blob, filename, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-    showToast('Also saved to Google Drive ✓');
+    showToast('Exported to Google Drive ✓');
   }catch(e){
     console.error('[drive docx upload] failed:', e);
-    showToast('Downloaded, but could not save a copy to Drive');
+    showToast('Could not export to Drive — try again');
   }
 }
 
@@ -1314,30 +1329,32 @@ function tokenizeSwaraForAlign(raw){
   const markupRe = /\*\*(.+?)\*\*|\*(.+?)\*/g;
   const tokenRe = /[A-Za-z][\'\.]?|,|;/g;
   const items = [];
+  // Whether grouping mode is active is decided ONCE for the whole cell, not
+  // per span. A space typed right at the boundary between a plain run and an
+  // underlined run (e.g. "P *GP*") is outside both spans' own text, so a
+  // per-span check would miss it — leaving *GP* to fall back to "no space
+  // anywhere in THIS span" and stay ungrouped, even though the user's typed
+  // space clearly means "P" and "GP" are two separate syllable groups. Using
+  // the cell's full raw text instead means that boundary space still counts,
+  // and *GP* (zero space of its own) correctly becomes one merged group —
+  // while a cell with literally no space ANYWHERE still stays fully legacy,
+  // so old fully-compact cells (plain or underlined) are unaffected either way.
+  const cellHasAnyBreak = raw.includes(' ');
 
   function makeItem(toks, underline, gapBefore){
     return { display: toks.map(t=>t.display).join(''), underline, gapBefore: gapBefore || 0 };
   }
   // Shared grouping logic for BOTH plain (underline=0) and underlined
-  // (underline=1/2) spans: tokens with zero typed spaces between them merge
-  // into one group/item (one syllable's worth); any 1+ typed spaces start a
-  // new group, and the exact typed count is kept (gapBefore) so the spacing
-  // rules below can tell "just the grouping marker" apart from "a deliberate
-  // wider gap request" — the same mechanism that already applied inside
-  // underlined (2nd/3rd speed) spans now applies uniformly to plain (1st
-  // speed) text too, not just inside underlines as before.
-  //
-  // `alwaysGroup` (true for plain spans) skips the "no break anywhere in
-  // this span -> legacy, every token separate" fallback that underline
-  // spans still use below. That fallback exists for underline specifically
-  // to keep pre-existing, already-notated songs (typed compactly, before
-  // grouping existed) rendering exactly as before. Plain text never had
-  // that history — typed spaces there were previously ignored entirely, so
-  // there's no old behavior to preserve — and the agreed intent is that a
-  // fully compact plain cell like "SRG" (zero spaces throughout) merges
-  // into one group now, same as it would if even one space were typed
-  // elsewhere in that cell. Underlined spans are untouched by this change.
-  function pushSpan(text, underline, alwaysGroup){
+  // (underline=1/2) spans: if there's no space ANYWHERE in the cell, every
+  // token stays its own item — this is what preserves old behavior for a
+  // normally-typed compact cell (e.g. "SR" meaning 2 separate notes/
+  // syllables, exactly as it always worked). Grouping activates once the
+  // user deliberately types at least one space anywhere in the cell: tokens
+  // with zero space between them then merge into one group, a space starts
+  // a new group, and the exact typed count is kept (gapBefore) so the
+  // spacing rules below can tell "just the grouping marker" (1 space) apart
+  // from "a deliberate wider gap request" (2+ spaces).
+  function pushSpan(text, underline){
     tokenRe.lastIndex = 0;
     const matches = [...text.matchAll(tokenRe)];
     if(!matches.length) return;
@@ -1349,8 +1366,7 @@ function tokenizeSwaraForAlign(raw){
       }
       return { display: octaveDisplay(tm[0]), gapLen };
     });
-    const hasAnyBreak = raw2.some(t => t.gapLen > 0);
-    if(hasAnyBreak || alwaysGroup){
+    if(cellHasAnyBreak){
       let cur = [];
       let curGapBefore = 0; // gap that led INTO the group currently being built
       raw2.forEach(t=>{
@@ -1368,12 +1384,12 @@ function tokenizeSwaraForAlign(raw){
   }
   let last = 0, m;
   while((m = markupRe.exec(raw)) !== null){
-    if(m.index > last) pushSpan(raw.slice(last, m.index), 0, true);
-    if(m[1] !== undefined) pushSpan(m[1], 2, false);
-    else pushSpan(m[2], 1, false);
+    if(m.index > last) pushSpan(raw.slice(last, m.index), 0);
+    if(m[1] !== undefined) pushSpan(m[1], 2);
+    else pushSpan(m[2], 1);
     last = markupRe.lastIndex;
   }
-  if(last < raw.length) pushSpan(raw.slice(last), 0, true);
+  if(last < raw.length) pushSpan(raw.slice(last), 0);
   return items;
 }
 
@@ -1508,8 +1524,9 @@ function renderMain(){
 
     <div class="toolbar">
       <button class="btn primary" id="previewBtn">👁 Preview</button>
-      <button class="btn primary" id="downloadDocxBtn">⬇ Download Word (.docx)</button>
+      <button class="btn primary" id="downloadDocxBtn">⬇ Download/Export (.docx)</button>
       <button class="btn" id="saveBtn">💾 Save now</button>
+      <button class="btn" id="duplicateSongBtn">⎘ Duplicate kriti</button>
       <button class="btn" id="copyDataBtn">📋 Copy data for Claude (→ .docx)</button>
       <button class="btn danger" id="deleteBtn">🗑️ Delete kriti</button>
     </div>
@@ -1564,8 +1581,9 @@ function renderMain(){
 
   document.getElementById('saveBtn').onclick = async ()=>{ await persist(); showToast('Saved'); };
   document.getElementById('previewBtn').onclick = openPreview;
-  document.getElementById('downloadDocxBtn').onclick = ()=>downloadDocxFile(song);
+  document.getElementById('downloadDocxBtn').onclick = ()=>openDocxChoice(song);
   document.getElementById('copyDataBtn').onclick = ()=>copyForClaude(song);
+  document.getElementById('duplicateSongBtn').onclick = ()=>duplicateSong(song.id);
   document.getElementById('deleteBtn').onclick = ()=>deleteSong(song.id);
   document.getElementById('addSectionBtn').onclick = ()=>{
     song.sections.push(blankSection('New Section', TALAS[song.tala], song.kalai, false));
@@ -1719,6 +1737,7 @@ function renderLines(host, sec, cfg, kalai){
         <input class="label" placeholder="1)" value="${escapeHtml(line.label)}" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off">
         <div class="spacer"></div>
         <button class="btn small" data-act="dup">⧉ Duplicate</button>
+        <button class="btn small" data-act="clear">⌫ Clear</button>
         <button class="btn small danger" data-act="del">✕ Remove line</button>
       </div>
       ${rowsHtml}
@@ -1730,6 +1749,14 @@ function renderLines(host, sec, cfg, kalai){
     labelInput.oninput = e=>{ line.label = e.target.value; queueSave(); updatePreview(row, line, noSahitya, cfg, kalai); };
     row.querySelector('[data-act="dup"]').onclick = ()=>{
       sec.lines.splice(li+1, 0, JSON.parse(JSON.stringify(line))); queueSave(); renderSections();
+    };
+    row.querySelector('[data-act="clear"]').onclick = ()=>{
+      if(!confirm('Clear all swara and sahitya typed in this line? The line itself stays — only its content is erased.')) return;
+      line.rows.forEach(r=>{
+        r.swara = r.swara.map(()=>'');
+        r.lyric = r.lyric.map(()=>'');
+      });
+      queueSave(); renderSections();
     };
     row.querySelector('[data-act="del"]').onclick = ()=>{
       sec.lines.splice(li,1); queueSave(); renderSections();
@@ -1955,9 +1982,9 @@ function computeCellSpacing(contentLen, targetWidthTwips){
 }
 const dxaToPt = dxa => dxa / 20;
 
-async function downloadDocxFile(song){
+async function buildDocxBlob(song){
   const lib = ensureDocxLib();
-  if(!lib) return;
+  if(!lib) return null;
   const {
     Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
     WidthType, AlignmentType, BorderStyle, VerticalAlign, UnderlineType, TableLayoutType,
@@ -2181,24 +2208,76 @@ async function downloadDocxFile(song){
       }],
     });
     const blob = await Packer.toBlob(doc);
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
     const filename = (song.title || 'kriti').replace(/[\\/:*?"<>|]/g,'_') + '.docx';
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(()=>URL.revokeObjectURL(url), 4000);
-    showToast('Downloaded .docx');
-    syncDocxToDrive(blob, filename);
+    return { blob, filename };
   }catch(e){
     console.error(e);
     showToast('Could not generate .docx — see console for details');
+    return null;
   }
 }
 
+function triggerLocalDownload(blob, filename){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 4000);
+  showToast('Downloaded .docx');
+}
+
+/* The Download/Export button asks each time which you want, rather than
+   silently doing both on every click — separate, deliberate actions instead
+   of one button quietly also uploading to Drive every single time. */
+let docxChoiceSong = null;
+function openDocxChoice(song){
+  docxChoiceSong = song;
+  document.getElementById('docxChoiceOverlay').classList.add('show');
+}
+function closeDocxChoice(){
+  document.getElementById('docxChoiceOverlay').classList.remove('show');
+  docxChoiceSong = null;
+}
+async function handleDocxChoiceDownload(){
+  const song = docxChoiceSong;
+  closeDocxChoice();
+  if(!song) return;
+  const result = await buildDocxBlob(song);
+  if(result) triggerLocalDownload(result.blob, result.filename);
+}
+async function handleDocxChoiceExport(){
+  const song = docxChoiceSong;
+  closeDocxChoice();
+  if(!song) return;
+  if(!driveAccessToken){
+    showToast('Not connected to Google Drive — click Sync first');
+    return;
+  }
+  const result = await buildDocxBlob(song);
+  if(result) await syncDocxToDrive(result.blob, result.filename);
+}
+
 /* ===================== Actions ===================== */
+function duplicateSong(id){
+  const original = library.find(s=>s.id===id);
+  if(!original) return;
+  // Deep clone via JSON round-trip — safe here since a song is pure data
+  // (strings/arrays/objects only, nothing like a function or DOM node), so
+  // this can't leave the copy accidentally sharing nested arrays/objects
+  // with the original (editing one would otherwise silently edit both).
+  const copy = JSON.parse(JSON.stringify(original));
+  copy.id = uid();
+  copy.title = (original.title || 'Untitled Kriti') + ' (Copy)';
+  const idx = library.findIndex(s=>s.id===id);
+  library.splice(idx + 1, 0, copy); // sits right next to the original in the list
+  currentId = copy.id;
+  persist(); renderAll();
+  showToast('Duplicated — editing the copy now');
+}
+
 function deleteSong(id){
   if(!confirm('Delete this kriti from your library? This cannot be undone.')) return;
   const song = library.find(s=>s.id===id);
@@ -2250,8 +2329,14 @@ document.getElementById('closeQuotaBtn').onclick = closeStorageQuota;
 document.getElementById('quotaOverlay').addEventListener('click', e=>{
   if(e.target.id === 'quotaOverlay') closeStorageQuota();
 });
+document.getElementById('closeDocxChoiceBtn').onclick = closeDocxChoice;
+document.getElementById('docxChoiceDownloadBtn').onclick = handleDocxChoiceDownload;
+document.getElementById('docxChoiceExportBtn').onclick = handleDocxChoiceExport;
+document.getElementById('docxChoiceOverlay').addEventListener('click', e=>{
+  if(e.target.id === 'docxChoiceOverlay') closeDocxChoice();
+});
 document.addEventListener('keydown', e=>{
-  if(e.key === 'Escape'){ closePreview(); closeStorageQuota(); }
+  if(e.key === 'Escape'){ closePreview(); closeStorageQuota(); closeDocxChoice(); }
 });
 
 (async function init(){
