@@ -82,6 +82,12 @@
     transition:background .15s;
   }
   .newbtn:hover{ background:var(--maroon-deep); }
+  .sync-panel{ display:flex; flex-direction:column; gap:7px; }
+  .sync-panel .btn{ width:100%; }
+  .sync-status{
+    text-align:center; font-size:10.5px; line-height:1.35; color:var(--ink-soft);
+    min-height:13px; padding:0 4px;
+  }
   .search{
     width:100%; padding:9px 11px; border-radius:7px; border:1px solid var(--line);
     background:var(--paper); font-size:13px; color:var(--ink); font-family:'Inter',sans-serif;
@@ -135,7 +141,7 @@
   .btn{
     border:1px solid var(--line); background:var(--paper); color:var(--ink);
     padding:9px 14px; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer;
-    display:flex; align-items:center; gap:7px; transition:all .15s;
+    display:flex; align-items:center; justify-content:center; gap:7px; transition:all .15s;
   }
   .btn:hover{ border-color:var(--gold); background:var(--leaf-deep); }
   .btn.primary{ background:var(--maroon); color:var(--paper); border-color:var(--maroon); }
@@ -257,9 +263,11 @@
       <div class="mark">Kriti Notation Studio</div>
       <div class="sub">your permanent swara library</div>
     </div>
-    <button class="newbtn" id="syncBtn" style="margin-bottom:2px;">🔄 Sync</button>
-    <div class="sub" id="syncStatus" style="margin-bottom:2px;min-height:14px;"></div>
-    <button class="btn small" id="storageQuotaBtn" style="margin-bottom:8px;width:100%;">📊 Storage used</button>
+    <div class="sync-panel">
+      <button class="newbtn" id="syncBtn">☁️ Connect to Drive</button>
+      <div class="sync-status" id="syncStatus"></div>
+      <button class="btn small" id="storageQuotaBtn">📊 Storage used</button>
+    </div>
     <button class="newbtn" id="newSongBtn">+ New Kriti</button>
     <input class="search" id="searchBox" type="text" placeholder="Search by title or raga…" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off">
     <div class="song-list" id="songList"></div>
@@ -479,7 +487,7 @@ async function flushPendingDriveDeletes(){
 function updateSyncButton(){
   const b = document.getElementById('syncBtn');
   if(!b) return;
-  b.textContent = driveAccessToken ? '☁️ Synced' : '🔄 Sync';
+  b.textContent = driveAccessToken ? '🔄 Sync' : '☁️ Connect to Drive';
   b.title = driveAccessToken ? 'Click to sync now' : 'Click to connect to Google Drive';
   updateSyncStatusText();
 }
@@ -628,17 +636,45 @@ async function driveFindOrCreateFolder(name){
   return cj.id;
 }
 
-/* ===================== Storage quota view =====================
-   A small modal showing overall Google Drive space used — just reassurance
-   now that .docx files are written there regularly, not a full storage
-   manager. Uses Drive's about.get endpoint (fields=storageQuota), which
-   drive.file already covers — no extra scope/re-consent needed. */
+/* ===================== Storage usage view =====================
+   A small modal showing how much Drive space THIS APP's own files are using
+   — not overall account storage. Drive's about.get?fields=storageQuota
+   endpoint (the previous approach) only ever reports account-WIDE usage
+   across every app and every file in the account, with no way to scope it
+   to one app — which is exactly the confusion this was rewritten to avoid.
+   Instead, this lists every file inside the app's own Drive folder (which is
+   the only place this app ever writes anything, per the drive.file scope)
+   and sums their sizes directly — a true, app-only total. */
 function formatBytes(n){
   if(n === undefined || n === null) return '—';
   const units = ['B','KB','MB','GB','TB'];
   let i = 0, v = Number(n);
   while(v >= 1024 && i < units.length - 1){ v /= 1024; i++; }
   return (i === 0 ? v : v.toFixed(v < 10 ? 2 : 1)) + ' ' + units[i];
+}
+
+/* Sums the size of every (non-trashed) file inside the app's own Drive
+   folder, paginating through files.list as needed. Returns
+   {totalBytes, fileCount}. */
+async function driveComputeAppStorageUsage(){
+  let totalBytes = 0, fileCount = 0, pageToken = null;
+  do{
+    const params = new URLSearchParams({
+      q: `'${driveFolderId}' in parents and trashed=false`,
+      fields: 'nextPageToken,files(id,size)',
+      pageSize: '1000',
+      spaces: 'drive',
+    });
+    if(pageToken) params.set('pageToken', pageToken);
+    const r = await driveFetch(`https://www.googleapis.com/drive/v3/files?${params.toString()}`);
+    const j = await r.json();
+    (j.files || []).forEach(f=>{
+      fileCount++;
+      if(f.size !== undefined) totalBytes += Number(f.size) || 0;
+    });
+    pageToken = j.nextPageToken || null;
+  } while(pageToken);
+  return { totalBytes, fileCount };
 }
 
 async function openStorageQuota(){
@@ -651,30 +687,19 @@ async function openStorageQuota(){
     body.innerHTML = '<div class="quota-error">Not connected to Google Drive yet. Close this and click Sync to connect first.</div>';
     return;
   }
+  if(!driveFolderId){
+    body.innerHTML = '<div class="quota-error">Drive folder isn\u2019t set up yet — try again in a moment.</div>';
+    return;
+  }
   try{
-    const r = await driveFetch('https://www.googleapis.com/drive/v3/about?fields=storageQuota');
-    const j = await r.json();
-    const q = j.storageQuota || {};
-    const usage = q.usage !== undefined ? Number(q.usage) : null;
-    const limit = q.limit !== undefined ? Number(q.limit) : null; // absent/undefined = unlimited (e.g. some Workspace plans)
-
-    if(usage === null){
-      body.innerHTML = '<div class="quota-error">Drive didn\u2019t return storage info — try again later.</div>';
-      return;
-    }
-    if(!limit){
-      body.innerHTML = `<div class="quota-text"><b>${formatBytes(usage)}</b> used — no storage limit on this account.</div>`;
-      return;
-    }
-    const pct = Math.min(100, (usage / limit) * 100);
-    const warn = pct >= 90;
+    const { totalBytes, fileCount } = await driveComputeAppStorageUsage();
+    const filesNoun = fileCount === 1 ? 'file' : 'files';
     body.innerHTML = `
-      <div class="quota-bar-track"><div class="quota-bar-fill${warn ? ' warn' : ''}" style="width:${pct.toFixed(1)}%"></div></div>
-      <div class="quota-text"><b>${formatBytes(usage)}</b> of <b>${formatBytes(limit)}</b> used (${pct.toFixed(1)}%)</div>
-      ${warn ? '<div class="quota-text" style="color:var(--warn);margin-top:6px;">Running low on space — consider freeing up some Drive storage.</div>' : ''}
+      <div class="quota-text"><b>${formatBytes(totalBytes)}</b> used by Kriti Notation Studio, across <b>${fileCount}</b> ${filesNoun}.</div>
+      <div class="quota-text" style="margin-top:6px;color:var(--ink-soft,#777);font-size:12px;">This is just this app's own "${DRIVE_FOLDER_NAME}" folder in your Drive — not your overall Drive storage.</div>
     `;
   }catch(e){
-    console.error('[drive quota] failed:', e);
+    console.error('[drive storage usage] failed:', e);
     body.innerHTML = '<div class="quota-error">Couldn\u2019t load storage info — try again.</div>';
   }
 }
@@ -1293,14 +1318,26 @@ function tokenizeSwaraForAlign(raw){
   function makeItem(toks, underline, gapBefore){
     return { display: toks.map(t=>t.display).join(''), underline, gapBefore: gapBefore || 0 };
   }
-  function pushPlain(text){
-    tokenRe.lastIndex = 0;
-    let tm;
-    while((tm = tokenRe.exec(text)) !== null){
-      items.push(makeItem([{ display: octaveDisplay(tm[0]) }], 0, 0));
-    }
-  }
-  function pushUnderlined(text, underline){
+  // Shared grouping logic for BOTH plain (underline=0) and underlined
+  // (underline=1/2) spans: tokens with zero typed spaces between them merge
+  // into one group/item (one syllable's worth); any 1+ typed spaces start a
+  // new group, and the exact typed count is kept (gapBefore) so the spacing
+  // rules below can tell "just the grouping marker" apart from "a deliberate
+  // wider gap request" — the same mechanism that already applied inside
+  // underlined (2nd/3rd speed) spans now applies uniformly to plain (1st
+  // speed) text too, not just inside underlines as before.
+  //
+  // `alwaysGroup` (true for plain spans) skips the "no break anywhere in
+  // this span -> legacy, every token separate" fallback that underline
+  // spans still use below. That fallback exists for underline specifically
+  // to keep pre-existing, already-notated songs (typed compactly, before
+  // grouping existed) rendering exactly as before. Plain text never had
+  // that history — typed spaces there were previously ignored entirely, so
+  // there's no old behavior to preserve — and the agreed intent is that a
+  // fully compact plain cell like "SRG" (zero spaces throughout) merges
+  // into one group now, same as it would if even one space were typed
+  // elsewhere in that cell. Underlined spans are untouched by this change.
+  function pushSpan(text, underline, alwaysGroup){
     tokenRe.lastIndex = 0;
     const matches = [...text.matchAll(tokenRe)];
     if(!matches.length) return;
@@ -1313,7 +1350,7 @@ function tokenizeSwaraForAlign(raw){
       return { display: octaveDisplay(tm[0]), gapLen };
     });
     const hasAnyBreak = raw2.some(t => t.gapLen > 0);
-    if(hasAnyBreak){
+    if(hasAnyBreak || alwaysGroup){
       let cur = [];
       let curGapBefore = 0; // gap that led INTO the group currently being built
       raw2.forEach(t=>{
@@ -1331,12 +1368,12 @@ function tokenizeSwaraForAlign(raw){
   }
   let last = 0, m;
   while((m = markupRe.exec(raw)) !== null){
-    if(m.index > last) pushPlain(raw.slice(last, m.index));
-    if(m[1] !== undefined) pushUnderlined(m[1], 2);
-    else pushUnderlined(m[2], 1);
+    if(m.index > last) pushSpan(raw.slice(last, m.index), 0, true);
+    if(m[1] !== undefined) pushSpan(m[1], 2, false);
+    else pushSpan(m[2], 1, false);
     last = markupRe.lastIndex;
   }
-  if(last < raw.length) pushPlain(raw.slice(last));
+  if(last < raw.length) pushSpan(raw.slice(last), 0, true);
   return items;
 }
 
@@ -1402,8 +1439,18 @@ function buildAlignedColumns(rawSwara, rawLyric){
     } else if(!!underline !== !!nextTok.underline){
       gap = 1;
     } else {
+      // Both plain (1st speed) — same "typed spaces beyond the baseline add
+      // extra visible spaces on top" idea as underlined groups above, but
+      // using plain's own baseline (2 between swara-letter groups, 1 around
+      // a plain ','/';') instead of underline's baseline of 1. Since
+      // grouping now applies to plain text too, nextTok.gapBefore is always
+      // >=1 here — a plain boundary only exists because at least 1 space
+      // was typed there (zero typed spaces means the tokens merged into one
+      // group instead, per the tokenizer above, and never reach this branch).
       const isPunct = tokDisplay === ',' || tokDisplay === ';';
-      gap = isPunct ? 1 : 2;
+      const baseline = isPunct ? 1 : 2;
+      const typed = nextTok.gapBefore || 0;
+      gap = Math.max(baseline, typed);
     }
 
     // Pad whichever of {swara-group text, sahitya syllable} is shorter up to
@@ -2212,6 +2259,14 @@ document.addEventListener('keydown', e=>{
   if(library.length) currentId = library[0].id;
   renderAll();
   updateSyncButton();
+  // Automatically prompt to connect to Google Drive on every fresh app open
+  // (the access token is memory-only, so this is always needed after a
+  // reload). NOTE: this opens the Google account-chooser as a popup, and
+  // most browsers block popups that aren't the direct result of a user
+  // click — so this can be silently blocked depending on the browser. If
+  // that happens, the "Connect to Drive" button is still right there as a
+  // normal, always-working fallback; nothing else depends on this succeeding.
+  if(!driveAccessToken) connectDrive();
 })();
 </script>
 </body>
