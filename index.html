@@ -8,6 +8,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
   :root{
     --leaf:#ececeb;
@@ -254,6 +256,7 @@
   .quota-text{ font-size:13px; color:var(--ink-soft); }
   .quota-text b{ color:var(--ink); }
   .quota-loading, .quota-error{ font-size:13px; color:var(--ink-soft); padding:6px 0; }
+  .conflict-modal{ max-width:400px; }
 </style>
 </head>
 <body>
@@ -287,16 +290,12 @@
   </div>
 </div>
 
-<div class="quota-overlay" id="docxChoiceOverlay">
-  <div class="quota-modal">
+<div class="quota-overlay" id="conflictOverlay">
+  <div class="quota-modal conflict-modal">
     <div class="quota-modal-head">
-      <div class="quota-modal-title">Download or Export</div>
-      <button class="btn small" id="closeDocxChoiceBtn">✕</button>
+      <div class="quota-modal-title">Drive has other changes</div>
     </div>
-    <div style="display:flex; flex-direction:column; gap:10px;">
-      <button class="btn primary" id="docxChoiceDownloadBtn" style="width:100%;">⬇ Download to this device</button>
-      <button class="btn" id="docxChoiceExportBtn" style="width:100%;">☁️ Export to Google Drive</button>
-    </div>
+    <div id="conflictBody"><div class="quota-loading">Loading…</div></div>
   </div>
 </div>
 
@@ -352,6 +351,186 @@ function numRowsForLine(cfg, kalai){
   return (cfg.kalaiAware && kalai === 2) ? 2 : 1;
 }
 
+/* ===================== Import: file reading (Step 3) =====================
+   This section only READS a source file (.docx or .pdf) into a normalized,
+   source-agnostic structure: an array of "lines", each an array of runs
+   {text, underline}, where underline is 0 (plain), 1 (single/2nd speed), or
+   2 (double/3rd speed). It does NOT yet interpret this as metadata,
+   sections, or swara cells — that's document-structure parsing (Step 4),
+   built on top of this. Kept deliberately separate and source-agnostic so
+   later steps don't need to know or care whether a line came from a PDF or
+   a Word file.
+
+   readDocxRuns(arrayBuffer) -> paragraphs
+   readPdfRuns(arrayBuffer)  -> lines (grouped by vertical position)
+   Both resolve to the same shape: [ [ {text, underline}, ... ], ... ]
+
+   ---- DOCX: fully reliable, no heuristics ----
+   Word stores underline as an explicit <w:u w:val="single"/"double"/...>
+   property on each run in word/document.xml — read directly via JSZip
+   (unzip) + the browser's native DOMParser (XML parsing). No inference
+   needed at all; this is about as reliable as file parsing gets. */
+async function readDocxRuns(arrayBuffer){
+  const zip = await JSZip.loadAsync(arrayBuffer);
+  const docXmlFile = zip.file('word/document.xml');
+  if(!docXmlFile) throw new Error('Not a valid .docx file (missing word/document.xml)');
+  const xmlText = await docXmlFile.async('string');
+  const xmlDoc = new DOMParser().parseFromString(xmlText, 'application/xml');
+  const W_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+
+  const paragraphs = [];
+  const pNodes = xmlDoc.getElementsByTagNameNS(W_NS, 'p');
+  for(let pi=0; pi<pNodes.length; pi++){
+    const runs = [];
+    const rNodes = pNodes[pi].getElementsByTagNameNS(W_NS, 'r');
+    for(let ri=0; ri<rNodes.length; ri++){
+      const rNode = rNodes[ri];
+      const tNodes = rNode.getElementsByTagNameNS(W_NS, 't');
+      let text = '';
+      for(let ti=0; ti<tNodes.length; ti++) text += tNodes[ti].textContent;
+      if(!text) continue;
+      let underline = 0;
+      const rPr = rNode.getElementsByTagNameNS(W_NS, 'rPr')[0];
+      if(rPr){
+        const uNode = rPr.getElementsByTagNameNS(W_NS, 'u')[0];
+        if(uNode){
+          const val = uNode.getAttributeNS(W_NS, 'val') || uNode.getAttribute('w:val');
+          if(val === 'double') underline = 2;
+          else if(val && val !== 'none') underline = 1;
+        }
+      }
+      runs.push({ text, underline });
+    }
+    if(runs.length) paragraphs.push(runs);
+  }
+  return paragraphs;
+}
+
+/* ---- PDF: recovered from vector graphics, not guessed ----
+   A PDF has no semantic "this text is underlined" property — an underline
+   is just a separately-drawn thin filled rectangle sitting near the text.
+   This walks the page's low-level drawing operator list (tracking the
+   transform/save/restore matrix stack exactly as PDF's graphics model
+   requires) to find every FILLED rectangle, keeps only underline-thin ones,
+   then matches each text item (kept un-merged via disableCombineTextItems,
+   since differently-formatted runs are already separate items in the PDF's
+   own structure) against those rectangles by position. Verified against a
+   real source file: recovers the exact same underlined spans as directly
+   inspecting the PDF's structure does, at the same pixel positions. */
+function pdfMatrixMultiply(m1, m2){
+  return [
+    m1[0]*m2[0] + m1[1]*m2[2], m1[0]*m2[1] + m1[1]*m2[3],
+    m1[2]*m2[0] + m1[3]*m2[2], m1[2]*m2[1] + m1[3]*m2[3],
+    m1[4]*m2[0] + m1[5]*m2[2] + m2[4], m1[4]*m2[1] + m1[5]*m2[3] + m2[5],
+  ];
+}
+function pdfApplyPoint(m, x, y){ return [ x*m[0] + y*m[2] + m[4], x*m[1] + y*m[3] + m[5] ]; }
+
+async function pdfExtractUnderlineRects(page, viewportHeight){
+  const opList = await page.getOperatorList();
+  const OPS = pdfjsLib.OPS;
+  let ctm = [1,0,0,1,0,0];
+  const stack = [];
+  let pending = [];
+  const filled = [];
+  for(let i=0;i<opList.fnArray.length;i++){
+    const fn = opList.fnArray[i], args = opList.argsArray[i];
+    if(fn === OPS.save) stack.push(ctm.slice());
+    else if(fn === OPS.restore) ctm = stack.pop() || [1,0,0,1,0,0];
+    else if(fn === OPS.transform) ctm = pdfMatrixMultiply(args, ctm);
+    else if(fn === OPS.constructPath){
+      const [ops, argsFlat] = args;
+      let ai = 0; pending = [];
+      ops.forEach(subOp=>{
+        if(subOp === OPS.rectangle){
+          const x=argsFlat[ai], y=argsFlat[ai+1], w=argsFlat[ai+2], h=argsFlat[ai+3]; ai+=4;
+          const c = [pdfApplyPoint(ctm,x,y), pdfApplyPoint(ctm,x+w,y), pdfApplyPoint(ctm,x,y+h), pdfApplyPoint(ctm,x+w,y+h)];
+          const xs=c.map(p=>p[0]), ys=c.map(p=>p[1]);
+          pending.push({x0:Math.min(...xs),x1:Math.max(...xs),y0:Math.min(...ys),y1:Math.max(...ys)});
+        } else if(subOp===OPS.moveTo||subOp===OPS.lineTo) ai+=2;
+        else if(subOp===OPS.curveTo) ai+=6;
+      });
+    } else if(fn === OPS.fill || fn === OPS.eoFill){
+      pending.forEach(r=>filled.push(r));
+    }
+  }
+  return filled.map(r=>({
+    x0:r.x0, x1:r.x1, top: viewportHeight-r.y1, bottom: viewportHeight-r.y0,
+    width:r.x1-r.x0, height:r.y1-r.y0,
+  })).filter(r=>r.height>0 && r.height<3 && r.width>2); // underline-thin filter
+}
+
+async function pdfExtractItems(page, viewportHeight){
+  const tc = await page.getTextContent({disableCombineTextItems:true});
+  return tc.items.filter(it=>it.str.trim()).map(it=>({
+    str: it.str,
+    x0: it.transform[4], x1: it.transform[4]+it.width,
+    top: viewportHeight - it.transform[5], // baseline-referenced top
+  }));
+}
+
+function pdfItemIsUnderlined(item, rects){
+  return rects.some(r =>
+    item.x0 < r.x1 - 1 && item.x1 > r.x0 + 1 &&   // meaningful x-overlap
+    r.top > item.top && (r.top - item.top) < 3     // rect sits just below THIS item's baseline
+  );
+}
+
+/* Converts one PDF text item's string into runs, splitting it into a plain
+   run and (if underlined) a single run at that item's underline level —
+   an item itself is never a mix of underlined/plain, since differently-
+   formatted spans are already separate items in the PDF's own structure. */
+async function readPdfRuns(arrayBuffer){
+  const doc = await pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) }).promise;
+  const lines = [];
+  for(let pn=1; pn<=doc.numPages; pn++){
+    const page = await doc.getPage(pn);
+    const viewport = page.getViewport({ scale: 1 });
+    const rects = await pdfExtractUnderlineRects(page, viewport.height);
+    const items = await pdfExtractItems(page, viewport.height);
+
+    // Group items into lines by rounding their baseline position — items on
+    // the same printed line share (very nearly) the same top value.
+    const byTop = {};
+    items.forEach(it=>{
+      const key = Math.round(it.top);
+      (byTop[key] = byTop[key] || []).push(it);
+    });
+    Object.keys(byTop).map(Number).sort((a,b)=>a-b).forEach(top=>{
+      const lineItems = byTop[top].sort((a,b)=>a.x0-b.x0);
+      const runs = lineItems.map(it=>({
+        text: it.str,
+        underline: pdfItemIsUnderlined(it, rects) ? 1 : 0,
+        // PDF has no way to distinguish single vs double underline visually
+        // via a second rectangle thickness in these sources — every
+        // recovered underline here is treated as level 1. If a source ever
+        // uses a genuinely thicker/doubled rule for 3rd speed, this is the
+        // one place that would need a second threshold.
+      }));
+      lines.push({ page: pn, top, runs });
+    });
+  }
+  return lines;
+}
+
+/* Single entry point: reads a File (from a <input type=file> or drag-drop),
+   dispatching on its extension/type. Returns the source-agnostic run
+   structure described above -- {kind:'docx'|'pdf', lines}. */
+async function readImportFile(file){
+  const buf = await file.arrayBuffer();
+  const name = (file.name || '').toLowerCase();
+  if(name.endsWith('.docx') || file.type.includes('wordprocessingml')){
+    return { kind: 'docx', lines: await readDocxRuns(buf) };
+  }
+  if(name.endsWith('.pdf') || file.type === 'application/pdf'){
+    if(window.pdfjsLib && !pdfjsLib.GlobalWorkerOptions.workerSrc){
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+    return { kind: 'pdf', lines: (await readPdfRuns(buf)).map(l=>l.runs) };
+  }
+  throw new Error('Unsupported file type — please choose a .docx or .pdf file');
+}
+
 let library = [];
 let currentId = null;
 
@@ -381,6 +560,7 @@ const DRIVE_LIBRARY_FILE_ID_KEY = 'kriti-notation-studio.driveLibraryFileId';
 const DRIVE_LIBRARY_FILENAME = 'kriti-library.json';
 const DRIVE_LAST_SYNCED_KEY = 'kriti-notation-studio.driveLastSyncedAt';
 const DRIVE_DIRTY_COUNT_KEY = 'kriti-notation-studio.driveDirtyCount';
+const DRIVE_LIBRARY_MODIFIED_KEY = 'kriti-notation-studio.driveLibraryModifiedTime';
 let driveTokenClient = null;
 let driveAccessToken = null;
 let driveTokenExpiresAt = null; // ms epoch — when the current access token expires
@@ -393,10 +573,15 @@ let driveLastSyncedAt = null; // ms epoch of the last successful sync, for the "
 let driveDirtyCount = 0; // # of local saves since the last successful Drive sync — surfaced
                          // as "N changes waiting to sync" so a stuck/failing sync is visible
                          // even without noticing a stale "Synced Xm ago" timestamp
+let driveLibraryModifiedTime = null; // Drive's modifiedTime for the library file, as of our last
+                         // successful push or pull — the baseline a conflict check compares against
+let driveConflictPending = false; // true once a conflict's been detected but not yet resolved
+let driveConflictRemote = null;   // { library, modifiedTime } fetched from Drive while a conflict is open
 try{ driveFolderId = localStorage.getItem(DRIVE_FOLDER_ID_KEY) || null; }catch(e){}
 try{ driveLibraryFileId = localStorage.getItem(DRIVE_LIBRARY_FILE_ID_KEY) || null; }catch(e){}
 try{ const ts = localStorage.getItem(DRIVE_LAST_SYNCED_KEY); if(ts) driveLastSyncedAt = parseInt(ts, 10) || null; }catch(e){}
 try{ const dc = localStorage.getItem(DRIVE_DIRTY_COUNT_KEY); if(dc) driveDirtyCount = parseInt(dc, 10) || 0; }catch(e){}
+try{ driveLibraryModifiedTime = localStorage.getItem(DRIVE_LIBRARY_MODIFIED_KEY) || null; }catch(e){}
 
 function setDriveDirtyCount(n){
   driveDirtyCount = Math.max(0, n);
@@ -416,6 +601,7 @@ function updateSyncStatusText(){
   const el = document.getElementById('syncStatus');
   if(!el) return;
   if(!driveAccessToken){ el.textContent = ''; return; }
+  if(driveConflictPending){ el.textContent = '⚠ Drive changed elsewhere — click Sync to resolve'; return; }
   const pendingDeleteCount = (typeof pendingDriveDeletes !== 'undefined') ? pendingDriveDeletes.length : 0;
   if(driveDirtyCount > 0 || pendingDeleteCount > 0){
     const parts = [];
@@ -740,9 +926,17 @@ async function setupDriveFolder(){
 async function driveFindLibraryFile(){
   if(!driveFolderId) return null;
   const q = encodeURIComponent(`name='${DRIVE_LIBRARY_FILENAME}' and '${driveFolderId}' in parents and trashed=false`);
-  const r = await driveFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)&spaces=drive`);
+  const r = await driveFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,modifiedTime)&spaces=drive`);
   const j = await r.json();
-  return (j.files && j.files[0]) ? j.files[0].id : null;
+  return (j.files && j.files[0]) ? j.files[0] : null;
+}
+
+/* Downloads and parses the library JSON currently sitting in Drive — used
+   only while resolving a conflict (Merge / Use Drive's Version both need the
+   actual remote content, not just its modifiedTime). */
+async function driveDownloadLibraryJSON(){
+  const r = await driveFetch(`https://www.googleapis.com/drive/v3/files/${driveLibraryFileId}?alt=media`);
+  return r.json();
 }
 
 /* Uploads the current library JSON — PATCHes the existing file if we know its
@@ -750,7 +944,7 @@ async function driveFindLibraryFile(){
 async function driveUploadLibraryJSON(){
   const body = JSON.stringify(library);
   if(driveLibraryFileId){
-    const r = await driveFetch(`https://www.googleapis.com/upload/drive/v3/files/${driveLibraryFileId}?uploadType=media&fields=id`, {
+    const r = await driveFetch(`https://www.googleapis.com/upload/drive/v3/files/${driveLibraryFileId}?uploadType=media&fields=id,modifiedTime`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body,
@@ -761,7 +955,7 @@ async function driveUploadLibraryJSON(){
   const mp = `--${boundary}\r\nContent-Type: application/json\r\n\r\n`
     + JSON.stringify({ name: DRIVE_LIBRARY_FILENAME, parents: [driveFolderId] })
     + `\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${body}\r\n--${boundary}--`;
-  const r = await driveFetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
+  const r = await driveFetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,modifiedTime', {
     method: 'POST',
     headers: { 'Content-Type': 'multipart/related; boundary=' + boundary },
     body: mp,
@@ -839,21 +1033,19 @@ async function driveUploadBlob(blob, filename, mimeType){
   return result;
 }
 
-/* Uploads a generated .docx to the Drive folder. This is now its own
-   deliberate action (chosen from the Download/Export prompt), not a silent
-   side effect of downloading — reports its own success/failure toast. */
+/* Uploads a generated .docx to the Drive folder, if connected and online.
+   Silent on success/failure either way — downloadDocxFile already reports
+   its own "Downloaded .docx" toast for the local save; this is a best-effort
+   extra, not the main action the user asked for by clicking Download. */
 async function syncDocxToDrive(blob, filename){
-  if(!driveAccessToken || !navigator.onLine){
-    if(!navigator.onLine) showToast('Offline — could not export to Drive');
-    return;
-  }
+  if(!driveAccessToken || !navigator.onLine) return;
   try{
     if(!driveFolderId) driveFolderId = await driveFindOrCreateFolder(DRIVE_FOLDER_NAME);
     await driveUploadBlob(blob, filename, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-    showToast('Exported to Google Drive ✓');
+    showToast('Also saved to Google Drive ✓');
   }catch(e){
     console.error('[drive docx upload] failed:', e);
-    showToast('Could not export to Drive — try again');
+    showToast('Downloaded, but could not save a copy to Drive');
   }
 }
 
@@ -863,6 +1055,46 @@ async function syncDocxToDrive(blob, filename){
    (just logged; the next edit, or a manual click, will try again). `auto`=
    false (an explicit Sync-button click while already connected) always
    reports success or failure directly. */
+/* Checks whether Drive's copy of the library has changed since we last knew
+   about it — either another device/browser pushed a change, or (first time
+   THIS browser has seen an existing file) Drive already had data before this
+   browser ever synced. Never throws — a failed check just means we proceed
+   without one. Returns:
+     null                                  — safe to push, no conflict
+     { mode:'silent-adopt', modifiedTime } — first time seeing this file, and
+                                              local has nothing to lose (empty
+                                              library) — just adopt Drive's
+                                              copy, no need to ask
+     { mode:'conflict', modifiedTime }     — a real conflict; needs the modal */
+async function checkDriveConflict(){
+  if(!driveLibraryFileId) return null;
+  try{
+    const r = await driveFetch(`https://www.googleapis.com/drive/v3/files/${driveLibraryFileId}?fields=modifiedTime`);
+    const j = await r.json();
+    if(!j.modifiedTime) return null;
+    if(!driveLibraryModifiedTime){
+      return { mode: library.length ? 'conflict' : 'silent-adopt', modifiedTime: j.modifiedTime };
+    }
+    return (j.modifiedTime !== driveLibraryModifiedTime) ? { mode: 'conflict', modifiedTime: j.modifiedTime } : null;
+  }catch(e){
+    console.warn('[drive conflict check] failed, proceeding without one:', e);
+    return null;
+  }
+}
+function setDriveLibraryModifiedTime(t){
+  driveLibraryModifiedTime = t;
+  try{ localStorage.setItem(DRIVE_LIBRARY_MODIFIED_KEY, t); }catch(e){}
+}
+
+/* The one function both the manual Sync click and the automatic
+   after-every-edit sync funnel through. `auto`=true means this was triggered
+   silently by an edit — no toast on success, and failures don't nag either
+   (just logged; the next edit, or a manual click, will try again). `auto`=
+   false (an explicit Sync-button click while already connected) always
+   reports success or failure directly. A genuine conflict is never resolved
+   silently either way — an auto-triggered check that finds one just flags it
+   (status line + driveConflictPending) without interrupting typing; only an
+   explicit Sync click actually opens the resolution modal. */
 async function syncLibraryToDrive(auto){
   if(!driveAccessToken){
     if(!auto) connectDrive();
@@ -878,12 +1110,44 @@ async function syncLibraryToDrive(auto){
   driveSyncInFlight = true;
   try{
     if(!driveFolderId) driveFolderId = await driveFindOrCreateFolder(DRIVE_FOLDER_NAME);
-    if(!driveLibraryFileId) driveLibraryFileId = await driveFindLibraryFile();
+    if(!driveLibraryFileId){
+      const found = await driveFindLibraryFile();
+      if(found){
+        driveLibraryFileId = found.id;
+        try{ localStorage.setItem(DRIVE_LIBRARY_FILE_ID_KEY, driveLibraryFileId); }catch(e){}
+      }
+    }
+
+    const conflict = await checkDriveConflict();
+    if(conflict && conflict.mode === 'silent-adopt'){
+      library = await driveDownloadLibraryJSON();
+      try{ localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(library)); }catch(e){}
+      setDriveDirtyCount(0);
+      setDriveLibraryModifiedTime(conflict.modifiedTime);
+      driveLastSyncedAt = Date.now();
+      try{ localStorage.setItem(DRIVE_LAST_SYNCED_KEY, String(driveLastSyncedAt)); }catch(e){}
+      renderAll();
+      updateSyncStatusText();
+      showToast('Loaded your existing library from Google Drive');
+      return;
+    }
+    if(conflict && conflict.mode === 'conflict'){
+      driveConflictPending = true;
+      driveConflictRemote = { modifiedTime: conflict.modifiedTime };
+      updateSyncStatusText();
+      if(!auto){
+        driveSyncInFlight = false; // release before the modal, so its own resolve action can sync again
+        await openConflictModal();
+      }
+      return;
+    }
+
     const res = await driveUploadLibraryJSON();
     if(res && res.id){
       driveLibraryFileId = res.id;
       try{ localStorage.setItem(DRIVE_LIBRARY_FILE_ID_KEY, driveLibraryFileId); }catch(e){}
     }
+    if(res && res.modifiedTime) setDriveLibraryModifiedTime(res.modifiedTime);
     driveSyncPending = false;
     driveLastSyncedAt = Date.now();
     try{ localStorage.setItem(DRIVE_LAST_SYNCED_KEY, String(driveLastSyncedAt)); }catch(e){}
@@ -898,6 +1162,94 @@ async function syncLibraryToDrive(auto){
   } finally {
     driveSyncInFlight = false;
   }
+}
+
+/* Fetches Drive's actual library content and current modifiedTime (fresh —
+   not reusing the one from checkDriveConflict, in case it moved again in the
+   meantime), then shows the 3-way choice. */
+async function openConflictModal(){
+  const overlay = document.getElementById('conflictOverlay');
+  const body = document.getElementById('conflictBody');
+  overlay.classList.add('show');
+  body.innerHTML = '<div class="quota-loading">Checking what changed on Drive…</div>';
+  try{
+    const [remoteLibrary, metaRes] = await Promise.all([
+      driveDownloadLibraryJSON(),
+      driveFetch(`https://www.googleapis.com/drive/v3/files/${driveLibraryFileId}?fields=modifiedTime`).then(r=>r.json()),
+    ]);
+    driveConflictRemote = { library: remoteLibrary, modifiedTime: metaRes.modifiedTime };
+    const localCount = library.length, remoteCount = remoteLibrary.length;
+    body.innerHTML = `
+      <div class="quota-text" style="margin-bottom:14px;">
+        Google Drive has a version of your library that didn't come from an edit in this browser —
+        likely from another device or browser session.<br><br>
+        This browser: <b>${localCount} kriti${localCount===1?'':'s'}</b><br>
+        On Drive: <b>${remoteCount} kriti${remoteCount===1?'':'s'}</b>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <button class="btn primary" id="conflictMergeBtn">Merge both (recommended)</button>
+        <button class="btn" id="conflictUseDriveBtn">Use Drive's version</button>
+        <button class="btn danger" id="conflictKeepLocalBtn">Keep this browser's version</button>
+      </div>
+      <div class="quota-text" style="margin-top:12px; font-size:12px;">
+        Merge keeps every kriti from both sides — if the same one was edited in both places, the more
+        recently edited copy wins. The other two options replace one side entirely with the other.
+      </div>
+    `;
+    document.getElementById('conflictMergeBtn').onclick = ()=> resolveDriveConflict('merge');
+    document.getElementById('conflictUseDriveBtn').onclick = ()=> resolveDriveConflict('use-drive');
+    document.getElementById('conflictKeepLocalBtn').onclick = ()=> resolveDriveConflict('keep-local');
+  }catch(e){
+    console.error('[drive conflict] could not load Drive\u2019s version:', e);
+    body.innerHTML = '<div class="quota-error">Could not check what changed on Drive — close this and try Sync again.</div>';
+  }
+}
+
+/* Song-level merge, keyed by id: a song on only one side is kept as-is (no
+   data ever silently dropped); a song present on both sides keeps whichever
+   copy has the more recent updatedAt. Songs saved before this feature
+   existed have no updatedAt (treated as 0), so a genuinely-timestamped copy
+   from either side naturally wins over an untimestamped one. */
+function mergeLibraries(localLib, remoteLib){
+  const remoteById = new Map(remoteLib.map(s=>[s.id, s]));
+  const localById = new Map(localLib.map(s=>[s.id, s]));
+  let added = 0, updated = 0;
+  const merged = localLib.map(localSong=>{
+    const remoteSong = remoteById.get(localSong.id);
+    if(!remoteSong) return localSong;
+    if((remoteSong.updatedAt||0) > (localSong.updatedAt||0)){ updated++; return remoteSong; }
+    return localSong;
+  });
+  remoteLib.forEach(remoteSong=>{
+    if(!localById.has(remoteSong.id)){ merged.push(remoteSong); added++; }
+  });
+  return { merged, added, updated };
+}
+
+async function resolveDriveConflict(choice){
+  const remote = driveConflictRemote;
+  if(!remote) return;
+  if(choice === 'use-drive'){
+    library = remote.library;
+  } else if(choice === 'merge'){
+    const { merged, added, updated } = mergeLibraries(library, remote.library);
+    library = merged;
+    showToast(`Merged — ${added} added, ${updated} updated`);
+  }
+  // 'keep-local': library is left exactly as-is; the push below overwrites Drive with it.
+
+  try{ localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(library)); }catch(e){}
+  setDriveDirtyCount(0);
+  // Adopt Drive's just-fetched modifiedTime as our baseline BEFORE pushing —
+  // otherwise the push we're about to trigger would immediately detect the
+  // exact same conflict again and loop back into this same modal.
+  setDriveLibraryModifiedTime(remote.modifiedTime);
+  driveConflictPending = false;
+  driveConflictRemote = null;
+  document.getElementById('conflictOverlay').classList.remove('show');
+  currentId = library.length ? library[0].id : null;
+  renderAll();
+  await syncLibraryToDrive(false);
 }
 
 const uid = () => 'k_' + Date.now().toString(36) + Math.random().toString(36).slice(2,7);
@@ -1010,6 +1362,8 @@ async function persist(){
    go out overall. Still guards against overlapping in-flight calls. */
 let saveDebounceTimer = null;
 function queueSave(){
+  const editedSong = getSong();
+  if(editedSong) editedSong.updatedAt = Date.now();
   clearTimeout(saveDebounceTimer);
   saveDebounceTimer = setTimeout(()=>{
     if(saveInFlight){ saveQueued = true; return; }
@@ -1263,6 +1617,125 @@ function computeCellAkshara(raw){
 }
 function formatAksh(n){ return Number.isInteger(n) ? String(n) : n.toFixed(1); }
 
+/* ===================== Import pipeline — Step 2 =====================
+   Converts a "classified" swara token stream (Step 1's job: each character
+   already tagged with its speed and its own akshara weight, using the
+   source-verified rule — capital=2 outside underline, lowercase=1 outside
+   underline, and everything halves again inside an underlined run: capital
+   2->1, lowercase 1->0.5, ';' behaves like a capital) into this app's own
+   per-cell markup, split at the tala's real cell boundaries using that same
+   akshara arithmetic to find the cut points.
+
+   Sahitya is distributed across the same cell boundaries proportionally by
+   weight-share, NOT matched note-by-note to the swara side — deliberately,
+   per the agreed scope: sub-cell syllable grouping stays a manual
+   refinement step for the review screen (Step 5), this only gets each word
+   into the right cell.
+
+   Round-trip verified directly against this file's own tokenizeSwaraForAlign
+   / computeCellAkshara — the markup this produces parses correctly, with one
+   known, expected discrepancy: a cell mixing capital+lowercase inside a
+   3rd-speed run computes a different akshara total under computeCellAkshara
+   (which weights every token flatly, ignoring case) than under the source's
+   own case-sensitive rule used here. Those cells get flagged distinctly in
+   the Step 5 review screen rather than silently shown as "wrong". */
+
+/* Turns one cell's classified tokens into this app's typed format:
+   - speed 1 (plain) tokens are NEVER glued to each other — each stays its
+     own syllable-item, space-separated, matching this app's "plain text
+     groups on zero gap" rule (gluing them would accidentally merge several
+     notes into one syllable, which isn't what 1st-speed notation means here).
+   - speed 2/3 tokens WITHIN one continuous run of the same speed ARE glued
+     with zero spaces, wrapped in single-star / double-star markers — this
+     is exactly this app's own "glued run = one grouped syllable-slot,
+     legacy 1-note-per-syllable by default" convention, so re-parsing this
+     output needs no special-casing at all.
+   - different runs (any change in speed) are always separated by exactly
+     one space, whether that's plain-to-underlined, underlined-to-plain, or
+     2nd-speed-to-3rd-speed. */
+function generateImportCellMarkup(cellTokens){
+  if(!cellTokens.length) return '';
+  const runs = [];
+  let cur = null;
+  cellTokens.forEach(t=>{
+    if(cur && cur.speed === t.speed){
+      cur.tokens.push(t);
+    } else {
+      cur = { speed: t.speed, tokens: [t] };
+      runs.push(cur);
+    }
+  });
+  const parts = runs.map(run=>{
+    if(run.speed === 1){
+      return run.tokens.map(t=>t.display).join(' ');
+    }
+    const glued = run.tokens.map(t=>t.display).join('');
+    return run.speed === 2 ? `*${glued}*` : `**${glued}**`;
+  });
+  return parts.join(' ');
+}
+
+/* Walks a half-avartanam's classified tokens in order, accumulating weight
+   per cell until each cell's target capacity (cellCaps[i]) is reached, then
+   cutting. A token is never split mid-character — if a token would overshoot
+   a cell's remaining capacity, it's still placed in the current cell (never
+   silently bumped to the next one instead) and the overshoot is reported as
+   a warning for the Step 5 review screen, rather than hidden. */
+function splitHalfAvartanamIntoCells(tokens, cellCaps){
+  const cells = [];
+  const warnings = [];
+  let idx = 0;
+  cellCaps.forEach((cap, cellIdx)=>{
+    const cellTokens = [];
+    let acc = 0;
+    while(idx < tokens.length && acc < cap){
+      const t = tokens[idx];
+      cellTokens.push(t);
+      acc += t.weight;
+      idx++;
+    }
+    if(Math.abs(acc - cap) > 1e-9){
+      warnings.push(`Cell ${cellIdx+1}: expected ${cap} aksharas, got ${acc}`);
+    }
+    cells.push({ swara: generateImportCellMarkup(cellTokens), weight: acc, cap, tokens: cellTokens });
+  });
+  if(idx < tokens.length){
+    warnings.push(`${tokens.length - idx} leftover token(s) did not fit into any cell`);
+  }
+  return { cells, warnings };
+}
+
+/* Distributes a flat list of sahitya words across the same cell boundaries,
+   proportionally to each cell's share of the total akshara weight — e.g. a
+   cell that's 25% of the half-avartanam's total gets ~25% of the words.
+   Deliberately proportional, not note-matched (see module header). The last
+   cell always absorbs any rounding remainder, so no word is ever dropped or
+   duplicated. */
+function distributeImportWordsByWeight(words, cellCaps){
+  const totalCap = cellCaps.reduce((a,b)=>a+b, 0);
+  const totalWords = words.length;
+  let wordIdx = 0, cumCap = 0;
+  return cellCaps.map((cap, i)=>{
+    cumCap += cap;
+    const isLast = i === cellCaps.length - 1;
+    const targetCum = isLast ? totalWords : Math.round((cumCap / totalCap) * totalWords);
+    const slice = words.slice(wordIdx, targetCum);
+    wordIdx = targetCum;
+    return slice.join(' ');
+  });
+}
+
+/* Combined entry point for Step 2: classified tokens + tala cell caps for
+   ONE half-avartanam + that half-avartanam's flat sahitya word list in ->
+   per-cell {swara, sahitya, weight, cap} out, plus any warnings to surface
+   in the Step 5 review screen. */
+function buildImportCellsFromClassifiedSegment(tokens, cellCaps, sahityaWords){
+  const { cells, warnings } = splitHalfAvartanamIntoCells(tokens, cellCaps);
+  const sahityaPerCell = distributeImportWordsByWeight(sahityaWords || [], cellCaps);
+  cells.forEach((c, i)=>{ c.sahitya = sahityaPerCell[i] || ''; });
+  return { cells, warnings };
+}
+
 function updateAksharaBadge(cellDiv, raw, capacity){
   const badge = cellDiv.querySelector('.aksh-badge');
   if(!badge) return;
@@ -1466,7 +1939,7 @@ function buildAlignedColumns(rawSwara, rawLyric){
       const isPunct = tokDisplay === ',' || tokDisplay === ';';
       const baseline = isPunct ? 1 : 2;
       const typed = nextTok.gapBefore || 0;
-      gap = Math.max(baseline, typed);
+      gap = typed > 1 ? baseline + (typed - 1) : baseline;
     }
 
     // Pad whichever of {swara-group text, sahitya syllable} is shorter up to
@@ -1524,9 +1997,8 @@ function renderMain(){
 
     <div class="toolbar">
       <button class="btn primary" id="previewBtn">👁 Preview</button>
-      <button class="btn primary" id="downloadDocxBtn">⬇ Download/Export (.docx)</button>
+      <button class="btn primary" id="downloadDocxBtn">⬇ Download Word (.docx)</button>
       <button class="btn" id="saveBtn">💾 Save now</button>
-      <button class="btn" id="duplicateSongBtn">⎘ Duplicate kriti</button>
       <button class="btn" id="copyDataBtn">📋 Copy data for Claude (→ .docx)</button>
       <button class="btn danger" id="deleteBtn">🗑️ Delete kriti</button>
     </div>
@@ -1581,9 +2053,8 @@ function renderMain(){
 
   document.getElementById('saveBtn').onclick = async ()=>{ await persist(); showToast('Saved'); };
   document.getElementById('previewBtn').onclick = openPreview;
-  document.getElementById('downloadDocxBtn').onclick = ()=>openDocxChoice(song);
+  document.getElementById('downloadDocxBtn').onclick = ()=>downloadDocxFile(song);
   document.getElementById('copyDataBtn').onclick = ()=>copyForClaude(song);
-  document.getElementById('duplicateSongBtn').onclick = ()=>duplicateSong(song.id);
   document.getElementById('deleteBtn').onclick = ()=>deleteSong(song.id);
   document.getElementById('addSectionBtn').onclick = ()=>{
     song.sections.push(blankSection('New Section', TALAS[song.tala], song.kalai, false));
@@ -1982,9 +2453,9 @@ function computeCellSpacing(contentLen, targetWidthTwips){
 }
 const dxaToPt = dxa => dxa / 20;
 
-async function buildDocxBlob(song){
+async function downloadDocxFile(song){
   const lib = ensureDocxLib();
-  if(!lib) return null;
+  if(!lib) return;
   const {
     Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
     WidthType, AlignmentType, BorderStyle, VerticalAlign, UnderlineType, TableLayoutType,
@@ -2208,76 +2679,24 @@ async function buildDocxBlob(song){
       }],
     });
     const blob = await Packer.toBlob(doc);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
     const filename = (song.title || 'kriti').replace(/[\\/:*?"<>|]/g,'_') + '.docx';
-    return { blob, filename };
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 4000);
+    showToast('Downloaded .docx');
+    syncDocxToDrive(blob, filename);
   }catch(e){
     console.error(e);
     showToast('Could not generate .docx — see console for details');
-    return null;
   }
-}
-
-function triggerLocalDownload(blob, filename){
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(()=>URL.revokeObjectURL(url), 4000);
-  showToast('Downloaded .docx');
-}
-
-/* The Download/Export button asks each time which you want, rather than
-   silently doing both on every click — separate, deliberate actions instead
-   of one button quietly also uploading to Drive every single time. */
-let docxChoiceSong = null;
-function openDocxChoice(song){
-  docxChoiceSong = song;
-  document.getElementById('docxChoiceOverlay').classList.add('show');
-}
-function closeDocxChoice(){
-  document.getElementById('docxChoiceOverlay').classList.remove('show');
-  docxChoiceSong = null;
-}
-async function handleDocxChoiceDownload(){
-  const song = docxChoiceSong;
-  closeDocxChoice();
-  if(!song) return;
-  const result = await buildDocxBlob(song);
-  if(result) triggerLocalDownload(result.blob, result.filename);
-}
-async function handleDocxChoiceExport(){
-  const song = docxChoiceSong;
-  closeDocxChoice();
-  if(!song) return;
-  if(!driveAccessToken){
-    showToast('Not connected to Google Drive — click Sync first');
-    return;
-  }
-  const result = await buildDocxBlob(song);
-  if(result) await syncDocxToDrive(result.blob, result.filename);
 }
 
 /* ===================== Actions ===================== */
-function duplicateSong(id){
-  const original = library.find(s=>s.id===id);
-  if(!original) return;
-  // Deep clone via JSON round-trip — safe here since a song is pure data
-  // (strings/arrays/objects only, nothing like a function or DOM node), so
-  // this can't leave the copy accidentally sharing nested arrays/objects
-  // with the original (editing one would otherwise silently edit both).
-  const copy = JSON.parse(JSON.stringify(original));
-  copy.id = uid();
-  copy.title = (original.title || 'Untitled Kriti') + ' (Copy)';
-  const idx = library.findIndex(s=>s.id===id);
-  library.splice(idx + 1, 0, copy); // sits right next to the original in the list
-  currentId = copy.id;
-  persist(); renderAll();
-  showToast('Duplicated — editing the copy now');
-}
-
 function deleteSong(id){
   if(!confirm('Delete this kriti from your library? This cannot be undone.')) return;
   const song = library.find(s=>s.id===id);
@@ -2329,14 +2748,8 @@ document.getElementById('closeQuotaBtn').onclick = closeStorageQuota;
 document.getElementById('quotaOverlay').addEventListener('click', e=>{
   if(e.target.id === 'quotaOverlay') closeStorageQuota();
 });
-document.getElementById('closeDocxChoiceBtn').onclick = closeDocxChoice;
-document.getElementById('docxChoiceDownloadBtn').onclick = handleDocxChoiceDownload;
-document.getElementById('docxChoiceExportBtn').onclick = handleDocxChoiceExport;
-document.getElementById('docxChoiceOverlay').addEventListener('click', e=>{
-  if(e.target.id === 'docxChoiceOverlay') closeDocxChoice();
-});
 document.addEventListener('keydown', e=>{
-  if(e.key === 'Escape'){ closePreview(); closeStorageQuota(); closeDocxChoice(); }
+  if(e.key === 'Escape'){ closePreview(); closeStorageQuota(); }
 });
 
 (async function init(){
