@@ -272,6 +272,8 @@
       <button class="btn small" id="storageQuotaBtn">📊 Storage used</button>
     </div>
     <button class="newbtn" id="newSongBtn">+ New Kriti</button>
+    <button class="btn small" id="importBtn">⇪ Import from PDF/Word</button>
+    <input type="file" id="importFileInput" accept=".pdf,.docx" style="display:none;">
     <input class="search" id="searchBox" type="text" placeholder="Search by title or raga…" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off">
     <div class="song-list" id="songList"></div>
   </aside>
@@ -296,6 +298,16 @@
       <div class="quota-modal-title">Drive has other changes</div>
     </div>
     <div id="conflictBody"><div class="quota-loading">Loading…</div></div>
+  </div>
+</div>
+
+<div class="quota-overlay" id="importOverlay">
+  <div class="quota-modal conflict-modal">
+    <div class="quota-modal-head">
+      <div class="quota-modal-title">Import preview</div>
+      <button class="btn small" id="closeImportBtn">✕</button>
+    </div>
+    <div id="importBody"><div class="quota-loading">Reading file…</div></div>
   </div>
 </div>
 
@@ -370,6 +382,57 @@ function numRowsForLine(cfg, kalai){
    property on each run in word/document.xml — read directly via JSZip
    (unzip) + the browser's native DOMParser (XML parsing). No inference
    needed at all; this is about as reliable as file parsing gets. */
+/* Reads a run's text + underline level — shared by paragraph and table-cell
+   extraction below. */
+/* Some prepared Word files spell an octave mark as a real Unicode diacritic
+   (e.g. "Ṡ", precomposed S + combining dot above) rather than typing this
+   app's own "'"/"." suffix convention directly — verified this is exactly
+   equivalent: NFD-normalizing decomposes "Ṡ" into "S" + U+0307 (combining
+   dot above), and U+0307/U+0323 (dot below) are precisely the two marks
+   this app's own octaveDisplay() already uses for '/. . Decoding back to
+   '/. here means every downstream step (classification, tokenizing) only
+   ever has to deal with the one plain-ASCII form. */
+function decodeOctaveDiacritics(text){
+  return text.normalize('NFD')
+    .replace(/([A-Za-z])\u0307/g, "$1'")
+    .replace(/([A-Za-z])\u0323/g, '$1.');
+}
+
+function readDocxRunsFromNode(node, W_NS){
+  const runs = [];
+  const rNodes = node.getElementsByTagNameNS(W_NS, 'r');
+  for(let ri=0; ri<rNodes.length; ri++){
+    const rNode = rNodes[ri];
+    const tNodes = rNode.getElementsByTagNameNS(W_NS, 't');
+    let text = '';
+    for(let ti=0; ti<tNodes.length; ti++) text += tNodes[ti].textContent;
+    if(!text) continue;
+    text = decodeOctaveDiacritics(text);
+    let underline = 0;
+    const rPr = rNode.getElementsByTagNameNS(W_NS, 'rPr')[0];
+    if(rPr){
+      const uNode = rPr.getElementsByTagNameNS(W_NS, 'u')[0];
+      if(uNode){
+        const val = uNode.getAttributeNS(W_NS, 'val') || uNode.getAttribute('w:val');
+        if(val === 'double') underline = 2;
+        else if(val && val !== 'none') underline = 1;
+      }
+    }
+    runs.push({ text, underline });
+  }
+  return runs;
+}
+
+/* Table-aware: your own prepared files store the real notation inside an
+   actual Word table (swara row, lyric row, repeat) — not continuous
+   paragraphs with "|" dividers like the sivakumar.org PDFs. Verified against
+   your real files directly: a merged cell is stored as ONE real <w:tc> with
+   a <w:gridSpan> count on it — not duplicated <w:tc> elements — so reading
+   gridSpan directly is exact, no detection/collapsing heuristic needed.
+   Returns { bodyParagraphs, tables } — bodyParagraphs is paragraphs OUTSIDE
+   any table (title, Raga:/Tala:/etc.), in the same flat shape as before, for
+   metadata reading. tables is the new structure: one entry per <w:tbl>, each
+   an array of rows, each row an array of { gridSpan, runs }. */
 async function readDocxRuns(arrayBuffer){
   const zip = await JSZip.loadAsync(arrayBuffer);
   const docXmlFile = zip.file('word/document.xml');
@@ -378,32 +441,54 @@ async function readDocxRuns(arrayBuffer){
   const xmlDoc = new DOMParser().parseFromString(xmlText, 'application/xml');
   const W_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 
-  const paragraphs = [];
-  const pNodes = xmlDoc.getElementsByTagNameNS(W_NS, 'p');
-  for(let pi=0; pi<pNodes.length; pi++){
-    const runs = [];
-    const rNodes = pNodes[pi].getElementsByTagNameNS(W_NS, 'r');
-    for(let ri=0; ri<rNodes.length; ri++){
-      const rNode = rNodes[ri];
-      const tNodes = rNode.getElementsByTagNameNS(W_NS, 't');
-      let text = '';
-      for(let ti=0; ti<tNodes.length; ti++) text += tNodes[ti].textContent;
-      if(!text) continue;
-      let underline = 0;
-      const rPr = rNode.getElementsByTagNameNS(W_NS, 'rPr')[0];
-      if(rPr){
-        const uNode = rPr.getElementsByTagNameNS(W_NS, 'u')[0];
-        if(uNode){
-          const val = uNode.getAttributeNS(W_NS, 'val') || uNode.getAttribute('w:val');
-          if(val === 'double') underline = 2;
-          else if(val && val !== 'none') underline = 1;
-        }
-      }
-      runs.push({ text, underline });
+  const bodyNode = xmlDoc.getElementsByTagNameNS(W_NS, 'body')[0];
+  if(!bodyNode) return { bodyParagraphs: [], tables: [] };
+
+  const bodyParagraphs = [];
+  const tables = [];
+
+  for(let i=0; i<bodyNode.childNodes.length; i++){
+    const child = bodyNode.childNodes[i];
+    if(child.nodeType !== 1) continue; // element nodes only
+    const localName = child.localName || child.nodeName.replace(/^\w+:/, '');
+
+    if(localName === 'p'){
+      const runs = readDocxRunsFromNode(child, W_NS);
+      if(runs.length) bodyParagraphs.push(runs);
+      continue;
     }
-    if(runs.length) paragraphs.push(runs);
+    if(localName === 'tbl'){
+      const rows = [];
+      const trNodes = child.getElementsByTagNameNS(W_NS, 'tr');
+      for(let ri=0; ri<trNodes.length; ri++){
+        const cells = [];
+        // Direct <w:tc> children only — a cell's own paragraph could itself
+        // (in principle) contain nested content matching 'tc' by tag name in
+        // some malformed doc, so scope strictly to this row's own cells.
+        const tcNodes = Array.from(trNodes[ri].childNodes).filter(n =>
+          n.nodeType === 1 && (n.localName || n.nodeName.replace(/^\w+:/, '')) === 'tc');
+        for(let ci=0; ci<tcNodes.length; ci++){
+          const tcNode = tcNodes[ci];
+          let gridSpan = 1;
+          const tcPr = tcNode.getElementsByTagNameNS(W_NS, 'tcPr')[0];
+          if(tcPr){
+            const gsNode = tcPr.getElementsByTagNameNS(W_NS, 'gridSpan')[0];
+            if(gsNode){
+              const val = gsNode.getAttributeNS(W_NS, 'val') || gsNode.getAttribute('w:val');
+              gridSpan = parseInt(val, 10) || 1;
+            }
+          }
+          const runs = readDocxRunsFromNode(tcNode, W_NS);
+          cells.push({ gridSpan, runs });
+        }
+        rows.push(cells);
+      }
+      tables.push(rows);
+      continue;
+    }
+    // sectPr and any other body-level element: not relevant here, skip.
   }
-  return paragraphs;
+  return { bodyParagraphs, tables };
 }
 
 /* ---- PDF: recovered from vector graphics, not guessed ----
@@ -507,7 +592,7 @@ async function readPdfRuns(arrayBuffer){
         // uses a genuinely thicker/doubled rule for 3rd speed, this is the
         // one place that would need a second threshold.
       }));
-      lines.push({ page: pn, top, runs });
+      lines.push({ page: pn, top, runs, firstX0: lineItems[0].x0, lastX1: lineItems[lineItems.length-1].x1 });
     });
   }
   return lines;
@@ -520,13 +605,14 @@ async function readImportFile(file){
   const buf = await file.arrayBuffer();
   const name = (file.name || '').toLowerCase();
   if(name.endsWith('.docx') || file.type.includes('wordprocessingml')){
-    return { kind: 'docx', lines: await readDocxRuns(buf) };
+    const { bodyParagraphs, tables } = await readDocxRuns(buf);
+    return { kind: 'docx', lines: bodyParagraphs, tables };
   }
   if(name.endsWith('.pdf') || file.type === 'application/pdf'){
     if(window.pdfjsLib && !pdfjsLib.GlobalWorkerOptions.workerSrc){
       pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
     }
-    return { kind: 'pdf', lines: (await readPdfRuns(buf)).map(l=>l.runs) };
+    return { kind: 'pdf', lines: await readPdfRuns(buf) };
   }
   throw new Error('Unsupported file type — please choose a .docx or .pdf file');
 }
@@ -1617,6 +1703,115 @@ function computeCellAkshara(raw){
 }
 function formatAksh(n){ return Number.isInteger(n) ? String(n) : n.toFixed(1); }
 
+/* ===================== Import pipeline — Step 1 =====================
+   Classifies every character of a source line into a speed (1/2/3) and an
+   akshara weight, using the SOURCE's own convention — which genuinely
+   differs by file type, verified against your real files:
+
+   - PDF (sivakumar.org-style): letter CASE carries the speed signal —
+     capital=1st speed (2 aksharas), lowercase=2nd speed (1 akshara) unless
+     underlined. A PDF can only ever report ONE recoverable underline level
+     (no way to distinguish a doubled rule visually in these sources), so an
+     underlined run is always 3rd speed, and case still matters INSIDE it:
+     capital->1, lowercase->0.5, ';' behaves like a capital (2->1). Verified
+     against the real Swaminatha Paripalaya text: reconciles exactly to 16
+     aksharas per half-avartanam. NOTE: this case-sensitive weighting is a
+     different rule than this app's own computeCellAkshara (which weighs
+     every token inside an underline flatly, ignoring case) — imported PDF
+     cells with mixed case inside a 3rd-speed run may show a different total
+     on this app's own live badge than the source's true value. Flagged
+     distinctly wherever it applies, not silently shown as an error.
+   - DOCX (your own prepared files): underline level carries ALL the speed
+     meaning directly — Word natively distinguishes single vs double
+     underline (<w:u w:val="single"/"double">), so there's no guessing at
+     all. Case carries NO speed meaning here (you type everything uppercase,
+     same habit as the app itself). This maps byte-for-byte onto the app's
+     OWN existing weight convention (flat 1 inside single underline, flat
+     0.5 inside double) — so a DOCX import's cells always match this app's
+     own badge exactly, no discrepancy caveat needed. */
+function sourceTokenValue(ch, speed, caseSensitive, opts){
+  opts = opts || {};
+  const commaWeight = opts.commaWeight || 1;
+  const isComma = ch === ',';
+  const isSemi = ch === ';';
+  if(!caseSensitive){
+    // DOCX: matches this app's own flat-underline convention exactly.
+    if(speed === 1) return isComma ? commaWeight : 2;
+    if(speed === 2) return 1;
+    return 0.5;
+  }
+  // PDF: case-sensitive, only one underline level ever recoverable.
+  const isCapital = /[A-Z]/.test(ch);
+  if(isComma) return speed === 3 ? commaWeight/2 : commaWeight;
+  if(isSemi) return speed === 3 ? 1 : 2; // ';' halves like a capital, not a lowercase
+  if(speed === 1) return 2;
+  if(speed === 2) return 1;
+  return isCapital ? 1 : 0.5; // speed 3
+}
+
+/* Walks one source line's runs, character by character, into a flat token
+   list: [{type:'note', ch, display, speed, weight}] with '|' recorded as
+   {type:'divider'} (a hard half-avartanam boundary, not a token). Spaces and
+   any other character are skipped here — they matter to Step 2's own
+   grouping logic (re-parsed from the generated single/double-underline
+   markup, not from this raw source text), not to this classification step. */
+function classifySourceLine(runs, caseSensitive, opts){
+  opts = opts || {};
+  const underlineMeaning = opts.underlineMeaning || 'speed'; // 'speed' (established default) or 'octave'
+  const tokens = [];
+  runs.forEach(run=>{
+    const text = run.text || '';
+    for(let i = 0; i < text.length; i++){
+      const ch = text[i];
+      if(ch === '|' || ch === '\u2503'){
+        // "||" (avartanam-end marker, two pipe characters) must collapse to
+        // ONE divider, not two — otherwise it spuriously creates an extra,
+        // empty trailing segment. Consecutive dividers collapse into the
+        // first. "┃" (U+2503) is the divider glyph some prepared Word files
+        // use in place of a plain "|" — treated identically either way.
+        if(tokens.length && tokens[tokens.length-1].type === 'divider') continue;
+        tokens.push({type:'divider'});
+        continue;
+      }
+      if(!/[A-Za-z,;]/.test(ch)) continue;
+      const isLetter = /[A-Za-z]/.test(ch);
+      const isCapital = isLetter && /[A-Z]/.test(ch);
+      const underlineIsOctave = underlineMeaning === 'octave';
+      let speed;
+      if(caseSensitive){
+        speed = (run.underline && !underlineIsOctave) ? 3 : ((isLetter && !isCapital) ? 2 : 1);
+      } else {
+        speed = (run.underline === 2 && !underlineIsOctave) ? 3 : (run.underline === 1 && !underlineIsOctave) ? 2 : 1;
+      }
+      // An octave suffix (' for upper, . for lower — this app's own
+      // convention) immediately following a letter is folded into this same
+      // token's display, not treated as its own separate character. Doesn't
+      // affect speed or akshara weight at all, purely cosmetic — matches how
+      // the app's own swara input already treats it.
+      let display = ch.toUpperCase();
+      if(isLetter && i+1 < text.length && (text[i+1] === "'" || text[i+1] === '.')){
+        display += text[i+1];
+        i++;
+      }
+      // In octave mode, the underline ITSELF is the lower-octave marker —
+      // append "." the same way an explicit suffix would, rather than
+      // treating the note as faster. Verified against real era_napai data:
+      // these underlines are sparse, isolated single characters — exactly
+      // what an occasional lower-octave dip looks like, not what a speed
+      // passage (normally dense, many consecutive notes) looks like.
+      if(underlineIsOctave && run.underline && !display.includes('.') && !display.includes("'")){
+        display += '.';
+      }
+      tokens.push({
+        type: 'note', ch, display, speed,
+        weight: sourceTokenValue(ch, speed, caseSensitive, opts),
+      });
+    }
+  });
+  while(tokens.length && tokens[tokens.length-1].type === 'divider') tokens.pop();
+  return tokens;
+}
+
 /* ===================== Import pipeline — Step 2 =====================
    Converts a "classified" swara token stream (Step 1's job: each character
    already tagged with its speed and its own akshara weight, using the
@@ -1734,6 +1929,600 @@ function buildImportCellsFromClassifiedSegment(tokens, cellCaps, sahityaWords){
   const sahityaPerCell = distributeImportWordsByWeight(sahityaWords || [], cellCaps);
   cells.forEach((c, i)=>{ c.sahitya = sahityaPerCell[i] || ''; });
   return { cells, warnings };
+}
+
+/* ===================== Import pipeline — Step 4 =====================
+   Classifies every extracted line into metadata / section header / swara
+   notation / other text (sahitya or prose), then walks them in order to
+   assemble this app's actual song/section/line objects — wiring Steps 1-3
+   (file reading, speed classification) together with Step 2 (cell
+   splitting) for the first time. Still produces plain data (a song object +
+   a warnings list), not yet wired to any UI — that's Step 5. */
+
+const IMPORT_META_LABELS = [
+  ['ragam','raga'], ['raga','raga'],
+  ['talam','tala'], ['tala','tala'],
+  ['composer','composer'],
+  ['arohanam','arohanam'], ['arohana','arohanam'], ['aro','arohanam'],
+  ['avarohanam','avarohanam'], ['avarahonam','avarohanam'], ['avarohana','avarohanam'], ['ava','avarohanam'],
+  ['version','version'],
+];
+const IMPORT_NO_SAHITYA_SECTION_RE = /chitta|chittai|muktayi|mukthayi/i;
+const IMPORT_SECTION_NAME_RE = /^(pallavi|anu\s*pallavi|charanam|caranam|samashti\s+charanam|samasthi\s+charanam|chitta\s*swaram|chittai\s+swar(?:a|am)s?(?:\s*[:\-]?\s*\(?\d+\)?)?|mukthayi\s+swaram|muktayi\s+swaram|anubandham)\b/i;
+const IMPORT_TALA_NAME_MAP = {
+  'adi': 'adi', 'rupakam': 'rupakam', 'khanda chapu': 'khanda_chapu',
+  'misra chapu': 'misra_chapu', 'adi tishra': 'adi_tishra', 'adi (tishra nadai)': 'adi_tishra',
+};
+
+function importLineText(runsOrLine){
+  const runs = runsOrLine.runs || runsOrLine;
+  return runs.map(r=>r.text).join('');
+}
+
+/* Pulls every recognized "Label: value" (or "LABEL value") field out of a
+   line — a single source line sometimes carries TWO fields at once (both
+   PDFs do this for Arohanam/Avarohanam, e.g. "ARO: S R G ... || AVA: S N ..."
+   on one line), so this returns an array, not a single match. */
+function extractImportMetaFields(text){
+  const found = [];
+  const positions = [];
+  IMPORT_META_LABELS.forEach(([label, field])=>{
+    // The colon is required, not optional — every real metadata line we've
+    // seen has one ("Raga:", "Arohanam :"), and requiring it is exactly what
+    // stops a label-like substring inside a URL (e.g. "...-raga.html", no
+    // colon following) from being mistaken for a real field. Confirmed this
+    // exact bug on two separate real documents before fixing it this way.
+    const re = new RegExp(`\\b${label}\\b\\s*:`, 'i');
+    const m = re.exec(text);
+    if(m) positions.push({ index: m.index, end: m.index + m[0].length, field });
+  });
+  if(!positions.length) return [];
+  positions.sort((a,b)=>a.index - b.index);
+  positions.forEach((p, i)=>{
+    const end = i+1 < positions.length ? positions[i+1].index : text.length;
+    let value = text.slice(p.end, end).trim();
+    value = value.replace(/\|+$/, '').trim(); // trailing "||" divider glyphs some sources use here
+    found.push({ field: p.field, value });
+  });
+  return found;
+}
+
+/* "Nattai (36 mela janyam)" -> {raga:"Nattai", melakarta:"36"} */
+function splitRagaMelakarta(value){
+  const m = value.match(/^(.*?)\s*\((\d+)(?:st|nd|rd|th)?\s*mela.*\)\s*$/i);
+  if(m) return { raga: m[1].trim(), melakarta: m[2] };
+  return { raga: value.trim(), melakarta: '' };
+}
+
+function normalizeTalaValue(value){
+  const lower = value.toLowerCase().replace(/\s+/g,' ').trim();
+  // "tishra"/"thrisra" are both valid transliterations of the same word —
+  // confirmed real documents use each spelling, sometimes with "nadai" and
+  // sometimes "gathi" following it (also just different words for the same
+  // thing), so match on the adi+tishra-family signal specifically rather
+  // than requiring one exact phrase.
+  if(/\badi\b/.test(lower) && /\b(tishra|thrisra)\b/.test(lower)) return 'adi_tishra';
+  for(const key in IMPORT_TALA_NAME_MAP){
+    if(lower.startsWith(key)) return IMPORT_TALA_NAME_MAP[key];
+  }
+  return 'adi'; // safe default; flagged in warnings by the caller if it had to guess
+}
+
+/* Classifies one line's plain text into a single kind. Order matters: check
+   metadata and section-header patterns (both are short, structured lines)
+   before falling through to the swara-ratio check, since a metadata/header
+   line could otherwise coincidentally score high on swara-letter ratio. */
+function classifyImportLineKind(text){
+  const trimmed = text.replace(/\s+/g,' ').trim();
+  if(!trimmed) return { kind: 'blank' };
+
+  const metaFields = extractImportMetaFields(trimmed);
+  if(metaFields.length) return { kind: 'meta', fields: metaFields };
+
+  const withoutColon = trimmed.replace(/[:.]+$/, '').trim();
+  const sectionMatch = IMPORT_SECTION_NAME_RE.exec(withoutColon);
+  if(trimmed.length < 45 && sectionMatch && sectionMatch[0].length === withoutColon.length){
+    return { kind: 'section', name: withoutColon.replace(/\s+/g,' ') };
+  }
+
+  const letters = trimmed.split('').filter(ch=>/[A-Za-z]/.test(ch));
+  if(letters.length >= 2){
+    const swaraLetters = letters.filter(ch=>/[SRGMPDNsrgmpdn]/.test(ch)).length;
+    if(swaraLetters / letters.length > 0.95) return { kind: 'swara', text: trimmed };
+  }
+
+  return { kind: 'text', text: trimmed };
+}
+
+/* PDF-only: a line that ran to the page's right margin very likely wrapped
+   onto the next row rather than actually ending there — verified against
+   the real Swaminatha Paripalaya PDF (see chat). Docx paragraphs don't need
+   this at all, since each <w:p> is already a complete logical line. */
+function joinWrappedPdfLines(rawLines){
+  const merged = [];
+  let i = 0;
+  while(i < rawLines.length){
+    let cur = rawLines[i];
+    while(i+1 < rawLines.length
+      && rawLines[i+1].page === cur.page
+      && rawLines[i+1].top - cur.top < 14 && rawLines[i+1].top - cur.top > 0
+      && rawLines[i+1].firstX0 < 100
+      && cur.lastX1 > 480
+      // A genuine wrap continues the SAME kind of content (swara -> more
+      // swara, or prose -> more prose) — a swara line's own separate lyric
+      // line right below it can otherwise coincidentally match every
+      // position-based condition above (confirmed against real era_napai
+      // data: a wide swara line ending near the right margin, immediately
+      // followed by its own lyric line starting near the left margin, with
+      // a small vertical gap — every position signal a genuine wrap has,
+      // despite being two intentionally separate rows).
+      && (classifyImportLineKind(rawLines[i+1].runs.map(r=>r.text).join('')).kind === 'swara')
+        === (classifyImportLineKind(cur.runs.map(r=>r.text).join('')).kind === 'swara')){
+      const nxt = rawLines[i+1];
+      cur = { ...cur, runs: cur.runs.concat([{text:' ',underline:0}], nxt.runs), lastX1: nxt.lastX1 };
+      i++;
+    }
+    merged.push(cur);
+    i++;
+  }
+  return merged;
+}
+
+/* Splits a tala's per-row cell-capacity array at its own configured divider
+   into the two halves a source line's single "|" naturally corresponds to —
+   e.g. Adi's [4,4,4,4,4,4,4,4] with dividerAfter=3 -> [[4,4,4,4],[4,4,4,4]]. */
+function talaHalfCellCaps(cfg){
+  return [ cfg.rowCells.slice(0, cfg.dividerAfter+1), cfg.rowCells.slice(cfg.dividerAfter+1) ];
+}
+
+/* Builds one app-format notation line from a classified swara source line +
+   its paired sahitya text (may be '' for a noSahitya section), splitting at
+   '|' to match the tala's own half-avartanam structure. Falls back to the
+   tala's FULL row capacity (both halves concatenated) if the source line has
+   no '|' at all — e.g. a short Chitta Swaram fragment. */
+function buildImportedNotationLine(cfg, swaraText, sahityaText, caseSensitive, warnings){
+  // Plain-text convenience wrapper (no real underline info available) — kept
+  // for callers that only have flattened text; underline-aware callers use
+  // buildImportedNotationLineFromRuns directly with real run data instead.
+  const runs = [{ text: swaraText, underline: 0 }];
+  return buildImportedNotationLineFromRuns(cfg, runs, sahityaText, caseSensitive, warnings);
+}
+/* Returns an ARRAY of app-format lines (usually just one) — not always a
+   single line, because this app's row renderer iterates cfg.rowCells
+   directly, so a row wider than that would have its extra cells silently
+   invisible in the UI despite the data existing.
+
+   Walks every segment's tokens against a SINGLE cursor into cfg.rowCells:
+   each segment consumes as many cells as its own weight needs; whenever the
+   cursor exactly fills the row, or a segment can't fit in what's left of it,
+   the current line is closed and a fresh one starts from cell 0. One
+   mechanism handles every real pattern found across all documents tested:
+   - the normal case, one avartanam split at the tala's own single divider
+   - an uneven-but-exact multi-part tala structure, e.g. Manavyalakinchara's
+     16:8:8 (Desadi's own Laghu:Drutam:Drutam) or Misra Chapu's 6:8:6:8 —
+     confirmed these are the tala's own natural division, not a guess
+   - more than one avartanam stacked on a single printed line, uniform
+     (andavane, three 12-weight segments) or the tala's own repeated
+     multi-part pattern (etijanmamidi, 6:8:6:8:6:8:6:8 = two avartanams)
+   - a short trailing fragment with no divider at all (e.g. a "(eti)"
+     repeat-marker) — consumes only as many cells as its own small weight
+     needs, rather than being forced across the entire row leaving most of
+     it empty (the original bug this replaced). */
+function buildImportedNotationLineFromRuns(cfg, swaraRuns, sahityaText, caseSensitive, warnings, opts){
+  const tokens = classifySourceLine(swaraRuns, caseSensitive, opts);
+  const segments = [[]];
+  tokens.forEach(t=>{ t.type === 'divider' ? segments.push([]) : segments[segments.length-1].push(t); });
+  const sahityaWords = (sahityaText || '').replace(/[-–]/g,' - ').split(/\s+/).filter(Boolean);
+  const segmentWeights = segments.map(s=>s.reduce((a,t)=>a+t.weight,0));
+  const wordsPerSeg = segments.length > 1
+    ? distributeImportWordsByWeight(sahityaWords, segmentWeights)
+    : [sahityaWords.join(' ')];
+
+  const lines = [];
+  let rowSwara = [], rowLyric = [];
+  let cellIdx = 0;
+
+  function flushLine(){
+    if(rowSwara.length){
+      lines.push({ label: '', rows: [{ swara: rowSwara, lyric: rowLyric }] });
+      rowSwara = []; rowLyric = [];
+    }
+    cellIdx = 0;
+  }
+  function walkCells(segWeight){
+    let consumed = 0;
+    const caps = [];
+    while(consumed < segWeight && cellIdx < cfg.rowCells.length){
+      caps.push(cfg.rowCells[cellIdx]); consumed += cfg.rowCells[cellIdx]; cellIdx++;
+    }
+    return caps;
+  }
+
+  segments.forEach((segTokens, si) => {
+    const segWeight = segmentWeights[si];
+    let caps = walkCells(segWeight);
+    if(caps.reduce((a,c)=>a+c,0) < segWeight && cellIdx >= cfg.rowCells.length){
+      // Ran out of room in the current row for this segment — it begins a
+      // fresh avartanam. Close the current line and retry from cell 0.
+      flushLine();
+      caps = walkCells(segWeight);
+    }
+    const words = (wordsPerSeg[si] || '').split(/\s+/).filter(Boolean);
+    const { cells, warnings: segWarnings } = buildImportCellsFromClassifiedSegment(segTokens, caps.length ? caps : cfg.rowCells, words);
+    cells.forEach(c=>{ rowSwara.push(c.swara); rowLyric.push(c.sahitya); });
+    segWarnings.forEach(w => warnings.push(w));
+    if(cellIdx >= cfg.rowCells.length) flushLine(); // row exactly full — next segment (if any) starts a new line
+  });
+  flushLine(); // trailing partial line, if any
+  return lines;
+}
+
+/* Main entry point: raw extracted lines (Step 3's output, `{kind, lines}`)
+   -> { song, warnings }. Does NOT touch the actual library — purely builds
+   a candidate song object for Step 5's review screen to show and you to
+   approve. sourceKind is 'pdf' or 'docx', deciding which speed convention
+   (see Step 1's header comment) applies to every swara line found. */
+/* Page header/footer junk that some PDF exports (sivakumar.org's included)
+   repeat on every page — a date/time stamp, the page's own URL, and a bare
+   "N/M" page-number fragment. None of it is real document content; left in,
+   it can glue onto whatever real line happens to sort next to it (this is
+   exactly how "Swaminatha Paripalaya" got corrupted into a title before this
+   filter existed — see chat). */
+function isImportPageArtifact(text){
+  const t = text.trim();
+  if(/^\d{1,2}\/\d{1,2}\/\d{2,4},?\s*\d{1,2}:\d{2}\s*(AM|PM)?/i.test(t)) return true;
+  if(/^https?:\/\//i.test(t)) return true;
+  if(/^\d+\s*\/\s*\d+$/.test(t)) return true;
+  return false;
+}
+
+function assembleImportedSong(fileResult, opts){
+  opts = opts || {};
+  const sourceKind = fileResult.kind;
+  const caseSensitive = sourceKind === 'pdf';
+  const warnings = [];
+  let rawLines = fileResult.lines;
+  if(sourceKind === 'pdf'){
+    rawLines = joinWrappedPdfLines(rawLines);
+  } else {
+    rawLines = rawLines.map(runs => ({ runs }));
+  }
+
+  const song = newSong();
+  song.title = '';
+  song.sections = [];
+  rawLines = rawLines.filter(l => !isImportPageArtifact(importLineText(l)));
+  let cfg = TALAS.adi;
+  let currentSection = null;
+  let mode = 'preamble'; // preamble -> section-start -> prose -> (swara triggers) awaiting-sahitya -> prose
+  let pendingSwara = null;
+  let pendingLyricText = '';
+  // Some sources split a single avartanam's two halves across two entirely
+  // separate printed swara+lyric row pairs (not a tight page-width wrap —
+  // confirmed a ~46pt vertical gap in real era_napai data), marked by a
+  // SINGLE trailing "|" on both the swara and lyric line (a genuine "more
+  // follows" signal) — distinct from a trailing "||", which stays the usual
+  // decorative avartanam-end marker. Tracks whether the swara line just
+  // consumed was such a continuation, so the pairing below keeps
+  // accumulating instead of finalizing early.
+  let awaitingContinuation = false;
+  function endsWithContinuationPipe(text){
+    const t = text.trim();
+    return /[^|]\|$/.test(t) && !t.endsWith('||');
+  }
+  // Sections whose block-sahitya (the 1-2 lines right after the header) has
+  // already been captured — closed either by hitting "Meaning:" (an English
+  // gloss follows, not more sahitya) or by successfully pairing a swara line
+  // with its own sahitya (real notation has started). Tracked separately
+  // from `mode` because ensureSection's merge (see above) can re-enter
+  // 'section-start' for an already-closed section on a document's second
+  // pass over it — that shouldn't re-open sahitya accumulation.
+  const sahityaClosed = new Set();
+
+  function ensureSection(name){
+    // sivakumar.org-style sources show every section TWICE — once as a
+    // preview (block sahitya + full English meaning, no notation at all),
+    // once for real (actual notation, no meaning repeated) — verified
+    // against the real Swaminatha Paripalaya PDF, see chat. Reuse the
+    // existing section by exact name match rather than creating a
+    // duplicate, so the two passes merge into one correct section.
+    const existing = song.sections.find(s => s.name.toLowerCase() === name.toLowerCase());
+    if(existing) return existing;
+    const sec = { name, sahitya:'', lines:[], showPallaviRef: song.sections.length>0, pallaviOverride:'', noSahitya: IMPORT_NO_SAHITYA_SECTION_RE.test(name) };
+    song.sections.push(sec);
+    return sec;
+  }
+  function finalizeNotationLine(swaraRuns, sahityaText){
+    const lines = buildImportedNotationLineFromRuns(cfg, swaraRuns, currentSection.noSahitya ? '' : sahityaText, caseSensitive, warnings, opts);
+    lines.forEach(line => currentSection.lines.push(line));
+  }
+
+  rawLines.forEach(rawLine=>{
+    const text = importLineText(rawLine);
+    const c = classifyImportLineKind(text);
+    if(c.kind === 'blank') return;
+
+    if(c.kind === 'meta'){
+      c.fields.forEach(({field, value})=>{
+        if(field === 'raga'){ const sp = splitRagaMelakarta(value); song.raga = sp.raga; if(sp.melakarta) song.melakarta = sp.melakarta; }
+        else if(field === 'tala'){ song.tala = normalizeTalaValue(value); cfg = TALAS[song.tala] || TALAS.adi; if(/2\s*kalai/i.test(value)) song.kalai = 2; }
+        else if(field === 'composer') song.composer = value;
+        else if(field === 'arohanam') song.arohanam = value.replace(/\|+$/,'').trim();
+        else if(field === 'avarohanam') song.avarohanam = value.replace(/\|+$/,'').trim();
+        // 'version' has no field in this app's song model — intentionally dropped
+      });
+      return;
+    }
+    if(c.kind === 'section'){
+      currentSection = ensureSection(c.name);
+      mode = 'section-start';
+      pendingSwara = null;
+      pendingLyricText = '';
+      awaitingContinuation = false;
+      return;
+    }
+    if(!currentSection){
+      // Nothing before the first section header maps to this app's data
+      // model except the title — first non-meta line seen here is it.
+      if(!song.title && c.kind === 'text') song.title = c.text;
+      return;
+    }
+    if(c.kind === 'swara'){
+      const continues = endsWithContinuationPipe(text);
+      if(pendingSwara && awaitingContinuation){
+        // This line is the continuation of the swara begun on the previous
+        // line — append rather than treating it as a new, separate line.
+        pendingSwara = { runs: pendingSwara.runs.concat([{ text: ' ', underline: 0 }], rawLine.runs) };
+      } else {
+        if(pendingSwara){
+          // Two swara lines with nothing recognizable in between (a noSahitya
+          // passage, e.g. Chitta Swaram) — finalize the first with no sahitya.
+          finalizeNotationLine(pendingSwara.runs, '');
+        }
+        pendingSwara = { runs: rawLine.runs };
+      }
+      awaitingContinuation = continues;
+      mode = 'awaiting-sahitya';
+      return;
+    }
+    // c.kind === 'text'
+    if(/^meanings?\b/i.test(c.text) || /[\u201c\u201d]/.test(c.text) || /^[\u2026.]{2,}/.test(c.text)){
+      sahityaClosed.add(currentSection);
+      mode = 'prose';
+      return;
+    }
+    if(mode === 'awaiting-sahitya' && pendingSwara){
+      const lyricPiece = c.text.replace(/\|+/g, ' ').replace(/\s+/g, ' ').trim();
+      pendingLyricText = pendingLyricText ? pendingLyricText + ' ' + lyricPiece : lyricPiece;
+      if(awaitingContinuation) return; // swara side isn't finished yet — keep accumulating, don't finalize
+      finalizeNotationLine(pendingSwara.runs, pendingLyricText);
+      pendingSwara = null;
+      pendingLyricText = '';
+      sahityaClosed.add(currentSection);
+      mode = 'prose';
+      return;
+    }
+    if(mode === 'section-start' && !currentSection.noSahitya && !sahityaClosed.has(currentSection)){
+      // The source repeats a section's block-sahitya verbatim between its
+      // preview pass and its real pass (see chat) — sometimes with another
+      // section's header and content in between, so a lone "Meaning:" check
+      // doesn't always catch it. A line we've already captured for this
+      // section is itself the clearest signal that repetition has started.
+      const alreadyHave = currentSection.sahitya.split('\n').includes(c.text);
+      if(alreadyHave){ sahityaClosed.add(currentSection); return; }
+      currentSection.sahitya += (currentSection.sahitya ? '\n' : '') + c.text;
+      return;
+    }
+    // prose/meaning text with nowhere to go — intentionally ignored, not stored anywhere
+  });
+  if(pendingSwara && currentSection) finalizeNotationLine(pendingSwara.runs, pendingLyricText);
+
+  // Your own prepared files store the real notation inside a Word table, not
+  // continuous text — the pass above (metadata, section headers, block
+  // sahitya) already ran against the body paragraphs outside it; this
+  // second pass reads the table itself. Each cell already corresponds 1:1
+  // to one of this tala's own cap-cells, so — unlike the PDF/plain-text
+  // path above — no akshara-counting cell-boundary guessing is needed here
+  // at all, just reading what's already there.
+  if(fileResult.tables && fileResult.tables.length){
+    fileResult.tables.forEach(table => assembleFromDocxTable(song, () => cfg, table, warnings, ensureSection));
+  }
+
+  if(!song.sections.length) warnings.push('No sections were recognized — nothing was imported. Check that section headers (Pallavi, Anupallavi, etc.) are present and spelled as usual.');
+
+  return { song, warnings };
+}
+
+/* Two real per-document conventions turned out not to be universal, and
+   neither is detectable from the text alone:
+   - some sources use "," for 1 akshara (the established default), others
+     for 2 (confirmed: era_napai's own akshara math only reconciles with
+     comma=2)
+   - underline usually marks 3rd speed (the established, extensively-
+     verified default), but some varnam sources use it for lower octave
+     instead (confirmed against real era_napai data: sparse, isolated single
+     characters — the shape of an occasional octave dip, not a speed
+     passage, which is normally dense and consecutive)
+   Rather than ask upfront or guess silently, this tries the combinations
+   and keeps whichever reconciles the whole document with the fewest
+   akshara-count warnings — but only switches away from the established
+   default when an alternate interpretation is a SUBSTANTIAL improvement
+   (halves the warning count or better), not a marginal one. A document
+   that's already clean under the default never gets second-guessed: a
+   coincidentally-lower warning count under some other interpretation isn't
+   evidence it's musically correct, just that the arithmetic happened to
+   also work out — not worth risking a silently wrong reinterpretation of a
+   document that already checks out. Docx sources never need this: Word's
+   own underline levels are read directly, no guessing involved. */
+/* A low akshara-warning count doesn't necessarily mean underline detection
+   worked — confirmed against real data: stripping every underline flag from
+   a document that genuinely uses it still only produced 1 warning, because
+   2nd speed here comes from letter case, not underline, so most of the
+   arithmetic still happens to reconcile even with 3rd-speed information
+   silently gone. This checks for that specific failure mode directly rather
+   than relying on the warning count to reveal it. */
+function pdfHasNoRecoverableUnderline(fileResult){
+  if(fileResult.kind !== 'pdf') return false;
+  let sawSwaraLine = false;
+  for(const line of fileResult.lines){
+    const text = line.runs.map(r=>r.text).join('');
+    if(classifyImportLineKind(text).kind !== 'swara') continue;
+    sawSwaraLine = true;
+    if(line.runs.some(r => r.underline)) return false;
+  }
+  return sawSwaraLine;
+}
+
+function assembleImportedSongBestFit(fileResult){
+  const defaultResult = assembleImportedSong(fileResult, { commaWeight: 1, underlineMeaning: 'speed' });
+  let chosen = defaultResult;
+
+  if(fileResult.kind === 'pdf' && defaultResult.warnings.length > 0){
+    let best = defaultResult;
+    [
+      { commaWeight: 2, underlineMeaning: 'speed' },
+      { commaWeight: 1, underlineMeaning: 'octave' },
+      { commaWeight: 2, underlineMeaning: 'octave' },
+    ].forEach(opts => {
+      const result = assembleImportedSong(fileResult, opts);
+      if(result.warnings.length < best.warnings.length) best = result;
+    });
+    if(best !== defaultResult && best.warnings.length <= defaultResult.warnings.length / 2) chosen = best;
+  }
+
+  if(pdfHasNoRecoverableUnderline(fileResult)){
+    chosen.warnings.unshift('No underline was found anywhere in this document\u2019s swara notation. If the source marks 2nd/3rd speed (or octave) with underline, that signal may not have survived extraction — every note here was read at face value from case alone. Worth checking a few passages you know should be underlined before trusting this import as-is.');
+  }
+  return chosen;
+}
+
+/* A row's "real" content, ignoring a pure divider cell (its whole trimmed
+   text is exactly the divider glyph and nothing else — edge marks like
+   "║ M ; ; ;" stay, since those are part of real cell content, not a
+   divider cell of their own) and — only for the very first cell — a bare
+   line-label like "1)" (some files give the label its own leading cell,
+   matching this app's own label column; others don't, and start directly
+   with the first real cap-cell instead — detected by content, not a fixed
+   position, since it varies by file). */
+function extractDocxRowCells(row){
+  let cells = row.slice();
+  let label = '';
+  if(cells.length){
+    const firstText = cells[0].runs.map(r=>r.text).join('').trim();
+    if(/^\d+[\)\.]$/.test(firstText)){
+      label = firstText;
+      cells = cells.slice(1);
+    }
+  }
+  cells = cells.filter(c => {
+    const t = c.runs.map(r=>r.text).join('').trim();
+    return !(t === '\u2503' || t === '|' || t === '\u2551');
+  });
+  return { label, cells };
+}
+
+/* Classifies one table row. A row with exactly one non-empty cell is always
+   some kind of label (a section header, a "(...)" reference note, or a bare
+   numbered-variant marker like "1)") — confirmed this is the only case that
+   pattern appears in across all 3 real files. A row with 2+ non-empty cells
+   is real content — swara or lyric, told apart the same way a continuous-
+   text line would be (mostly swara letters, or not). */
+function classifyDocxTableRow(row){
+  const { cells } = extractDocxRowCells(row);
+  const nonEmpty = cells.filter(c => c.runs.map(r=>r.text).join('').trim().length > 0);
+  if(!nonEmpty.length) return { kind: 'blank' };
+  if(nonEmpty.length === 1){
+    const text = nonEmpty[0].runs.map(r=>r.text).join('').trim();
+    const c = classifyImportLineKind(text);
+    if(c.kind === 'section') return { kind: 'section', name: c.name };
+    if(/^\(.*\)$/.test(text)) return { kind: 'refnote', text: text.slice(1, -1).trim() };
+    if(/^\d+[\)\.]$/.test(text)) return { kind: 'label-row' }; // a numbered-variant marker row, e.g. "1)" on its own — informational only
+    return { kind: 'other-single', text };
+  }
+  const combinedText = nonEmpty.map(c => c.runs.map(r=>r.text).join('')).join(' ');
+  const c = classifyImportLineKind(combinedText);
+  return { kind: c.kind === 'swara' ? 'swara' : 'lyric' };
+}
+
+/* Builds one app-format line directly from a swara row's cells + the paired
+   lyric row's cells (may be null for a noSahitya section) — each cell
+   already IS one cap-cell, so this calls Step 2's per-cell markup builder
+   directly on each cell's own tokens, with no capacity-boundary splitting
+   step at all (that's specifically a PDF/plain-text-only concern). */
+function buildDocxTableLine(swaraRow, lyricRow, warnings){
+  const { label, cells: swaraCells } = extractDocxRowCells(swaraRow);
+  const lyricCellsRaw = lyricRow ? extractDocxRowCells(lyricRow).cells : null;
+  const rowSwara = [], rowLyric = [];
+  swaraCells.forEach((cell, i) => {
+    const tokens = classifySourceLine(cell.runs, false); // false: docx underline level carries all the speed meaning, case doesn't
+    rowSwara.push(generateImportCellMarkup(tokens));
+    const lyricText = lyricCellsRaw && lyricCellsRaw[i] ? lyricCellsRaw[i].runs.map(r=>r.text).join('').trim() : '';
+    rowLyric.push(lyricText);
+  });
+  return { label, rows: [{ swara: rowSwara, lyric: rowLyric }] };
+}
+
+function assembleFromDocxTable(song, getCfg, table, warnings, ensureSection){
+  // Content can start immediately at the top of the table with NO in-table
+  // header row at all — confirmed against real files: Pallavi gets declared
+  // only once, as a body paragraph before the table even begins; only LATER
+  // sections (Charanam, Chittai Swaras, ...) reliably get an explicit header
+  // row inside the table itself. So the table's leading content belongs to
+  // the first section, not "no section yet".
+  // KNOWN LIMITATION, not fixed here: when a section transition also has no
+  // in-table marker (confirmed this happens for Pallavi -> Anupallavi in a
+  // real file — the only way to tell is matching each line's lyric content
+  // against each section's own known sahitya text), everything up to the
+  // next EXPLICIT header still gets attributed to this first section. Never
+  // silently lost, but can land under the wrong section name — exactly the
+  // kind of thing the review screen surfaces for you to move by hand.
+  let currentSection = song.sections.length ? song.sections[0] : null;
+  let pendingSwaraRow = null;
+
+  function finalize(swaraRow, lyricRow){
+    const line = buildDocxTableLine(swaraRow, lyricRow, warnings);
+    currentSection.lines.push(line);
+  }
+  function flushPending(){
+    // A swara row can still be waiting for its lyric row when a section
+    // header or reference note interrupts (e.g. Mukthayi Swaram's rows are
+    // separated by blank rows with no lyric between them) — must finalize it
+    // into the section it actually belongs to BEFORE switching sections,
+    // not leave it to a single check at the very end (which would wrongly
+    // attribute it to whatever the LAST section in the table happens to be).
+    if(pendingSwaraRow && currentSection){ finalize(pendingSwaraRow, null); pendingSwaraRow = null; }
+  }
+
+  table.forEach(row => {
+    const rt = classifyDocxTableRow(row);
+    if(rt.kind === 'blank' || rt.kind === 'label-row' || rt.kind === 'other-single') return;
+    if(rt.kind === 'section'){
+      flushPending();
+      currentSection = ensureSection(rt.name);
+      return;
+    }
+    if(rt.kind === 'refnote'){
+      flushPending();
+      if(currentSection) currentSection.pallaviOverride = rt.text;
+      return;
+    }
+    if(!currentSection) return;
+    if(rt.kind === 'swara'){
+      if(pendingSwaraRow){
+        // Two swara rows back to back with nothing between — a noSahitya
+        // passage (Mukthayi Swaram / Chittai Swaras), finalize with no lyric.
+        finalize(pendingSwaraRow, null);
+      }
+      pendingSwaraRow = row;
+      return;
+    }
+    if(rt.kind === 'lyric' && pendingSwaraRow){
+      finalize(pendingSwaraRow, row);
+      pendingSwaraRow = null;
+      return;
+    }
+  });
+  flushPending();
 }
 
 function updateAksharaBadge(cellDiv, raw, capacity){
@@ -2744,6 +3533,109 @@ document.getElementById('previewOverlay').addEventListener('click', e=>{
   if(e.target.id === 'previewOverlay') closePreview();
 });
 document.getElementById('storageQuotaBtn').onclick = openStorageQuota;
+
+/* ===================== Import pipeline — Step 5 =====================
+   The entry point and review screen. Parses the file (Steps 1-4), shows a
+   summary you approve or cancel — never a silent one-click fill — and on
+   approval adds it as a real song and opens it directly in the normal
+   editor. Deliberately doesn't build a separate bespoke review UI: this
+   app's own akshara/mismatch badges are already the verification tool for
+   every cell, exactly as intended from the start of this feature. */
+let importPendingResult = null; // { song, warnings, sourceKind } — held between preview and commit
+
+function closeImportPreview(){
+  document.getElementById('importOverlay').classList.remove('show');
+  importPendingResult = null;
+}
+
+async function openImportPreview(file){
+  const overlay = document.getElementById('importOverlay');
+  const body = document.getElementById('importBody');
+  overlay.classList.add('show');
+  body.innerHTML = '<div class="quota-loading">Reading file…</div>';
+  try{
+    const fileResult = await readImportFile(file);
+    body.innerHTML = '<div class="quota-loading">Parsing notation…</div>';
+    const { song, warnings } = assembleImportedSongBestFit(fileResult);
+    importPendingResult = { song, warnings, sourceKind: fileResult.kind };
+
+    const lineCount = song.sections.reduce((a,s)=>a+s.lines.length, 0);
+    const sectionRows = song.sections.map(s =>
+      `<div>${escapeHtml(s.name)} — ${s.lines.length} line${s.lines.length===1?'':'s'}${s.noSahitya?' (no sahitya)':''}</div>`
+    ).join('');
+    // Most warnings are per-cell akshara mismatches ("Cell N: expected...");
+    // a few are document-level structural notes (e.g. no underline found
+    // anywhere) that need their own visible callout, not just folding
+    // silently into a count alongside hundreds of individual cell warnings.
+    const cellWarnings = warnings.filter(w => /^Cell \d+:/.test(w));
+    const structuralNotes = warnings.filter(w => !/^Cell \d+:/.test(w));
+    const badgeCaveat = fileResult.kind === 'pdf'
+      ? `<div class="quota-text" style="margin-top:10px; font-size:12px;">
+           This is a PDF import: 3rd-speed cells were split using the source's own note-by-note
+           weighting, which can differ slightly from this app's own akshara badge (which weighs every
+           note in a group the same). A cell's badge not showing ✓ doesn't necessarily mean it's wrong —
+           check it against the source before changing it.
+         </div>`
+      : '';
+    const structuralNotesHtml = structuralNotes.map(n =>
+      `<div class="quota-text" style="margin-top:10px; color:var(--warn);">⚠ ${escapeHtml(n)}</div>`
+    ).join('');
+    body.innerHTML = `
+      <div class="quota-text">
+        <b>${escapeHtml(song.title || 'Untitled')}</b><br>
+        ${song.raga ? 'Raga: '+escapeHtml(song.raga)+(song.melakarta?' ('+escapeHtml(song.melakarta)+' mela)':'')+'<br>' : ''}
+        ${song.tala ? 'Tala: '+escapeHtml(TALAS[song.tala] ? TALAS[song.tala].label : song.tala)+(song.kalai===2?' (2 kalai)':'')+'<br>' : ''}
+        ${song.composer ? 'Composer: '+escapeHtml(song.composer)+'<br>' : ''}
+      </div>
+      <div class="quota-text" style="margin-top:10px;">
+        ${sectionRows || '<i>No sections recognized</i>'}
+      </div>
+      <div class="quota-text" style="margin-top:10px;">
+        ${lineCount} notation line${lineCount===1?'':'s'} total.
+        ${cellWarnings.length ? `<span style="color:var(--warn);">${cellWarnings.length} cell${cellWarnings.length===1?'':'s'} didn't reconcile to their expected akshara count — worth checking first.</span>` : 'All cells reconciled to their expected akshara count.'}
+      </div>
+      ${structuralNotesHtml}
+      ${badgeCaveat}
+      <div style="display:flex; flex-direction:column; gap:8px; margin-top:14px;">
+        <button class="btn primary" id="confirmImportBtn"${song.sections.length ? '' : ' disabled'}>Import and open for review</button>
+        <button class="btn" id="cancelImportBtn">Cancel</button>
+      </div>
+    `;
+    document.getElementById('confirmImportBtn').onclick = commitImportedSong;
+    document.getElementById('cancelImportBtn').onclick = closeImportPreview;
+  }catch(e){
+    console.error('[import] failed:', e);
+    body.innerHTML = `<div class="quota-error">Could not read this file: ${escapeHtml(e.message || String(e))}</div>
+      <div style="margin-top:12px;"><button class="btn" id="cancelImportBtn">Close</button></div>`;
+    document.getElementById('cancelImportBtn').onclick = closeImportPreview;
+  }
+}
+
+function commitImportedSong(){
+  if(!importPendingResult) return;
+  const song = importPendingResult.song;
+  song.id = uid();
+  library.unshift(song);
+  currentId = song.id;
+  const warningCount = importPendingResult.warnings.length;
+  closeImportPreview();
+  persist();
+  renderAll();
+  showToast(warningCount
+    ? `Imported "${song.title || 'Untitled'}" — check the ${warningCount} flagged cell${warningCount===1?'':'s'} before finalizing`
+    : `Imported "${song.title || 'Untitled'}" ✓`);
+}
+
+document.getElementById('importBtn').onclick = () => document.getElementById('importFileInput').click();
+document.getElementById('importFileInput').onchange = (e) => {
+  const file = e.target.files[0];
+  e.target.value = ''; // allow re-selecting the same file next time
+  if(file) openImportPreview(file);
+};
+document.getElementById('closeImportBtn').onclick = closeImportPreview;
+document.getElementById('importOverlay').addEventListener('click', e=>{
+  if(e.target.id === 'importOverlay') closeImportPreview();
+});
 document.getElementById('closeQuotaBtn').onclick = closeStorageQuota;
 document.getElementById('quotaOverlay').addEventListener('click', e=>{
   if(e.target.id === 'quotaOverlay') closeStorageQuota();
