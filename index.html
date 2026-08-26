@@ -5,47 +5,109 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Kriti Notation Studio</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Courier+Prime:wght@400;700&family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
   :root{
-    --leaf:#ececeb;
-    --leaf-deep:#e0e0de;
+    --radius-sm:6px;
+    --radius-md:10px;
+    --radius-lg:14px;
+    --surface:#ececeb;
+    --surface-light:#f4f4f3;
+    --surface-deep:#e0e0de;
     --ink:#1a1a2e;
+    --ink-rgb:26,26,46;
     --ink-soft:#5c5f6e;
-    --maroon:#4a4aef;
-    --maroon-deep:#2e2ecc;
-    --gold:#8f8fff;
+    --indigo-25:#f8f8fe;
+    --indigo-50:#f1f1fe;
+    --indigo-100:#dedefc;
+    --indigo-300:#8f8fff;
+    --indigo:#4a4aef;
+    --indigo-deep:#2e2ecc;
+    --indigo-900:#1d1d94;
     --line:#ddd9d0;
     --panel:#faf9f5;
     --paper:#ffffff;
     --good:#3b6d11;
+    --good-soft:#6b9c5c;
     --warn:#b23a3a;
     --warn-deep:#8f2c2c;
+    --warn-bg:#f7e6e6;
+    --warn-soft:#c17b72;
     --heading:#000000; /* app name, song title, section labels, card headings, preview modal title */
   }
+  /* Dark theme. Page background is the darkest tone; cards/modals/inputs sit
+     progressively lighter on top of it (the reverse of light mode, where
+     paper is the lightest tone and surfaces are greyer) — this keeps the
+     same "elevated surface" reading in either theme. Hover/pressed states
+     brighten rather than darken, since darkening an already-dark color
+     trends toward invisible. The indigo scale is brightened throughout for
+     contrast against dark backgrounds — the same indigo hex used in light
+     mode would read muddy here. Intentionally NOT touched: .grid-table-dark,
+     .grid-table-doc, .preview-modal, and every .doc-* rule — these simulate
+     the fixed appearance of the actual exported .docx page (always white
+     paper, black text) or the existing dark notation-preview panel, neither
+     of which should shift with the app's own chrome theme. */
+  [data-theme="dark"]{
+    --surface:#17171d;
+    --surface-light:#1d1d24;
+    --surface-deep:#2a2a33;
+    --ink:#e8e8f0;
+    --ink-rgb:232,232,240;
+    --ink-soft:#9a9aad;
+    --indigo-25:#27272f;
+    --indigo-50:#22223a;
+    --indigo-100:#2b2b4d;
+    --indigo-300:#a3a3ff;
+    --indigo:#6f6fff;
+    --indigo-deep:#8a8aff;
+    --indigo-900:#dcdcff;
+    --line:#34343f;
+    --panel:#202027;
+    --paper:#232329;
+    --good:#6fbf3f;
+    --good-soft:#8fc47a;
+    --warn:#e0685f;
+    --warn-deep:#ff8078;
+    --warn-bg:#3a2323;
+    --warn-soft:#d98f87;
+    --heading:#ffffff;
+  }
   *{box-sizing:border-box;}
+  :focus-visible{ outline:2px solid var(--indigo-300); outline-offset:2px; }
+  html{ scrollbar-width:thin; scrollbar-color:var(--line) transparent; }
+  ::-webkit-scrollbar{ width:10px; height:10px; }
+  ::-webkit-scrollbar-track{ background:transparent; }
+  ::-webkit-scrollbar-thumb{ background:var(--line); border-radius:var(--radius-sm); }
+  ::-webkit-scrollbar-thumb:hover{ background:var(--indigo-300); }
+  ::selection{ background:var(--indigo-100); color:var(--ink); }
+  @keyframes modalPop{
+    from{ opacity:0; transform:translateY(8px); }
+    to{ opacity:1; transform:translateY(0); }
+  }
   body{
     margin:0;
-    background:var(--leaf);
+    background:var(--surface);
     background-image:
       radial-gradient(circle at 10% 10%, rgba(74,74,239,0.045), transparent 40%),
       radial-gradient(circle at 90% 30%, rgba(74,74,239,0.035), transparent 45%);
     color:var(--ink);
     font-family:'Inter',sans-serif;
-    min-height:100vh;
+    height:100vh;
+    overflow:hidden; /* the app itself never scrolls at the page level — .sidebar and .main each own their own scroll region below */
   }
-  .app{ display:grid; grid-template-columns:280px 1fr; min-height:100vh; }
+  .app{ display:grid; grid-template-columns:280px 1fr; height:100vh; }
 
   /* Tablet: sidebar collapses above content but keeps a bounded, scrollable height
      instead of the old 100vh (which pushed the whole page down on mobile). */
   @media (max-width:900px){
-    .app{ grid-template-columns:1fr; }
+    .app{ grid-template-columns:1fr; grid-template-rows:auto 1fr; height:100vh; }
+    body{ overflow:hidden; }
     .sidebar{ position:static; height:auto; max-height:320px; border-right:none; border-bottom:1px solid var(--line); }
-    .main{ padding:24px 20px 60px; max-width:100%; }
+    .main{ padding:24px 20px 60px; max-width:100%; height:auto; overflow-y:auto; }
     .hero h1{ font-size:28px; }
   }
 
@@ -68,98 +130,128 @@
 
   /* ---------- Sidebar ---------- */
   .sidebar{
-    background:var(--panel);
+    background:var(--surface-light);
     border-right:1px solid var(--line);
     padding:22px 16px;
     display:flex; flex-direction:column; gap:14px;
     position:sticky; top:0; height:100vh; overflow-y:auto;
   }
-  .brand{ display:flex; flex-direction:column; gap:2px; padding:0 4px 10px; border-bottom:1px solid var(--line); margin-bottom:4px;}
-  .brand .mark{ font-family:'Inter',sans-serif; font-weight:600; font-size:26px; color:var(--heading); letter-spacing:.3px; }
+  .brand{ display:flex; flex-direction:column; gap:6px; padding:0 4px 12px; border-bottom:1px solid var(--line); margin-bottom:4px;}
+  .brand-logo{ flex:none; width:38px; height:38px; color:var(--indigo); }
+  .brand .mark{ font-family:'Fraunces',serif; font-weight:600; font-size:22px; color:var(--heading); letter-spacing:.2px; line-height:1.2; }
   .brand .sub{ font-size:11px; text-transform:uppercase; letter-spacing:1.6px; color:var(--ink-soft); }
   .newbtn{
     display:flex; align-items:center; justify-content:center; gap:8px;
-    background:var(--maroon); color:var(--paper); border:none; border-radius:8px;
+    background:var(--indigo); color:var(--paper); border:none; border-radius:var(--radius-sm);
     padding:11px 12px; font-size:13.5px; font-weight:600; cursor:pointer; letter-spacing:.2px;
-    transition:background .15s;
+    transition:filter .15s;
   }
-  .newbtn:hover{ background:var(--maroon-deep); }
-  .sync-panel{ display:flex; flex-direction:column; gap:7px; }
-  .sync-panel .btn{ width:100%; }
+  .newbtn:hover{ filter:brightness(0.94); }
+  .nav-group{ display:flex; flex-direction:column; gap:2px; }
+  .nav-group > .nav-item:not(:last-child){ border-bottom:1px solid var(--line); }
+  .nav-item{
+    display:flex; align-items:center; gap:12px;
+    padding:10px 12px; border-radius:var(--radius-sm);
+    color:var(--ink); font-weight:600; font-size:14px; font-family:'Inter',sans-serif;
+    cursor:pointer; border:none; background:transparent; width:100%; text-align:left;
+    transition:filter .15s, background .15s;
+  }
+  .nav-item:hover{ background:var(--surface); }
+  .nav-item svg{ flex:none; color:var(--indigo); }
+  .nav-item .nav-sub{ font-size:10.5px; font-weight:500; color:var(--ink-soft); margin-top:1px; }
+  .nav-item .nav-label-col{ display:flex; flex-direction:column; min-width:0; }
+  .nav-divider{ height:1px; background:var(--line); margin:10px 4px; }
   .sync-status{
     text-align:center; font-size:10.5px; line-height:1.35; color:var(--ink-soft);
     min-height:13px; padding:0 4px;
   }
   .search{
-    width:100%; padding:9px 11px; border-radius:7px; border:1px solid var(--line);
+    width:100%; padding:9px 11px; border-radius:var(--radius-sm); border:1px solid var(--line);
     background:var(--paper); font-size:13px; color:var(--ink); font-family:'Inter',sans-serif;
   }
   .song-list{ display:flex; flex-direction:column; gap:6px; margin-top:4px; }
+  .side-foot{
+    margin-top:auto; padding-top:14px; font-size:11px; line-height:1.5; color:var(--ink-soft);
+  }
   .song-item{
-    padding:10px 12px; border-radius:8px; cursor:pointer; border:1px solid transparent;
+    padding:10px 12px; border-radius:var(--radius-sm); cursor:pointer; border:1px solid transparent;
     display:flex; flex-direction:column; gap:2px;
   }
-  .song-item:hover{ background:var(--leaf-deep); }
-  .song-item.active{ background:var(--paper); border-color:var(--gold); box-shadow:0 1px 0 rgba(0,0,0,0.03); }
+  .song-item:hover{ background:var(--surface-deep); }
+  .song-item.active{ background:var(--paper); border-color:var(--indigo-300); box-shadow:0 1px 0 rgba(0,0,0,0.03); }
   .song-item .t{ font-weight:600; font-size:13.5px; color:var(--ink); }
-  .song-item .m{ font-size:11px; color:var(--ink-soft); }
+  .song-item .m{ font-size:10.5px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:1px; font-weight:600; }
   .empty-note{ font-size:12.5px; color:var(--ink-soft); padding:8px 4px; line-height:1.5; }
 
   /* ---------- Main ---------- */
-  .main{ padding:32px 40px 80px; max-width:980px; }
+  .main{ padding:32px 40px 80px; max-width:980px; height:100vh; overflow-y:auto; }
 
   .hero{
     display:flex; align-items:baseline; justify-content:space-between; gap:20px; margin-bottom:28px; flex-wrap:wrap;
   }
-  .hero h1{ font-family:'Inter',sans-serif; font-weight:600; font-size:34px; margin:0; color:var(--heading); }
+  .hero h1{ font-family:'Fraunces',serif; font-weight:600; font-size:34px; margin:0; color:var(--heading); }
   .hero p{ margin:4px 0 0; color:var(--ink-soft); font-size:13.5px; }
 
   .placeholder{
-    background:var(--paper); border:1px dashed var(--line); border-radius:14px;
+    background:var(--paper); border:1px dashed var(--line); border-radius:var(--radius-md);
     padding:60px 30px; text-align:center; color:var(--ink-soft);
   }
-  .placeholder .glyph{ font-size:38px; color:var(--gold); margin-bottom:10px; font-family:'Inter',sans-serif; }
-  .placeholder h2{ font-family:'Inter',sans-serif; color:var(--ink); font-weight:600; margin:0 0 8px; }
+  .placeholder .glyph{ font-size:38px; color:var(--indigo-300); margin-bottom:10px; font-family:'Inter',sans-serif; }
+  .placeholder h2{ font-family:'Fraunces',serif; color:var(--ink); font-weight:600; margin:0 0 8px; }
 
   .card{
-    background:var(--paper); border:1px solid var(--line); border-radius:14px;
-    padding:24px 26px; margin-bottom:20px; box-shadow:0 1px 2px rgba(44,32,19,0.04);
+    background:var(--paper); border:1px solid var(--line); border-radius:var(--radius-md);
+    padding:24px 26px; margin-bottom:20px; box-shadow:0 1px 2px rgba(var(--ink-rgb),0.04);
   }
   .card h3{
-    font-family:'Inter',sans-serif; font-size:19px; font-weight:600; margin:0 0 14px;
+    font-family:'Fraunces',serif; font-size:19px; font-weight:600; margin:0 0 14px;
     color:var(--heading); display:flex; align-items:center; gap:8px;
   }
   .field-grid{ display:grid; grid-template-columns:1fr 1fr; gap:14px; }
   @media (max-width:700px){ .field-grid{ grid-template-columns:1fr; } }
   label{ font-size:11.5px; text-transform:uppercase; letter-spacing:1px; color:var(--ink-soft); font-weight:600; display:block; margin-bottom:5px; }
   input[type=text], select, textarea{
-    width:100%; padding:9px 10px; border-radius:7px; border:1px solid var(--line);
+    width:100%; padding:9px 10px; border-radius:var(--radius-sm); border:1px solid var(--line);
     background:var(--panel); font-size:14px; color:var(--ink); font-family:'Inter',sans-serif;
   }
   textarea{ font-family:'Courier Prime',monospace; font-size:13.5px; line-height:1.7; resize:vertical; min-height:70px; }
   .fieldwrap{ margin-bottom:12px; }
 
-  .toolbar{ display:flex; gap:10px; flex-wrap:wrap; margin-bottom:22px; }
+  .toolbar{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:22px; }
+  .toolbar-divider{ width:1px; align-self:stretch; min-height:20px; background:var(--line); margin:0 4px; }
   .btn{
     border:1px solid var(--line); background:var(--paper); color:var(--ink);
-    padding:9px 14px; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer;
-    display:flex; align-items:center; justify-content:center; gap:7px; transition:all .15s;
+    padding:9px 14px; border-radius:var(--radius-sm); font-size:13px; font-weight:600; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; gap:7px; transition:filter .15s;
   }
-  .btn:hover{ border-color:var(--gold); background:var(--leaf-deep); }
-  .btn.primary{ background:var(--maroon); color:var(--paper); border-color:var(--maroon); }
-  .btn.primary:hover{ background:var(--maroon-deep); }
+  .btn:hover{ filter:brightness(0.94); }
+  .btn.primary{ background:var(--indigo); color:var(--paper); border-color:var(--indigo); }
   .btn.danger{ color:var(--warn); }
-  .btn.danger:hover{ background:#f7e6e6; border-color:var(--warn); }
+
+  /* Main toolbar: every button — regardless of primary/danger modifier —
+     renders identically (same fill, same size, same shape). Scoped to
+     .toolbar specifically so primary/danger buttons elsewhere (the Drive
+     conflict modal, import confirmation, download-choice popup) keep their
+     own distinct styling untouched. Hover uses the same universal
+     filter:brightness() rule above — no separate hover override needed
+     here anymore. */
+  .toolbar .btn:not(.danger),
+  .toolbar .btn.primary{
+    background:var(--indigo); color:var(--paper); border-color:var(--indigo);
+    padding:9px 14px; font-size:13px; border-radius:var(--radius-sm); height:36px;
+  }
+  .toolbar .btn.danger{ height:36px; }
   .btn.small{ padding:6px 10px; font-size:12px; }
+  .icon-btn{ width:34px; height:34px; padding:0; flex:none; }
 
   .section-block{ border-top:1px solid var(--line); padding-top:16px; margin-top:16px; }
   .section-head{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; }
-  .section-head input{ font-family:'Inter',sans-serif; font-size:19px; font-weight:600; color:var(--heading); border:none; background:transparent; padding:2px 4px; }
-  .section-head input:focus{ outline:1px solid var(--gold); border-radius:5px; }
+  .section-head input{ font-family:'Fraunces',serif; font-size:19px; font-weight:600; color:var(--heading); border:none; background:transparent; padding:2px 4px; }
+  .section-head input:focus{ outline:1px solid var(--indigo-300); border-radius:var(--radius-sm); }
 
-  .line-row{ margin-bottom:16px; padding:12px; background:var(--panel); border-radius:10px; border:1px solid var(--line); }
+  .line-row{ margin-bottom:16px; padding:12px; background:var(--panel); border-radius:var(--radius-md); border:1px solid var(--line); }
   .line-top{ display:flex; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
-  .line-top input.label{ width:56px; font-weight:700; font-family:'Courier Prime',monospace; text-align:center; padding:6px 4px;}
+  .line-top input.label{ width:56px; font-weight:700; font-family:'Courier Prime',monospace; text-align:center; padding:6px 4px; background:var(--paper); border:1px solid var(--line); color:var(--ink); border-radius:var(--radius-sm); }
   .line-top .spacer{ flex:1; }
 
   .grid-wrap{ overflow-x:auto; }
@@ -167,23 +259,28 @@
   .beat-cell{ display:flex; flex-direction:column; gap:4px; min-width:64px; }
   .beat-cell input{
     font-family:'Courier Prime',monospace; font-size:14px; text-align:left;
-    padding:7px 6px; border-radius:5px;
+    padding:7px 6px; border-radius:var(--radius-sm);
   }
-  .beat-cell input.swara{ background:var(--paper); border:1px solid var(--line); font-weight:700; }
-  .beat-cell input.lyric{ background:#fff; border:1px solid #e3dfd3; font-size:12px; color:var(--ink-soft); }
-  .aksh-badge{ font-size:9.5px; text-align:center; height:12px; line-height:12px; font-weight:700; letter-spacing:.3px; }
-  .aksh-badge.ok{ color:var(--good); }
-  .aksh-badge.bad{ color:var(--warn); }
-  .align-badge{ font-size:8.5px; text-align:left; min-height:11px; line-height:11px; font-weight:700; color:var(--warn); letter-spacing:.2px; }
-  .sep-cell{ display:flex; align-items:center; justify-content:center; color:var(--gold); font-size:20px; font-weight:700; padding:0 2px; }
-  .edge-mark{ display:flex; align-items:center; justify-content:center; color:var(--maroon); font-size:20px; font-weight:700; padding:0 4px; }
+  .beat-cell input.swara{ background:var(--indigo-25); border:1px solid var(--line); color:var(--ink); font-weight:700; }
+  .beat-cell input.lyric{ background:var(--paper); border:1px solid var(--line); font-size:12px; font-weight:700; color:var(--ink-soft); }
+  .beat-cell input.swara.cell-in-selection{ background:var(--indigo-50); border-color:var(--indigo-300); }
+  .beat-cell input.lyric.cell-in-selection{ background:var(--indigo-100); border-color:var(--indigo-300); }
+  .beat-cell input.swara:focus{ background:var(--indigo-50); border-color:var(--indigo-300); }
+  .beat-cell input.lyric:focus{ background:var(--indigo-100); border-color:var(--indigo-300); }
+  .num{ font-variant-numeric:tabular-nums; }
+  .aksh-badge{ font-size:9.5px; text-align:center; height:12px; line-height:12px; font-weight:700; letter-spacing:.3px; font-variant-numeric:tabular-nums; }
+  .aksh-badge.ok{ color:var(--good-soft); }
+  .aksh-badge.bad{ color:var(--warn-soft); }
+  .align-badge{ font-size:8.5px; text-align:left; min-height:11px; line-height:11px; font-weight:700; color:var(--warn-soft); letter-spacing:.2px; font-variant-numeric:tabular-nums; }
+  .sep-cell{ display:flex; align-items:center; justify-content:center; color:var(--indigo-300); font-size:20px; font-weight:700; padding:0 2px; }
+  .edge-mark{ display:flex; align-items:center; justify-content:center; color:var(--indigo); font-size:20px; font-weight:700; padding:0 4px; }
 
   .hint{ font-size:11.5px; color:var(--ink-soft); margin-top:10px; line-height:1.6; }
-  .hint code{ background:var(--leaf-deep); padding:1px 5px; border-radius:4px; font-family:'Courier Prime',monospace; }
+  .hint code{ background:var(--surface-deep); padding:1px 5px; border-radius:var(--radius-sm); font-family:'Courier Prime',monospace; }
 
   .preview{
-    font-family:'Consolas','Courier Prime',monospace; background:var(--ink); color:var(--leaf);
-    border-radius:10px; padding:16px 18px; font-size:14px; line-height:2; overflow-x:auto; margin-top:14px;
+    font-family:'Consolas','Courier Prime',monospace; background:#1a1a2e; color:#ececeb;
+    border-radius:var(--radius-md); padding:16px 18px; font-size:14px; line-height:2; overflow-x:auto; margin-top:14px;
   }
   /* ---------- Notation grid tables (shared by live preview and the full
      Preview modal — mirrors the .docx export's real table structure:
@@ -205,7 +302,7 @@
 
   .toast{
     position:fixed; bottom:22px; left:50%; transform:translateX(-50%) translateY(20px);
-    background:var(--ink); color:var(--leaf); padding:11px 20px; border-radius:9px; font-size:13px;
+    background:#1a1a2e; color:#ececeb; padding:11px 20px; border-radius:var(--radius-md); font-size:13px;
     opacity:0; pointer-events:none; transition:all .25s; z-index:50; font-weight:600;
   }
   .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
@@ -214,13 +311,14 @@
 
   /* ---------- Preview modal ---------- */
   .preview-overlay{
-    position:fixed; inset:0; background:rgba(44,32,19,0.55); z-index:100;
+    position:fixed; inset:0; background:rgba(var(--ink-rgb),0.55); z-index:100;
     display:none; align-items:flex-start; justify-content:center; padding:30px 16px; overflow-y:auto;
   }
   .preview-overlay.show{ display:flex; }
   .preview-modal{
-    background:#fffef9; border-radius:14px; max-width:1000px; width:100%;
+    background:#fffef9; border-radius:var(--radius-lg); max-width:1000px; width:100%;
     box-shadow:0 20px 60px rgba(0,0,0,0.35); overflow:hidden;
+    animation:modalPop .18s ease;
   }
   .preview-modal-head{
     padding:18px 26px; border-bottom:1px solid var(--line); background:var(--panel);
@@ -240,42 +338,80 @@
   .doc-end{ font-family:'Consolas','Courier Prime',monospace; text-align:center; font-size:13px; color:#111; }
   /* ---------- Storage quota modal ---------- */
   .quota-overlay{
-    position:fixed; inset:0; background:rgba(44,32,19,0.55); z-index:110;
+    position:fixed; inset:0; background:rgba(var(--ink-rgb),0.55); z-index:110;
     display:none; align-items:center; justify-content:center; padding:16px;
   }
   .quota-overlay.show{ display:flex; }
   .quota-modal{
-    background:#fffef9; border-radius:14px; max-width:360px; width:100%;
+    background:var(--paper); border-radius:var(--radius-lg); max-width:360px; width:100%;
     box-shadow:0 20px 60px rgba(0,0,0,0.35); padding:22px 24px 24px;
+    animation:modalPop .18s ease;
   }
   .quota-modal-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
   .quota-modal-title{ font-family:'Inter',sans-serif; font-weight:600; font-size:17px; color:var(--heading); }
-  .quota-bar-track{ background:var(--line); border-radius:6px; height:10px; overflow:hidden; margin:10px 0 8px; }
-  .quota-bar-fill{ background:var(--maroon); height:100%; border-radius:6px; transition:width .3s; }
+  .quota-bar-track{ background:var(--line); border-radius:var(--radius-sm); height:10px; overflow:hidden; margin:10px 0 8px; }
+  .quota-bar-fill{ background:var(--indigo); height:100%; border-radius:var(--radius-sm); transition:width .3s; }
   .quota-bar-fill.warn{ background:var(--warn); }
   .quota-text{ font-size:13px; color:var(--ink-soft); }
   .quota-text b{ color:var(--ink); }
   .quota-loading, .quota-error{ font-size:13px; color:var(--ink-soft); padding:6px 0; }
   .conflict-modal{ max-width:400px; }
 </style>
+<script>
+  (function(){
+    var saved = localStorage.getItem('kriti-theme');
+    var theme = saved || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    if(theme === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+  })();
+</script>
 </head>
 <body>
 <div class="app">
   <aside class="sidebar">
     <div class="brand">
+      <svg class="brand-logo" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <rect x="0.5" y="0.5" width="35" height="35" rx="10" fill="var(--indigo)" fill-opacity="0.08" stroke="var(--indigo)" stroke-opacity="0.14"/>
+        <rect x="6" y="21" width="3" height="7" rx="1.5" fill="var(--indigo)"/>
+        <rect x="12" y="16" width="3" height="12" rx="1.5" fill="var(--indigo)"/>
+        <rect x="18" y="11" width="3" height="17" rx="1.5" fill="var(--indigo)"/>
+        <ellipse cx="26.5" cy="24.5" rx="2.7" ry="2.1" transform="rotate(-22 26.5 24.5)" fill="var(--indigo)"/>
+        <line x1="29" y1="23.6" x2="29" y2="9" stroke="var(--indigo)" stroke-width="1.7" stroke-linecap="round"/>
+      </svg>
       <div class="mark">Kriti Notation Studio</div>
       <div class="sub">your permanent swara library</div>
     </div>
-    <div class="sync-panel">
-      <button class="newbtn" id="syncBtn">☁️ Connect to Drive</button>
-      <div class="sync-status" id="syncStatus"></div>
-      <button class="btn small" id="storageQuotaBtn">📊 Storage used</button>
+    <button class="nav-item" id="themeToggleBtn">
+      <svg id="themeToggleIcon" width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></svg>
+      <span id="themeToggleLabel">Dark mode</span>
+    </button>
+    <div class="nav-divider"></div>
+    <div class="nav-group">
+      <button class="nav-item" id="newSongBtn">
+        <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M10 4v12M4 10h12"/></svg>
+        <span>New Kriti</span>
+      </button>
+      <button class="nav-item" id="importBtn">
+        <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13V3M6 7l4-4 4 4M4 17h12"/></svg>
+        <span>Import from PDF/Word</span>
+      </button>
     </div>
-    <button class="newbtn" id="newSongBtn">+ New Kriti</button>
-    <button class="btn small" id="importBtn">⇪ Import from PDF/Word</button>
+    <div class="nav-divider"></div>
+    <div class="nav-group">
+      <button class="nav-item" id="syncBtn">
+        <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15h8a3 3 0 000-6 4.5 4.5 0 00-8.6-1.5A3.5 3.5 0 006 15z"/></svg>
+        <span>Connect to Drive</span>
+      </button>
+      <div class="sync-status" id="syncStatus"></div>
+      <button class="nav-item" id="storageQuotaBtn">
+        <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16V9M10 16V4M16 16v-6"/></svg>
+        <span>Storage used</span>
+      </button>
+    </div>
+    <div class="nav-divider"></div>
     <input type="file" id="importFileInput" accept=".pdf,.docx" style="display:none;">
     <input class="search" id="searchBox" type="text" placeholder="Search by title or raga…" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off">
     <div class="song-list" id="songList"></div>
+    <div class="side-foot">Your kritis are stored in this browser, with Google Drive as optional backup.</div>
   </aside>
 
   <main class="main" id="main"></main>
@@ -286,7 +422,7 @@
   <div class="quota-modal">
     <div class="quota-modal-head">
       <div class="quota-modal-title">Google Drive storage</div>
-      <button class="btn small" id="closeQuotaBtn">✕</button>
+      <button class="btn small icon-btn" id="closeQuotaBtn"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 5l10 10M15 5L5 15"/></svg></button>
     </div>
     <div id="quotaBody"><div class="quota-loading">Loading…</div></div>
   </div>
@@ -305,9 +441,19 @@
   <div class="quota-modal conflict-modal">
     <div class="quota-modal-head">
       <div class="quota-modal-title">Import preview</div>
-      <button class="btn small" id="closeImportBtn">✕</button>
+      <button class="btn small icon-btn" id="closeImportBtn"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 5l10 10M15 5L5 15"/></svg></button>
     </div>
     <div id="importBody"><div class="quota-loading">Reading file…</div></div>
+  </div>
+</div>
+
+<div class="quota-overlay" id="docxChoiceOverlay">
+  <div class="quota-modal conflict-modal">
+    <div class="quota-modal-head">
+      <div class="quota-modal-title">Download or Export</div>
+      <button class="btn small icon-btn" id="closeDocxChoiceBtn"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 5l10 10M15 5L5 15"/></svg></button>
+    </div>
+    <div id="docxChoiceBody"></div>
   </div>
 </div>
 
@@ -317,7 +463,7 @@
     <div class="preview-modal-head">
       <div class="preview-modal-title">Document Preview</div>
       <div class="preview-modal-sub">Approximation of the exported layout — actual docx/pdf spacing may vary slightly.</div>
-      <button class="btn small" id="closePreviewBtn">✕ Close</button>
+      <button class="btn small" id="closePreviewBtn"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 5l10 10M15 5L5 15"/></svg> Close</button>
     </div>
     <div class="preview-modal-body" id="previewBody"></div>
   </div>
@@ -772,7 +918,9 @@ async function flushPendingDriveDeletes(){
 function updateSyncButton(){
   const b = document.getElementById('syncBtn');
   if(!b) return;
-  b.textContent = driveAccessToken ? '🔄 Sync' : '☁️ Connect to Drive';
+  const cloudIcon = '<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15h8a3 3 0 000-6 4.5 4.5 0 00-8.6-1.5A3.5 3.5 0 006 15z"/></svg>';
+  const syncIcon = '<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10a6 6 0 0110-4.5M16 10a6 6 0 01-10 4.5M14 3v3h-3M6 17v-3h3"/></svg>';
+  b.innerHTML = (driveAccessToken ? syncIcon + ' <span>Sync</span>' : cloudIcon + ' <span>Connect to Drive</span>');
   b.title = driveAccessToken ? 'Click to sync now' : 'Click to connect to Google Drive';
   updateSyncStatusText();
 }
@@ -980,7 +1128,7 @@ async function openStorageQuota(){
     const { totalBytes, fileCount } = await driveComputeAppStorageUsage();
     const filesNoun = fileCount === 1 ? 'file' : 'files';
     body.innerHTML = `
-      <div class="quota-text"><b>${formatBytes(totalBytes)}</b> used by Kriti Notation Studio, across <b>${fileCount}</b> ${filesNoun}.</div>
+      <div class="quota-text"><b class="num">${formatBytes(totalBytes)}</b> used by Kriti Notation Studio, across <b class="num">${fileCount}</b> ${filesNoun}.</div>
       <div class="quota-text" style="margin-top:6px;color:var(--ink-soft,#777);font-size:12px;">This is just this app's own "${DRIVE_FOLDER_NAME}" folder in your Drive — not your overall Drive storage.</div>
     `;
   }catch(e){
@@ -1117,22 +1265,6 @@ async function driveUploadBlob(blob, filename, mimeType){
     await driveKeepRevisionForever(result.id, result.headRevisionId);
   }
   return result;
-}
-
-/* Uploads a generated .docx to the Drive folder, if connected and online.
-   Silent on success/failure either way — downloadDocxFile already reports
-   its own "Downloaded .docx" toast for the local save; this is a best-effort
-   extra, not the main action the user asked for by clicking Download. */
-async function syncDocxToDrive(blob, filename){
-  if(!driveAccessToken || !navigator.onLine) return;
-  try{
-    if(!driveFolderId) driveFolderId = await driveFindOrCreateFolder(DRIVE_FOLDER_NAME);
-    await driveUploadBlob(blob, filename, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-    showToast('Also saved to Google Drive ✓');
-  }catch(e){
-    console.error('[drive docx upload] failed:', e);
-    showToast('Downloaded, but could not save a copy to Drive');
-  }
 }
 
 /* The one function both the manual Sync click and the automatic
@@ -1459,9 +1591,116 @@ function queueSave(){
       if(saveQueued){ saveQueued = false; queueSave(); }
     });
   }, 800);
+  queueUndoCommit();
+}
+
+/* ===================== Undo / Redo =====================
+   Snapshot-based, per song (keyed by song id) — deliberately not a diff or
+   command log, since this app already deep-copies whole songs elsewhere
+   (Duplicate kriti) and a snapshot is far simpler to get right than tracking
+   every possible mutation individually.
+
+   The real difficulty: by the time queueSave() runs, the mutation that
+   triggered it has ALREADY happened (every call site changes the data,
+   *then* calls queueSave()) — so there's no "before" state left to grab at
+   that point. Rather than touch every individual mutation site to capture
+   a "before" snapshot first, this flips the direction: keep a rolling
+   "last settled state" per song, and only commit it to the undo stack once
+   a debounce window passes with no further edits — the same 800ms window
+   queueSave() already uses for persistence, reused here so a burst of rapid
+   typing (or a paste, which fires the same input events) becomes ONE undo
+   step, not one per keystroke. This means every mutation is covered
+   automatically as long as it calls queueSave() — true for cell edits,
+   paste, and every line/section-level action (add/remove/clear/duplicate)
+   already in the app, with no per-callsite changes needed. */
+const songUndoStacks = new Map();  // songId -> array of snapshots, oldest first
+const songRedoStacks = new Map();  // songId -> array of snapshots, oldest first
+const songLastSettled = new Map(); // songId -> snapshot of the state as of the last commit
+const MAX_UNDO_STEPS = 50;
+let undoCommitTimer = null;
+
+function deepCopySong(song){ return JSON.parse(JSON.stringify(song)); }
+
+/* Called once when a song is first displayed (new song, opened from the
+   list, freshly imported, ...) — establishes the starting point so the
+   very first edit has something to undo back to. Safe to call repeatedly:
+   only initializes if this song has no baseline yet. */
+function ensureUndoBaseline(song){
+  if(!song || songLastSettled.has(song.id)) return;
+  songLastSettled.set(song.id, deepCopySong(song));
+  songUndoStacks.set(song.id, []);
+  songRedoStacks.set(song.id, []);
+}
+
+function queueUndoCommit(){
+  clearTimeout(undoCommitTimer);
+  undoCommitTimer = setTimeout(commitUndoSnapshot, 800);
+}
+
+function commitUndoSnapshot(){
+  const song = getSong();
+  if(!song) return;
+  ensureUndoBaseline(song);
+  const lastSettled = songLastSettled.get(song.id);
+  const current = JSON.stringify(song);
+  if(JSON.stringify(lastSettled) === current) return; // nothing actually changed since the last commit
+  const stack = songUndoStacks.get(song.id);
+  stack.push(lastSettled);
+  if(stack.length > MAX_UNDO_STEPS) stack.shift();
+  songLastSettled.set(song.id, JSON.parse(current));
+  songRedoStacks.set(song.id, []); // a genuine new edit invalidates redo history
+}
+
+function performUndo(){
+  const song = getSong();
+  if(!song) return;
+  commitUndoSnapshot(); // flush any pending (not-yet-settled) edit as its own step first, so undo never silently drops recent work
+  const stack = songUndoStacks.get(song.id);
+  if(!stack || !stack.length){ showToast('Nothing to undo'); return; }
+  const redoStack = songRedoStacks.get(song.id);
+  redoStack.push(deepCopySong(song));
+  const restored = stack.pop();
+  const idx = library.findIndex(s => s.id === song.id);
+  library[idx] = restored;
+  songLastSettled.set(song.id, deepCopySong(restored));
+  persist(); renderAll();
+  showToast('Undid last change');
+}
+
+function performRedo(){
+  const song = getSong();
+  if(!song) return;
+  const redoStack = songRedoStacks.get(song.id);
+  if(!redoStack || !redoStack.length){ showToast('Nothing to redo'); return; }
+  const stack = songUndoStacks.get(song.id);
+  stack.push(deepCopySong(song));
+  const restored = redoStack.pop();
+  const idx = library.findIndex(s => s.id === song.id);
+  library[idx] = restored;
+  songLastSettled.set(song.id, deepCopySong(restored));
+  persist(); renderAll();
+  showToast('Redid change');
 }
 
 /* ===================== Rendering ===================== */
+const SUN_ICON_PATH = '<circle cx="10" cy="10" r="3.2"/><path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.5 4.5l1.4 1.4M14.1 14.1l1.4 1.4M4.5 15.5l1.4-1.4M14.1 5.9l1.4-1.4"/>';
+const MOON_ICON_PATH = '<path d="M15 10.5A6 6 0 019.5 5 6.5 6.5 0 1015 10.5z"/>';
+
+function applyTheme(theme){
+  if(theme === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+  else document.documentElement.removeAttribute('data-theme');
+  localStorage.setItem('kriti-theme', theme);
+  const icon = document.getElementById('themeToggleIcon');
+  const label = document.getElementById('themeToggleLabel');
+  if(icon) icon.innerHTML = theme === 'dark' ? SUN_ICON_PATH : MOON_ICON_PATH;
+  if(label) label.textContent = theme === 'dark' ? 'Light mode' : 'Dark mode';
+}
+
+function toggleTheme(){
+  const current = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+  applyTheme(current === 'dark' ? 'light' : 'dark');
+}
+
 function showToast(msg){
   const t = document.getElementById('toast');
   t.textContent = msg; t.classList.add('show');
@@ -1653,6 +1892,108 @@ function wireGlobalCtrlNavigation(host){
   }
   swaraInputs.forEach(inp=> wire(inp, 'swara'));
   lyricInputs.forEach(inp=> wire(inp, 'lyric'));
+}
+
+/* Copied cells persist across re-renders (add/remove a line, etc.) so a
+   copy-then-restructure-then-paste sequence still works — deliberately a
+   module-level variable, not reset by wireCellCopyPaste itself. Only ever
+   holds one type at a time (swara or lyric): copying a fresh range always
+   replaces whatever was there before. */
+let copiedCells = null; // { type: 'swara'|'lyric', values: string[] }
+
+/* Click-and-shift-click range selection across swara cells (or across lyric
+   cells — never mixed, matching how the feature was asked for: "copy swara
+   or sahitya"), then Ctrl+C / Ctrl+V to copy and paste the range. Reuses the
+   exact same physical-row traversal order as Ctrl+Right/Left navigation, so
+   a selection (and a paste-fill) can span across lines and sections exactly
+   the way that arrow-key navigation already does — no separate concept of
+   "row order" to keep in sync with.
+
+   Paste reuses each target input's own existing oninput handler rather than
+   writing to the data model directly: setting .value and dispatching a real
+   'input' event runs the same sanitizing (case-forcing, disallowed-character
+   filtering), badge updates, save, and preview refresh that typing already
+   does — so pasted content is guaranteed to end up exactly as valid as
+   anything hand-typed, with zero duplicated logic to keep in sync. */
+function wireCellCopyPaste(host){
+  const physRows = Array.from(host.querySelectorAll('.phys-row'));
+  const swaraSeq = [], lyricSeq = [];
+  physRows.forEach(row=>{
+    Array.from(row.querySelectorAll('input.swara')).forEach(inp=> swaraSeq.push(inp));
+    Array.from(row.querySelectorAll('input.lyric')).forEach(inp=> lyricSeq.push(inp));
+  });
+
+  let anchor = null; // { type, input }
+  let selected = []; // ordered array of currently-highlighted inputs, all one type
+
+  function clearHighlight(){
+    selected.forEach(inp => inp.classList.remove('cell-in-selection'));
+    selected = [];
+  }
+  function setSelection(type, inputs){
+    clearHighlight();
+    selected = inputs;
+    if(inputs.length > 1) inputs.forEach(inp => inp.classList.add('cell-in-selection'));
+  }
+  function seqFor(type){ return type === 'swara' ? swaraSeq : lyricSeq; }
+
+  function wireClick(inp, type){
+    inp.addEventListener('click', (e)=>{
+      const seq = seqFor(type);
+      if(e.shiftKey && anchor && anchor.type === type){
+        const a = seq.indexOf(anchor.input), b = seq.indexOf(inp);
+        if(a !== -1 && b !== -1){
+          const [lo, hi] = a <= b ? [a,b] : [b,a];
+          setSelection(type, seq.slice(lo, hi+1));
+          return;
+        }
+      }
+      anchor = { type, input: inp };
+      setSelection(type, [inp]);
+    });
+  }
+  swaraSeq.forEach(inp => wireClick(inp, 'swara'));
+  lyricSeq.forEach(inp => wireClick(inp, 'lyric'));
+
+  function handleCopy(e){
+    if(selected.length < 2) return; // fewer than 2: let the browser's own single-field copy proceed untouched
+    const active = document.activeElement;
+    if(!selected.includes(active)) return;
+    e.preventDefault();
+    const type = swaraSeq.includes(active) ? 'swara' : 'lyric';
+    copiedCells = { type, values: selected.map(inp => inp.value) };
+    showToast(`Copied ${copiedCells.values.length} cell${copiedCells.values.length===1?'':'s'}`);
+  }
+  function handlePaste(e){
+    if(!copiedCells || copiedCells.values.length < 2) return; // nothing multi-cell copied: let normal single-field paste proceed
+    const active = document.activeElement;
+    const seq = seqFor(copiedCells.type);
+    const startIdx = seq.indexOf(active);
+    if(startIdx === -1) return; // focus isn't on a matching-type cell — normal paste proceeds
+    e.preventDefault();
+    let filled = 0;
+    for(let i = 0; i < copiedCells.values.length && startIdx+i < seq.length; i++){
+      const target = seq[startIdx+i];
+      target.value = copiedCells.values[i];
+      target.dispatchEvent(new Event('input', { bubbles: true }));
+      filled++;
+    }
+    showToast(filled < copiedCells.values.length
+      ? `Pasted ${filled} of ${copiedCells.values.length} cells (ran out of cells)`
+      : `Pasted ${filled} cell${filled===1?'':'s'}`);
+  }
+  // This function runs again on every re-render (adding a line, clearing a
+  // line, adding a section, ...), but `host` (#sectionsHost) is the same
+  // persistent DOM node every time — only its children get rebuilt. Without
+  // removing the previous listeners first, each re-render would silently add
+  // another 'copy'/'paste' listener on top of the last, stacking indefinitely
+  // over an editing session.
+  if(host._copyHandler) host.removeEventListener('copy', host._copyHandler);
+  if(host._pasteHandler) host.removeEventListener('paste', host._pasteHandler);
+  host._copyHandler = handleCopy;
+  host._pasteHandler = handlePaste;
+  host.addEventListener('copy', handleCopy);
+  host.addEventListener('paste', handlePaste);
 }
 
 function escapeHtml(str){
@@ -2765,6 +3106,7 @@ function getSong(){ return library.find(s=>s.id===currentId); }
 function renderMain(){
   const main = document.getElementById('main');
   const song = getSong();
+  if(song) ensureUndoBaseline(song);
   if(!song){
     main.innerHTML = `
       <div class="hero"><div><h1>Kriti Notation Studio</h1><p>Pick a kriti on the left, or start a new one.</p></div></div>
@@ -2772,24 +3114,30 @@ function renderMain(){
         <div class="glyph">॥</div>
         <h2>Your library is ready</h2>
         <div>Click <b>+ New Kriti</b> to notate your first song in your own grid format.</div>
+        <button class="btn primary" id="placeholderNewSongBtn" style="margin:16px auto 0;">
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M10 4v12M4 10h12"/></svg> New Kriti
+        </button>
       </div>`;
+    document.getElementById('placeholderNewSongBtn').onclick = createNewSong;
     return;
   }
 
   main.innerHTML = `
     <div class="hero">
       <div>
-        <h1 contenteditable="true" id="titleEdit" style="outline:none;" spellcheck="false" autocorrect="off" autocapitalize="off">${escapeHtml(song.title)}</h1>
+        <h1 contenteditable="true" id="titleEdit" spellcheck="false" autocorrect="off" autocapitalize="off">${escapeHtml(song.title)}</h1>
         <p>Edits save automatically to your library.</p>
       </div>
     </div>
 
     <div class="toolbar">
-      <button class="btn primary" id="previewBtn">👁 Preview</button>
-      <button class="btn primary" id="downloadDocxBtn">⬇ Download Word (.docx)</button>
-      <button class="btn" id="saveBtn">💾 Save now</button>
-      <button class="btn" id="copyDataBtn">📋 Copy data for Claude (→ .docx)</button>
-      <button class="btn danger" id="deleteBtn">🗑️ Delete kriti</button>
+      <button class="btn primary" id="saveBtn"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h9l3 3v9a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1z"/><path d="M7 4v4h6V4M6 17v-5h8v5"/></svg> Save now</button>
+      <button class="btn" id="duplicateSongBtn"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="10" height="10" rx="1.2"/><path d="M7 6V4a1 1 0 011-1h8a1 1 0 011 1v8a1 1 0 01-1 1h-2"/></svg> Duplicate kriti</button>
+      <button class="btn" id="copyDataBtn"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="8" height="13" rx="1.2"/><path d="M8 4V3a1 1 0 011-1h2a1 1 0 011 1v1"/></svg> Copy data for Claude (→ .docx)</button>
+      <button class="btn" id="previewBtn"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 10s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6z"/><circle cx="10" cy="10" r="2.3"/></svg> Preview</button>
+      <button class="btn" id="downloadDocxBtn"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3v10M6 9l4 4 4-4M4 17h12"/></svg> Download/Export (.docx)</button>
+      <div class="toolbar-divider"></div>
+      <button class="btn danger" id="deleteBtn"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h12M8 6V4a1 1 0 011-1h2a1 1 0 011 1v2M6 6l.6 10a1 1 0 001 .9h4.8a1 1 0 001-.9L14 6"/></svg> Delete kriti</button>
     </div>
 
     <div class="card">
@@ -2842,9 +3190,10 @@ function renderMain(){
 
   document.getElementById('saveBtn').onclick = async ()=>{ await persist(); showToast('Saved'); };
   document.getElementById('previewBtn').onclick = openPreview;
-  document.getElementById('downloadDocxBtn').onclick = ()=>downloadDocxFile(song);
+  document.getElementById('downloadDocxBtn').onclick = ()=>openDocxDownloadExportChoice(song);
   document.getElementById('copyDataBtn').onclick = ()=>copyForClaude(song);
   document.getElementById('deleteBtn').onclick = ()=>deleteSong(song.id);
+  document.getElementById('duplicateSongBtn').onclick = ()=>duplicateSong(song.id);
   document.getElementById('addSectionBtn').onclick = ()=>{
     song.sections.push(blankSection('New Section', TALAS[song.tala], song.kalai, false));
     queueSave(); renderSections();
@@ -2931,6 +3280,7 @@ function renderSections(){
   });
 
   wireGlobalCtrlNavigation(host);
+  wireCellCopyPaste(host);
 }
 
 function cellWidthPx(capacity){ return Math.max(46, capacity*13+18); }
@@ -2996,9 +3346,9 @@ function renderLines(host, sec, cfg, kalai){
       <div class="line-top">
         <input class="label" placeholder="1)" value="${escapeHtml(line.label)}" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off">
         <div class="spacer"></div>
-        <button class="btn small" data-act="dup">⧉ Duplicate</button>
-        <button class="btn small" data-act="clear">⌫ Clear</button>
-        <button class="btn small danger" data-act="del">✕ Remove line</button>
+        <button class="btn small" data-act="dup"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="10" height="10" rx="1.2"/><path d="M7 6V4a1 1 0 011-1h8a1 1 0 011 1v8a1 1 0 01-1 1h-2"/></svg> Duplicate</button>
+        <button class="btn small" data-act="clear"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3l4 4-8.5 8.5H4v-4.5z"/><path d="M9 17H4"/></svg> Clear</button>
+        <button class="btn small danger" data-act="del"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 5l10 10M15 5L5 15"/></svg> Remove line</button>
       </div>
       ${rowsHtml}
       <div class="preview"></div>
@@ -3242,9 +3592,9 @@ function computeCellSpacing(contentLen, targetWidthTwips){
 }
 const dxaToPt = dxa => dxa / 20;
 
-async function downloadDocxFile(song){
+async function buildDocxBlob(song){
   const lib = ensureDocxLib();
-  if(!lib) return;
+  if(!lib) throw new Error('docx library not available');
   const {
     Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
     WidthType, AlignmentType, BorderStyle, VerticalAlign, UnderlineType, TableLayoutType,
@@ -3456,36 +3806,103 @@ async function downloadDocxFile(song){
     return body;
   }
 
+  // Legal-length landscape (14in) fits every tala EXCEPT Adi (Tishra Nadai) —
+  // its 48 aksharas/row (vs Adi's 32) need ~17.5in of usable width at the
+  // current 10pt grid font, so only that tala gets a further-widened page.
+  const pageWidth = song.tala === 'adi_tishra' ? 25920 : 20160; // 18in vs 14in
+  const doc = new Document({
+    sections: [{
+      properties: { page: { size:{width:pageWidth,height:12240}, margin:{top:1008,bottom:720,left:1008,right:720} } },
+      children: dBuildDocBody(song),
+    }],
+  });
+  const blob = await Packer.toBlob(doc);
+  const filename = (song.title || 'kriti').replace(/[\\/:*?"<>|]/g,'_') + '.docx';
+  return { blob, filename };
+}
+
+/* Download-to-device — the only thing this does. Generates the file once via
+   buildDocxBlob and triggers a browser download; no Drive involvement at
+   all, so choosing this never silently also uploads anywhere. */
+async function downloadDocxToDevice(song){
   try{
-    // Legal-length landscape (14in) fits every tala EXCEPT Adi (Tishra Nadai) —
-    // its 48 aksharas/row (vs Adi's 32) need ~17.5in of usable width at the
-    // current 10pt grid font, so only that tala gets a further-widened page.
-    const pageWidth = song.tala === 'adi_tishra' ? 25920 : 20160; // 18in vs 14in
-    const doc = new Document({
-      sections: [{
-        properties: { page: { size:{width:pageWidth,height:12240}, margin:{top:1008,bottom:720,left:1008,right:720} } },
-        children: dBuildDocBody(song),
-      }],
-    });
-    const blob = await Packer.toBlob(doc);
+    const { blob, filename } = await buildDocxBlob(song);
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    const filename = (song.title || 'kriti').replace(/[\\/:*?"<>|]/g,'_') + '.docx';
     a.download = filename;
     document.body.appendChild(a);
     a.click();
     a.remove();
     setTimeout(()=>URL.revokeObjectURL(url), 4000);
     showToast('Downloaded .docx');
-    syncDocxToDrive(blob, filename);
   }catch(e){
     console.error(e);
     showToast('Could not generate .docx — see console for details');
   }
 }
 
+/* Export-to-Drive — the only thing this does. Checks the connection state
+   BEFORE generating anything, so a not-connected person gets a clear,
+   immediate message rather than a mid-flow OAuth popup or a silent failure
+   after the file's already been built. */
+async function exportDocxToDrive(song){
+  if(!driveAccessToken){
+    showToast('Connect to Drive first (use the Sync button), then try exporting again');
+    return;
+  }
+  try{
+    const { blob, filename } = await buildDocxBlob(song);
+    if(!driveFolderId) driveFolderId = await driveFindOrCreateFolder(DRIVE_FOLDER_NAME);
+    await driveUploadBlob(blob, filename, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    showToast('Exported to Google Drive ✓');
+  }catch(e){
+    console.error('[drive docx export] failed:', e);
+    showToast('Could not export to Drive — see console for details');
+  }
+}
+
+/* Shows the Download/Export choice popup — either action, never both, so
+   there's no more silent "downloading also quietly uploads to Drive"
+   behavior. */
+function openDocxDownloadExportChoice(song){
+  const overlay = document.getElementById('docxChoiceOverlay');
+  const body = document.getElementById('docxChoiceBody');
+  overlay.classList.add('show');
+  body.innerHTML = `
+    <div style="display:flex; flex-direction:column; gap:8px;">
+      <button class="btn primary" id="docxChoiceDownloadBtn"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3v10M6 9l4 4 4-4M4 17h12"/></svg> Download to this device</button>
+      <button class="btn" id="docxChoiceExportBtn"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15h8a3 3 0 000-6 4.5 4.5 0 00-8.6-1.5A3.5 3.5 0 006 15z"/></svg> Export to Google Drive</button>
+    </div>
+  `;
+  document.getElementById('docxChoiceDownloadBtn').onclick = () => {
+    overlay.classList.remove('show');
+    downloadDocxToDevice(song);
+  };
+  document.getElementById('docxChoiceExportBtn').onclick = () => {
+    overlay.classList.remove('show');
+    exportDocxToDrive(song);
+  };
+}
+
 /* ===================== Actions ===================== */
+/* A JSON round-trip deep copy — same approach already used for duplicating
+   a single line — guarantees the copy shares no nested object with the
+   original (every section, line, row, and cell string is freshly
+   allocated), so editing one can never touch the other. */
+function duplicateSong(id){
+  const original = library.find(s=>s.id===id);
+  if(!original) return;
+  const copy = JSON.parse(JSON.stringify(original));
+  copy.id = uid();
+  copy.title = (original.title || 'Untitled Kriti') + ' (Copy)';
+  const idx = library.findIndex(s=>s.id===id);
+  library.splice(idx+1, 0, copy);
+  currentId = copy.id;
+  persist(); renderAll();
+  showToast('Duplicated — editing the copy now');
+}
+
 function deleteSong(id){
   if(!confirm('Delete this kriti from your library? This cannot be undone.')) return;
   const song = library.find(s=>s.id===id);
@@ -3520,13 +3937,14 @@ async function renderAll(){
 }
 
 document.getElementById('syncBtn').onclick = onSyncButtonClick;
-document.getElementById('newSongBtn').onclick = ()=>{
+function createNewSong(){
   const s = newSong();
   library.unshift(s);
   currentId = s.id;
   persist();
   renderAll();
-};
+}
+document.getElementById('newSongBtn').onclick = createNewSong;
 document.getElementById('searchBox').oninput = renderSongList;
 document.getElementById('closePreviewBtn').onclick = closePreview;
 document.getElementById('previewOverlay').addEventListener('click', e=>{
@@ -3636,15 +4054,23 @@ document.getElementById('closeImportBtn').onclick = closeImportPreview;
 document.getElementById('importOverlay').addEventListener('click', e=>{
   if(e.target.id === 'importOverlay') closeImportPreview();
 });
+document.getElementById('closeDocxChoiceBtn').onclick = () => document.getElementById('docxChoiceOverlay').classList.remove('show');
+document.getElementById('docxChoiceOverlay').addEventListener('click', e=>{
+  if(e.target.id === 'docxChoiceOverlay') e.currentTarget.classList.remove('show');
+});
 document.getElementById('closeQuotaBtn').onclick = closeStorageQuota;
 document.getElementById('quotaOverlay').addEventListener('click', e=>{
   if(e.target.id === 'quotaOverlay') closeStorageQuota();
 });
 document.addEventListener('keydown', e=>{
   if(e.key === 'Escape'){ closePreview(); closeStorageQuota(); }
+  if(e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'z'){ e.preventDefault(); performUndo(); }
+  else if(e.ctrlKey && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))){ e.preventDefault(); performRedo(); }
 });
 
 (async function init(){
+  applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light');
+  document.getElementById('themeToggleBtn').onclick = toggleTheme;
   await loadLibrary();
   if(library.length) currentId = library[0].id;
   renderAll();
