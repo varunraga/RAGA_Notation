@@ -88,6 +88,24 @@
     from{ opacity:0; transform:translateY(8px); }
     to{ opacity:1; transform:translateY(0); }
   }
+  @keyframes cellFlashHighlight{
+    0%{ box-shadow:0 0 0 3px var(--indigo-300); }
+    100%{ box-shadow:0 0 0 0 transparent; }
+  }
+  .flash-highlight{ animation:cellFlashHighlight 1.4s ease-out; }
+  @media (prefers-reduced-motion: reduce){
+    .flash-highlight{ animation:none; box-shadow:0 0 0 3px var(--indigo-300); }
+  }
+  #printContainer{ display:none; }
+  @media print{
+    body *{ visibility:hidden; }
+    #printContainer, #printContainer *{ visibility:visible; }
+    #printContainer{
+      display:block; position:absolute; top:0; left:0; width:100%;
+      background:#fffef9; padding:20px 28px;
+    }
+    @page{ size:landscape; margin:12mm; }
+  }
   body{
     margin:0;
     background:var(--surface);
@@ -158,11 +176,15 @@
   }
   .nav-item:hover{ background:var(--surface); }
   .nav-item svg{ flex:none; color:var(--indigo); }
+  .nav-badge{
+    margin-left:auto; background:var(--indigo); color:#fff; border-radius:99px;
+    font-size:11px; padding:2px 8px; font-weight:700; flex:none;
+  }
   .nav-item .nav-sub{ font-size:10.5px; font-weight:500; color:var(--ink-soft); margin-top:1px; }
   .nav-item .nav-label-col{ display:flex; flex-direction:column; min-width:0; }
   .nav-divider{ height:1px; background:var(--line); margin:10px 4px; }
   .sync-status{
-    text-align:center; font-size:10.5px; line-height:1.35; color:var(--ink-soft);
+    text-align:left; font-size:11.5px; line-height:1.35; color:var(--ink-soft);
     min-height:13px; padding:0 4px;
   }
   .search{
@@ -184,7 +206,7 @@
   .empty-note{ font-size:12.5px; color:var(--ink-soft); padding:8px 4px; line-height:1.5; }
 
   /* ---------- Main ---------- */
-  .main{ padding:32px 40px 80px; max-width:980px; height:100vh; overflow-y:auto; }
+  .main{ padding:32px 40px 80px; max-width:1220px; height:100vh; overflow-y:auto; }
 
   .hero{
     display:flex; align-items:baseline; justify-content:space-between; gap:20px; margin-bottom:28px; flex-wrap:wrap;
@@ -243,6 +265,10 @@
   .toolbar .btn.danger{ height:36px; }
   .btn.small{ padding:6px 10px; font-size:12px; }
   .icon-btn{ width:34px; height:34px; padding:0; flex:none; }
+  .icon-chip{
+    display:inline-flex; align-items:center; justify-content:center;
+    width:22px; height:22px; border-radius:50%; flex:none;
+  }
 
   .section-block{ border-top:1px solid var(--line); padding-top:16px; margin-top:16px; }
   .section-head{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; }
@@ -342,10 +368,34 @@
     display:none; align-items:center; justify-content:center; padding:16px;
   }
   .quota-overlay.show{ display:flex; }
+  /* Find & Replace deliberately isn't a true blocking modal — the whole
+     point of making it movable is so the grid stays visible (and
+     clickable) underneath while searching, so matches can actually be
+     seen before deciding to replace them. The backdrop is transparent and
+     click-through; only the panel itself intercepts clicks. */
+  #findReplaceOverlay{
+    background:transparent; pointer-events:none;
+    align-items:flex-start; justify-content:flex-end; padding:80px 28px;
+  }
+  #findReplaceOverlay .quota-modal, #checkKritiOverlay .quota-modal{ pointer-events:auto; max-height:calc(100vh - 100px); }
+  #findReplaceOverlay .quota-modal-head, #checkKritiOverlay .quota-modal-head{ cursor:move; }
+  #checkKritiOverlay{
+    background:transparent; pointer-events:none;
+    align-items:flex-start; justify-content:flex-end; padding:80px 28px;
+  }
+  .check-issue{
+    display:flex; align-items:flex-start; gap:8px; padding:10px 10px; border-radius:var(--radius-sm);
+    cursor:pointer; border:1px solid var(--line); margin-bottom:6px; text-align:left; width:100%;
+    background:var(--paper); font-family:'Inter',sans-serif;
+  }
+  .check-issue:hover{ background:var(--surface); }
+  .check-issue .badge-text{ font-family:'Consolas','Courier Prime',monospace; font-weight:700; color:var(--warn-soft); flex:none; }
+  .check-issue .issue-loc{ font-size:12px; color:var(--ink-soft); line-height:1.4; }
   .quota-modal{
-    background:var(--paper); border-radius:var(--radius-lg); max-width:360px; width:100%;
+    background:var(--paper); border-radius:var(--radius-lg); max-width:420px; width:100%;
     box-shadow:0 20px 60px rgba(0,0,0,0.35); padding:22px 24px 24px;
     animation:modalPop .18s ease;
+    max-height:calc(100vh - 40px); overflow-y:auto;
   }
   .quota-modal-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
   .quota-modal-title{ font-family:'Inter',sans-serif; font-weight:600; font-size:17px; color:var(--heading); }
@@ -355,7 +405,7 @@
   .quota-text{ font-size:13px; color:var(--ink-soft); }
   .quota-text b{ color:var(--ink); }
   .quota-loading, .quota-error{ font-size:13px; color:var(--ink-soft); padding:6px 0; }
-  .conflict-modal{ max-width:400px; }
+  .conflict-modal{ max-width:480px; }
 </style>
 <script>
   (function(){
@@ -417,6 +467,7 @@
   <main class="main" id="main"></main>
 </div>
 <div class="toast" id="toast"></div>
+<div id="printContainer"></div>
 
 <div class="quota-overlay" id="quotaOverlay">
   <div class="quota-modal">
@@ -437,6 +488,27 @@
   </div>
 </div>
 
+<div class="quota-overlay" id="importTalaOverlay">
+  <div class="quota-modal conflict-modal">
+    <div class="quota-modal-head">
+      <div class="quota-modal-title">Which tala is this?</div>
+      <button class="btn small icon-btn" id="closeImportTalaBtn"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 5l10 10M15 5L5 15"/></svg></button>
+    </div>
+    <div class="quota-text" style="margin-bottom:12px;">
+      Knowing the tala upfront lets the import count aksharas correctly per cell and per avartanam from the start, rather than guessing from the document's own text (which isn't always present or in a recognized format).
+    </div>
+    <div class="fieldwrap">
+      <label>Tala</label>
+      <select id="importTalaSelect">
+        <option value="">Not sure — detect from the document</option>
+      </select>
+    </div>
+    <div style="display:flex; flex-direction:column; gap:8px; margin-top:14px;">
+      <button class="btn primary" id="importTalaContinueBtn">Continue</button>
+    </div>
+  </div>
+</div>
+
 <div class="quota-overlay" id="importOverlay">
   <div class="quota-modal conflict-modal">
     <div class="quota-modal-head">
@@ -454,6 +526,54 @@
       <button class="btn small icon-btn" id="closeDocxChoiceBtn"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 5l10 10M15 5L5 15"/></svg></button>
     </div>
     <div id="docxChoiceBody"></div>
+  </div>
+</div>
+
+<div class="quota-overlay" id="findReplaceOverlay">
+  <div class="quota-modal conflict-modal">
+    <div class="quota-modal-head">
+      <div class="quota-modal-title">Find &amp; Replace</div>
+      <button class="btn small icon-btn" id="closeFindReplaceBtn"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 5l10 10M15 5L5 15"/></svg></button>
+    </div>
+    <div class="fieldwrap">
+      <label>Find</label>
+      <input type="text" id="frFindInput" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off">
+    </div>
+    <div class="fieldwrap">
+      <label>Replace with</label>
+      <input type="text" id="frReplaceInput" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off">
+    </div>
+    <div class="fieldwrap">
+      <label>Scope</label>
+      <select id="frScopeSelect"></select>
+    </div>
+    <div class="fieldwrap" style="display:flex; gap:16px; align-items:center;">
+      <label style="display:flex; align-items:center; gap:6px; text-transform:none; letter-spacing:0; font-size:13px; color:var(--ink);">
+        <input type="checkbox" id="frInSwara" checked style="width:auto;"> Swara
+      </label>
+      <label style="display:flex; align-items:center; gap:6px; text-transform:none; letter-spacing:0; font-size:13px; color:var(--ink);">
+        <input type="checkbox" id="frInSahitya" checked style="width:auto;"> Sahitya
+      </label>
+      <label style="display:flex; align-items:center; gap:6px; text-transform:none; letter-spacing:0; font-size:13px; color:var(--ink);">
+        <input type="checkbox" id="frMatchCase" style="width:auto;"> Match case
+      </label>
+    </div>
+    <div id="frStatus" class="quota-text" style="margin:4px 0 12px; min-height:16px; color:var(--ink-soft);"></div>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+      <button class="btn" id="frFindNextBtn">Find Next</button>
+      <button class="btn" id="frReplaceBtn">Replace</button>
+      <button class="btn primary" id="frReplaceAllBtn">Replace All</button>
+    </div>
+  </div>
+</div>
+
+<div class="quota-overlay" id="checkKritiOverlay">
+  <div class="quota-modal conflict-modal">
+    <div class="quota-modal-head">
+      <div class="quota-modal-title">Check Kriti</div>
+      <button class="btn small icon-btn" id="closeCheckKritiBtn"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 5l10 10M15 5L5 15"/></svg></button>
+    </div>
+    <div id="checkKritiBody"></div>
   </div>
 </div>
 
@@ -831,10 +951,16 @@ function formatRelativeTime(ms){
 }
 function updateSyncStatusText(){
   const el = document.getElementById('syncStatus');
+  const badge = document.getElementById('syncPendingBadge');
   if(!el) return;
-  if(!driveAccessToken){ el.textContent = ''; return; }
-  if(driveConflictPending){ el.textContent = '⚠ Drive changed elsewhere — click Sync to resolve'; return; }
+  if(!driveAccessToken){ el.textContent = ''; if(badge) badge.style.display = 'none'; return; }
+  if(driveConflictPending){ el.textContent = '⚠ Drive changed elsewhere — click Sync to resolve'; if(badge) badge.style.display = 'none'; return; }
   const pendingDeleteCount = (typeof pendingDriveDeletes !== 'undefined') ? pendingDriveDeletes.length : 0;
+  const totalPending = driveDirtyCount + pendingDeleteCount;
+  if(badge){
+    if(totalPending > 0){ badge.textContent = String(totalPending); badge.style.display = ''; }
+    else badge.style.display = 'none';
+  }
   if(driveDirtyCount > 0 || pendingDeleteCount > 0){
     const parts = [];
     if(driveDirtyCount > 0) parts.push(`${driveDirtyCount} ${driveDirtyCount===1?'change':'changes'}`);
@@ -920,7 +1046,8 @@ function updateSyncButton(){
   if(!b) return;
   const cloudIcon = '<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15h8a3 3 0 000-6 4.5 4.5 0 00-8.6-1.5A3.5 3.5 0 006 15z"/></svg>';
   const syncIcon = '<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10a6 6 0 0110-4.5M16 10a6 6 0 01-10 4.5M14 3v3h-3M6 17v-3h3"/></svg>';
-  b.innerHTML = (driveAccessToken ? syncIcon + ' <span>Sync</span>' : cloudIcon + ' <span>Connect to Drive</span>');
+  b.innerHTML = (driveAccessToken ? syncIcon + ' <span>Sync</span>' : cloudIcon + ' <span>Connect to Drive</span>')
+    + '<span class="nav-badge num" id="syncPendingBadge" style="display:none;"></span>';
   b.title = driveAccessToken ? 'Click to sync now' : 'Click to connect to Google Drive';
   updateSyncStatusText();
 }
@@ -1900,6 +2027,9 @@ function wireGlobalCtrlNavigation(host){
    holds one type at a time (swara or lyric): copying a fresh range always
    replaces whatever was there before. */
 let copiedCells = null; // { type: 'swara'|'lyric', values: string[] }
+let lastFocusedNotationCell = null; // { input, type } — used to determine "this line"/"this section" scope for Find & Replace
+let frMatches = []; // current Find & Replace match list: { el, isTextarea, start, end }
+let frMatchIdx = -1; // index into frMatches of the "current" match for Find Next / Replace
 
 /* Click-and-shift-click range selection across swara cells (or across lyric
    cells — never mixed, matching how the feature was asked for: "copy swara
@@ -1917,83 +2047,527 @@ let copiedCells = null; // { type: 'swara'|'lyric', values: string[] }
    anything hand-typed, with zero duplicated logic to keep in sync. */
 function wireCellCopyPaste(host){
   const physRows = Array.from(host.querySelectorAll('.phys-row'));
-  const swaraSeq = [], lyricSeq = [];
+  const swaraSeq = [], lyricSeq = [], mixedSeq = [];
   physRows.forEach(row=>{
-    Array.from(row.querySelectorAll('input.swara')).forEach(inp=> swaraSeq.push(inp));
-    Array.from(row.querySelectorAll('input.lyric')).forEach(inp=> lyricSeq.push(inp));
+    Array.from(row.querySelectorAll('input.swara')).forEach(inp=> { swaraSeq.push(inp); mixedSeq.push(inp); });
+    Array.from(row.querySelectorAll('input.lyric')).forEach(inp=> { lyricSeq.push(inp); mixedSeq.push(inp); });
   });
+  function cellType(inp){ return inp.classList.contains('swara') ? 'swara' : 'lyric'; }
+  function seqFor(type){ return type === 'swara' ? swaraSeq : lyricSeq; }
 
-  let anchor = null; // { type, input }
-  let selected = []; // ordered array of currently-highlighted inputs, all one type
+  let anchor = null; // the anchor cell itself — no longer type-locked, can be either type
+  let selected = []; // ordered array of currently-highlighted inputs — may span both types
+  // The actual sequence of cells traversed via Shift+Arrow, from anchor to
+  // the current far end — kept in sync with `selected` any time selection
+  // changes. Needed because Down/Up can jump across a type boundary (e.g.
+  // swara -> its own lyric), which isn't adjacent in ANY flat sequence, so
+  // "select everything between anchor and target" would incorrectly sweep
+  // up unrelated cells in between (the rest of that row's swara cells).
+  // Shift+Click still uses a flat range instead (see below) — a direct
+  // jump to a distant cell is naturally a "everything in between" range,
+  // not a step-by-step path.
+  let selectionPath = [];
+  // How many cells were added to selectionPath at each Shift+Arrow press —
+  // usually 1, but a whole-row extension (see below) adds a whole row at
+  // once, and needs to shrink back as that same whole unit when reversed,
+  // not cell-by-cell.
+  let pathSteps = [];
+  let pathDirs = []; // parallel to pathSteps: the arrow direction (1 or -1) that added each step
 
   function clearHighlight(){
     selected.forEach(inp => inp.classList.remove('cell-in-selection'));
     selected = [];
   }
-  function setSelection(type, inputs){
+  function setSelection(inputs){
     clearHighlight();
     selected = inputs;
+    selectionPath = inputs.slice();
     if(inputs.length > 1) inputs.forEach(inp => inp.classList.add('cell-in-selection'));
   }
-  function seqFor(type){ return type === 'swara' ? swaraSeq : lyricSeq; }
 
   function wireClick(inp, type){
     inp.addEventListener('click', (e)=>{
-      const seq = seqFor(type);
-      if(e.shiftKey && anchor && anchor.type === type){
-        const a = seq.indexOf(anchor.input), b = seq.indexOf(inp);
+      if(e.shiftKey && anchor){
+        const a = mixedSeq.indexOf(anchor), b = mixedSeq.indexOf(inp);
         if(a !== -1 && b !== -1){
           const [lo, hi] = a <= b ? [a,b] : [b,a];
-          setSelection(type, seq.slice(lo, hi+1));
+          setSelection(mixedSeq.slice(lo, hi+1));
+          pathSteps = [selectionPath.length];
+          pathDirs = [];
           return;
         }
       }
-      anchor = { type, input: inp };
-      setSelection(type, [inp]);
+      anchor = inp;
+      setSelection([inp]);
+      pathSteps = [1];
+      pathDirs = [];
     });
+    inp.addEventListener('focus', ()=>{ lastFocusedNotationCell = { input: inp, type }; });
   }
   swaraSeq.forEach(inp => wireClick(inp, 'swara'));
   lyricSeq.forEach(inp => wireClick(inp, 'lyric'));
 
   function handleCopy(e){
-    if(selected.length < 2) return; // fewer than 2: let the browser's own single-field copy proceed untouched
+    if(!selected.length) return;
     const active = document.activeElement;
     if(!selected.includes(active)) return;
+    // A single cell with a genuine partial text selection (the user dragged
+    // or shift-selected part of the value) keeps the browser's own native
+    // copy of just that substring — only a plain caret (no substring
+    // highlighted) triggers copying the whole cell's value.
+    if(selected.length === 1 && active.selectionStart !== active.selectionEnd) return;
     e.preventDefault();
-    const type = swaraSeq.includes(active) ? 'swara' : 'lyric';
-    copiedCells = { type, values: selected.map(inp => inp.value) };
+    copiedCells = { values: selected.map(inp => ({ type: cellType(inp), value: inp.value })) };
     showToast(`Copied ${copiedCells.values.length} cell${copiedCells.values.length===1?'':'s'}`);
   }
   function handlePaste(e){
-    if(!copiedCells || copiedCells.values.length < 2) return; // nothing multi-cell copied: let normal single-field paste proceed
+    if(!copiedCells || !copiedCells.values.length) return; // nothing copied: let normal single-field paste proceed
     const active = document.activeElement;
-    const seq = seqFor(copiedCells.type);
-    const startIdx = seq.indexOf(active);
-    if(startIdx === -1) return; // focus isn't on a matching-type cell — normal paste proceeds
+    const firstType = copiedCells.values[0].type;
+    const isMixed = copiedCells.values.some(v => v.type !== firstType);
+    if(!isMixed){
+      // Same-type copy (the common case — a plain single cell, or a
+      // Left/Right range) pastes through that type's own sequence, exactly
+      // as before — this is what stops it from ever spilling into the
+      // other field type near a row boundary.
+      const seq = seqFor(firstType);
+      const startIdx = seq.indexOf(active);
+      if(startIdx === -1) return; // focus isn't on a matching-type cell — normal paste proceeds
+      e.preventDefault();
+      let filled = 0;
+      for(let i = 0; i < copiedCells.values.length && startIdx+i < seq.length; i++){
+        const target = seq[startIdx+i];
+        target.value = copiedCells.values[i].value;
+        target.dispatchEvent(new Event('input', { bubbles: true }));
+        filled++;
+      }
+      showToast(filled < copiedCells.values.length
+        ? `Pasted ${filled} of ${copiedCells.values.length} cells (ran out of cells)`
+        : `Pasted ${filled} cell${filled===1?'':'s'}`);
+      return;
+    }
+    // Mixed copy (made via Shift+Up/Down, crossing types): a naive fixed
+    // stride through the flat mixed sequence breaks here, because a
+    // cross-type step (swara -> its own lyric) sits much farther apart in
+    // that flat ordering than a same-type step does. Replay the same
+    // sequence of same-type/cross-type moves that built the original
+    // selection instead, starting from wherever the user pastes.
+    if(mixedSeq.indexOf(active) === -1 || cellType(active) !== firstType) return;
     e.preventDefault();
-    let filled = 0;
-    for(let i = 0; i < copiedCells.values.length && startIdx+i < seq.length; i++){
-      const target = seq[startIdx+i];
-      target.value = copiedCells.values[i];
+    let target = active, filled = 0;
+    for(let i = 0; i < copiedCells.values.length; i++){
+      if(!target) break;
+      target.value = copiedCells.values[i].value;
       target.dispatchEvent(new Event('input', { bubbles: true }));
       filled++;
+      if(i + 1 < copiedCells.values.length){
+        const stepType = copiedCells.values[i].type;
+        const sameTypeNext = copiedCells.values[i+1].type === stepType;
+        if(sameTypeNext){
+          const seq = seqFor(stepType);
+          const idx = seq.indexOf(target);
+          target = (idx !== -1 && idx+1 < seq.length) ? seq[idx+1] : null;
+        } else {
+          target = cellAcrossRow(target, stepType, 1);
+        }
+      }
     }
     showToast(filled < copiedCells.values.length
       ? `Pasted ${filled} of ${copiedCells.values.length} cells (ran out of cells)`
       : `Pasted ${filled} cell${filled===1?'':'s'}`);
   }
+  /* Matches wireGlobalCtrlNavigation's own Ctrl+Down/Up semantics exactly:
+     from a swara cell, "down" means its own lyric cell (same beat-cell);
+     from a lyric cell, "down" means the next row's swara cell at the same
+     position. Reusing this same crossing pattern for Shift+Down/Up keeps
+     the two features consistent with each other. */
+  function cellAcrossRow(inp, type, dir){ // dir: -1 up, +1 down
+    const physRow = inp.closest('.phys-row');
+    if(!physRow) return null;
+    const physIdx = physRows.indexOf(physRow);
+    if(dir === 1){
+      if(type === 'swara') return inp.closest('.beat-cell')?.querySelector('input.lyric') || null;
+      const posInRow = Array.from(physRow.querySelectorAll('input.lyric')).indexOf(inp);
+      const nextRow = physRows[physIdx+1];
+      return nextRow ? (nextRow.querySelectorAll('input.swara')[posInRow] || null) : null;
+    } else {
+      if(type === 'lyric') return inp.closest('.beat-cell')?.querySelector('input.swara') || null;
+      const posInRow = Array.from(physRow.querySelectorAll('input.swara')).indexOf(inp);
+      const prevRow = physRows[physIdx-1];
+      return prevRow ? (prevRow.querySelectorAll('input.lyric')[posInRow] || null) : null;
+    }
+  }
+  /* Detects whether `path` is a contiguous, in-order run of cells of `type`
+     within ONE physical row — not necessarily the WHOLE row, any
+     contiguous sub-range counts (e.g. columns 2 through 7 of an 8-wide
+     row). Returns that column range so Shift+Down/Up can mirror the SAME
+     range into the adjacent row, whatever it is — a single cell, a partial
+     run, or the whole row — matching ordinary spreadsheet behavior rather
+     than only handling the special case of a complete row. */
+  function contiguousRangeInRow(path, type){
+    if(!path.length) return null;
+    const first = path[0];
+    if(cellType(first) !== type) return null;
+    const physRow = first.closest('.phys-row');
+    if(!physRow) return null;
+    const cellsOfType = Array.from(physRow.querySelectorAll(type === 'swara' ? 'input.swara' : 'input.lyric'));
+    const startIdx = cellsOfType.indexOf(first);
+    if(startIdx === -1) return null;
+    for(let i = 0; i < path.length; i++){
+      if(cellType(path[i]) !== type) return null;
+      if(path[i].closest('.phys-row') !== physRow) return null;
+      if(cellsOfType[startIdx + i] !== path[i]) return null;
+    }
+    return { physRow, colLo: startIdx, colHi: startIdx + path.length - 1 };
+  }
+  /* The same column range (colLo..colHi), mirrored into the adjacent row —
+     same row's other type going down from swara / up from lyric, or the
+     next/previous row's matching type once already on the "far" type.
+     Clamped to however wide that target row actually is, in case row
+     widths differ (e.g. Misra Chapu's uneven avartanam halves). */
+  function crossRangeIntoAdjacentRow(range, type, dir){
+    let targetCellsOfType;
+    if(dir === 1){
+      if(type === 'swara') targetCellsOfType = Array.from(range.physRow.querySelectorAll('input.lyric'));
+      else {
+        const nextRow = physRows[physRows.indexOf(range.physRow) + 1];
+        targetCellsOfType = nextRow ? Array.from(nextRow.querySelectorAll('input.swara')) : [];
+      }
+    } else {
+      if(type === 'lyric') targetCellsOfType = Array.from(range.physRow.querySelectorAll('input.swara'));
+      else {
+        const prevRow = physRows[physRows.indexOf(range.physRow) - 1];
+        targetCellsOfType = prevRow ? Array.from(prevRow.querySelectorAll('input.lyric')) : [];
+      }
+    }
+    if(!targetCellsOfType.length) return [];
+    const hi = Math.min(range.colHi, targetCellsOfType.length - 1);
+    const cells = [];
+    for(let c = range.colLo; c <= hi; c++) cells.push(targetCellsOfType[c]);
+    return cells;
+  }
+
+  function handleKeydown(e){
+    const active = document.activeElement;
+    if(!selected.includes(active)) return;
+    if(e.key === 'Escape'){
+      if(selected.length < 2) return; // nothing meaningfully "selected" to cancel for a lone cell
+      anchor = null;
+      clearHighlight();
+      selectionPath = [];
+      pathSteps = [];
+      pathDirs = [];
+      return;
+    }
+    if(e.key === 'Delete' || e.key === 'Backspace'){
+      // Only a genuine multi-cell selection clears on Delete/Backspace —
+      // there's no "per-character edit" concept across several whole
+      // cells. A single cell always uses normal per-character deletion,
+      // exactly like any ordinary text field.
+      if(selected.length < 2) return;
+      e.preventDefault();
+      selected.forEach(inp=>{
+        inp.value = '';
+        inp.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      showToast(`Cleared ${selected.length} cell${selected.length===1?'':'s'}`);
+      return;
+    }
+    if(!e.shiftKey || !anchor) return;
+    if(mixedSeq.indexOf(active) === -1) return;
+    const farEnd = selectionPath[selectionPath.length - 1];
+    if(!farEnd || mixedSeq.indexOf(farEnd) === -1) return;
+    if(e.key !== 'ArrowRight' && e.key !== 'ArrowLeft' && e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    const curType = cellType(farEnd);
+    const OPPOSITE_KEY = { ArrowRight:'ArrowLeft', ArrowLeft:'ArrowRight', ArrowDown:'ArrowUp', ArrowUp:'ArrowDown' };
+    const dir = (e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 1 : -1;
+
+    // Reversing the exact opposite key of the last step shrinks back by
+    // exactly what that step added (one cell normally, a whole row if
+    // that's what the last step added). Compared by actual key, not a
+    // collapsed +1/-1 — Left/Right and Up/Down are different axes, so a
+    // Right then an Up must NOT be treated as a reversal of each other.
+    if(pathDirs.length && pathDirs[pathDirs.length - 1] === OPPOSITE_KEY[e.key]){
+      const n = pathSteps.pop();
+      pathDirs.pop();
+      selectionPath.splice(-n, n);
+      setSelection(selectionPath.slice());
+      e.preventDefault();
+      const newFarEnd = selectionPath[selectionPath.length - 1];
+      if(newFarEnd) newFarEnd.focus();
+      return;
+    }
+
+    let addedCells = null;
+    if(e.key === 'ArrowRight' || e.key === 'ArrowLeft'){
+      const seq = seqFor(curType);
+      const curIdx = seq.indexOf(farEnd);
+      const newIdx = Math.max(0, Math.min(seq.length - 1, curIdx + dir));
+      const target = seq[newIdx];
+      if(target && target !== farEnd) addedCells = [target];
+    } else {
+      // Up/Down: if the current selection is a contiguous run within one
+      // row (a partial range, or the whole row), mirror that SAME column
+      // range into the adjacent row in one press, instead of crossing into
+      // just a single cell the way a lone cell's selection does.
+      // The trailing run of cells (at the end of the path) that share the
+      // far end's own type — could span several individual arrow presses
+      // (e.g. seven Shift+Right steps), not just the size of the single
+      // most recent one, so this walks backward until the type changes
+      // rather than trusting pathSteps' last entry alone.
+      let runStart = selectionPath.length - 1;
+      while(runStart > 0 && cellType(selectionPath[runStart - 1]) === curType) runStart--;
+      const lastLayer = selectionPath.slice(runStart);
+      const range = contiguousRangeInRow(lastLayer, curType);
+      if(range){
+        const cells = crossRangeIntoAdjacentRow(range, curType, dir);
+        if(cells.length) addedCells = cells;
+      }
+      if(!addedCells){
+        const target = cellAcrossRow(farEnd, curType, dir);
+        if(target) addedCells = [target];
+      }
+    }
+    if(!addedCells || !addedCells.length) return;
+    e.preventDefault();
+    selectionPath.push(...addedCells);
+    pathSteps.push(addedCells.length);
+    pathDirs.push(e.key);
+    setSelection(selectionPath.slice());
+    addedCells[addedCells.length - 1].focus();
+  }
   // This function runs again on every re-render (adding a line, clearing a
   // line, adding a section, ...), but `host` (#sectionsHost) is the same
   // persistent DOM node every time — only its children get rebuilt. Without
   // removing the previous listeners first, each re-render would silently add
-  // another 'copy'/'paste' listener on top of the last, stacking indefinitely
-  // over an editing session.
+  // another 'copy'/'paste'/'keydown' listener on top of the last, stacking
+  // indefinitely over an editing session.
   if(host._copyHandler) host.removeEventListener('copy', host._copyHandler);
   if(host._pasteHandler) host.removeEventListener('paste', host._pasteHandler);
+  if(host._cellKeydownHandler) host.removeEventListener('keydown', host._cellKeydownHandler);
   host._copyHandler = handleCopy;
   host._pasteHandler = handlePaste;
+  host._cellKeydownHandler = handleKeydown;
   host.addEventListener('copy', handleCopy);
   host.addEventListener('paste', handlePaste);
+  host.addEventListener('keydown', handleKeydown);
+}
+
+/* ===================== Find & Replace ===================== */
+/* Scoped to whichever of "this line" / "this section" / "whole kriti" the
+   user picks. Searches swara cells, lyric cells, and (for section/kriti
+   scope) each section's own freeform sahitya textarea — a line has no
+   sahitya block of its own, so that's skipped for line scope. */
+
+function frGetScopeContext(){
+  const cell = lastFocusedNotationCell && lastFocusedNotationCell.input;
+  if(!cell || !document.body.contains(cell)) return { sectionIndex: null, lineIndex: null, sectionName: null };
+  const lineRow = cell.closest('.line-row');
+  const card = cell.closest('.card[data-si]');
+  return {
+    sectionIndex: card ? Number(card.dataset.si) : null,
+    lineIndex: lineRow ? Number(lineRow.dataset.li) : null,
+    sectionName: card ? (card.querySelector('.secName')?.value || null) : null,
+  };
+}
+
+function frPopulateScopeOptions(ctx){
+  const sel = document.getElementById('frScopeSelect');
+  const opts = [];
+  if(ctx.lineIndex !== null && ctx.sectionIndex !== null){
+    opts.push({ value:'line', label:`This line (line ${ctx.lineIndex+1}${ctx.sectionName ? ' of '+ctx.sectionName : ''})` });
+  }
+  if(ctx.sectionIndex !== null){
+    opts.push({ value:'section', label:`This section${ctx.sectionName ? ' ('+ctx.sectionName+')' : ''}` });
+  }
+  opts.push({ value:'kriti', label:'Whole kriti' });
+  sel.innerHTML = opts.map(o=>`<option value="${o.value}">${escapeHtml(o.label)}</option>`).join('');
+  sel.value = opts[0].value;
+}
+
+function frScopeElement(scope, ctx){
+  const host = document.getElementById('sectionsHost');
+  if(!host) return null;
+  if(scope === 'section' && ctx.sectionIndex !== null){
+    return host.querySelector(`.card[data-si="${ctx.sectionIndex}"]`) || host;
+  }
+  if(scope === 'line' && ctx.lineIndex !== null && ctx.sectionIndex !== null){
+    const card = host.querySelector(`.card[data-si="${ctx.sectionIndex}"]`);
+    const lineRow = card ? card.querySelector(`.line-row[data-li="${ctx.lineIndex}"]`) : null;
+    return lineRow || host;
+  }
+  return host;
+}
+
+/* Builds the flat match list for the current Find text/scope/options.
+   Cell matches only ever have one occurrence per cell in practice (cells
+   hold a syllable or two), but this still finds every occurrence within a
+   cell's value, not just the first, for correctness on longer content
+   (like a section's sahitya textarea, which very much can contain several). */
+function frBuildMatchList(){
+  const findText = document.getElementById('frFindInput').value;
+  const matchCase = document.getElementById('frMatchCase').checked;
+  const includeSwara = document.getElementById('frInSwara').checked;
+  const includeSahitya = document.getElementById('frInSahitya').checked;
+  const scope = document.getElementById('frScopeSelect').value;
+  const ctx = frGetScopeContext();
+  const scopeEl = frScopeElement(scope, ctx);
+  frMatches = [];
+  if(!findText || !scopeEl) return;
+  const needle = matchCase ? findText : findText.toLowerCase();
+
+  function scanEl(el, isTextarea){
+    const hay = matchCase ? el.value : el.value.toLowerCase();
+    let idx = 0;
+    while((idx = hay.indexOf(needle, idx)) !== -1){
+      frMatches.push({ el, isTextarea, start: idx, end: idx + needle.length });
+      idx += needle.length;
+    }
+  }
+  if(includeSwara) scopeEl.querySelectorAll('input.swara').forEach(el => scanEl(el, false));
+  if(includeSahitya) scopeEl.querySelectorAll('input.lyric').forEach(el => scanEl(el, false));
+  if(includeSahitya && scope !== 'line') scopeEl.querySelectorAll('.secSahitya').forEach(el => scanEl(el, true));
+}
+
+function frUpdateStatus(){
+  frBuildMatchList();
+  const status = document.getElementById('frStatus');
+  if(frMatchIdx >= frMatches.length) frMatchIdx = -1;
+  status.textContent = frMatches.length
+    ? `${frMatches.length} match${frMatches.length===1?'':'es'} found`
+    : (document.getElementById('frFindInput').value ? 'No matches found' : '');
+}
+
+function frFindNext(){
+  frBuildMatchList();
+  if(!frMatches.length){ frUpdateStatus(); return; }
+  frMatchIdx = (frMatchIdx + 1) % frMatches.length;
+  const m = frMatches[frMatchIdx];
+  m.el.focus();
+  m.el.setSelectionRange(m.start, m.end);
+  m.el.scrollIntoView({ block:'center', behavior:'smooth' });
+  document.getElementById('frStatus').textContent = `Match ${frMatchIdx+1} of ${frMatches.length}`;
+}
+
+function frReplaceOne(m, replaceText){
+  const before = m.el.value.slice(0, m.start);
+  const after = m.el.value.slice(m.end);
+  m.el.value = before + replaceText + after;
+  m.el.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function frReplaceCurrent(){
+  if(frMatchIdx < 0 || frMatchIdx >= frMatches.length){ frFindNext(); return; }
+  const replaceText = document.getElementById('frReplaceInput').value;
+  frReplaceOne(frMatches[frMatchIdx], replaceText);
+  frMatchIdx--; // the list is about to be rebuilt and shift; frFindNext below re-advances correctly
+  frFindNext();
+}
+
+function frReplaceAll(){
+  frBuildMatchList();
+  if(!frMatches.length){ frUpdateStatus(); return; }
+  const replaceText = document.getElementById('frReplaceInput').value;
+  const count = frMatches.length;
+  // Replace back-to-front per element so earlier offsets in the same
+  // element don't shift under later ones; different elements don't
+  // interact at all.
+  const byEl = new Map();
+  frMatches.forEach(m => { if(!byEl.has(m.el)) byEl.set(m.el, []); byEl.get(m.el).push(m); });
+  byEl.forEach((ms, el) => {
+    ms.sort((a,b)=> b.start - a.start);
+    ms.forEach(m => {
+      const before = el.value.slice(0, m.start);
+      const after = el.value.slice(m.end);
+      el.value = before + replaceText + after;
+    });
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  frMatchIdx = -1;
+  frBuildMatchList();
+  document.getElementById('frStatus').textContent = `Replaced ${count} occurrence${count===1?'':'s'}`;
+}
+
+function openFindReplace(){
+  if(!getSong()) return;
+  const ctx = frGetScopeContext();
+  frPopulateScopeOptions(ctx);
+  frMatchIdx = -1;
+  document.getElementById('frStatus').textContent = '';
+  document.getElementById('findReplaceOverlay').classList.add('show');
+  document.getElementById('frFindInput').focus();
+}
+function closeFindReplace(){
+  document.getElementById('findReplaceOverlay').classList.remove('show');
+}
+
+/* ===================== Check Kriti ===================== */
+/* Scans every already-rendered swara/alignment badge in the whole open
+   kriti at once — these badges are live and always up to date as you
+   type, so this is a pure read of existing DOM state, not a fresh
+   recomputation. */
+function scanKritiIssues(){
+  const host = document.getElementById('sectionsHost');
+  const issues = [];
+  if(!host) return issues;
+  host.querySelectorAll('.aksh-badge.bad, .align-badge.bad').forEach(badge => {
+    const beatCell = badge.closest('.beat-cell');
+    if(!beatCell) return;
+    const isAksh = badge.classList.contains('aksh-badge');
+    const targetInput = isAksh ? beatCell.querySelector('input.swara') : beatCell.querySelector('input.lyric');
+    if(!targetInput) return;
+    const card = badge.closest('.card[data-si]');
+    const sectionName = card ? (card.querySelector('.secName')?.value || 'Untitled section') : 'Unknown section';
+    const lineRow = badge.closest('.line-row');
+    let lineLabel = 'Line';
+    if(lineRow){
+      const labelInput = lineRow.querySelector('input.label');
+      lineLabel = (labelInput && labelInput.value) ? labelInput.value : `Line ${Number(lineRow.dataset.li)+1}`;
+    }
+    const beatGrid = beatCell.parentElement;
+    const cellPos = beatGrid ? Array.from(beatGrid.querySelectorAll('.beat-cell')).indexOf(beatCell) + 1 : null;
+    issues.push({
+      type: isAksh ? 'Swara' : 'Sahitya',
+      badgeText: badge.textContent,
+      sectionName, lineLabel, cellPos,
+      input: targetInput,
+    });
+  });
+  return issues;
+}
+
+function navigateToIssue(issue){
+  const el = issue.input;
+  if(!document.body.contains(el)) return; // the kriti was edited/re-rendered since the list was built
+  el.focus();
+  el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  el.classList.remove('flash-highlight');
+  void el.offsetWidth; // force reflow so the animation restarts even if the same cell is clicked again
+  el.classList.add('flash-highlight');
+  setTimeout(()=> el.classList.remove('flash-highlight'), 1500);
+}
+
+function openCheckKriti(){
+  if(!getSong()) return;
+  const issues = scanKritiIssues();
+  const body = document.getElementById('checkKritiBody');
+  if(!issues.length){
+    body.innerHTML = `<div class="quota-text" style="color:var(--good-soft);">✓ No issues found — every cell reconciles.</div>`;
+  } else {
+    body.innerHTML = `<div class="quota-text" style="margin-bottom:10px;">${issues.length} issue${issues.length===1?'':'s'} found:</div><div id="checkIssueList"></div>`;
+    const list = document.getElementById('checkIssueList');
+    issues.forEach(issue => {
+      const btn = document.createElement('button');
+      btn.className = 'check-issue';
+      btn.innerHTML = `<span class="badge-text">${escapeHtml(issue.badgeText)}</span><span class="issue-loc">${escapeHtml(issue.type)} — ${escapeHtml(issue.sectionName)}, ${escapeHtml(issue.lineLabel)}${issue.cellPos ? ', cell '+issue.cellPos : ''}</span>`;
+      btn.onclick = () => navigateToIssue(issue);
+      list.appendChild(btn);
+    });
+  }
+  document.getElementById('checkKritiOverlay').classList.add('show');
+}
+function closeCheckKriti(){
+  document.getElementById('checkKritiOverlay').classList.remove('show');
 }
 
 function escapeHtml(str){
@@ -2130,6 +2704,15 @@ function classifySourceLine(runs, caseSensitive, opts){
       // affect speed or akshara weight at all, purely cosmetic — matches how
       // the app's own swara input already treats it.
       let display = ch.toUpperCase();
+      // Some varnam sources use ',' for 2 aksharas instead of 1 (with ';'
+      // then either unused or meaning something else entirely) — confirmed
+      // per-document via the best-fit comma-weight search. When that
+      // interpretation wins, write this app's own ';' (its established
+      // "2 aksharas" character) into the cell instead of literal ',' —
+      // otherwise the import's own reconciliation would silently disagree
+      // with what the live akshara badge shows immediately afterward, since
+      // this app always treats ',' as 1 akshara regardless of source intent.
+      if(ch === ',' && opts.commaWeight === 2) display = ';';
       if(isLetter && i+1 < text.length && (text[i+1] === "'" || text[i+1] === '.')){
         display += text[i+1];
         i++;
@@ -2235,10 +2818,7 @@ function splitHalfAvartanamIntoCells(tokens, cellCaps){
     }
     cells.push({ swara: generateImportCellMarkup(cellTokens), weight: acc, cap, tokens: cellTokens });
   });
-  if(idx < tokens.length){
-    warnings.push(`${tokens.length - idx} leftover token(s) did not fit into any cell`);
-  }
-  return { cells, warnings };
+  return { cells, warnings, leftoverTokens: tokens.slice(idx) };
 }
 
 /* Distributes a flat list of sahitya words across the same cell boundaries,
@@ -2266,10 +2846,10 @@ function distributeImportWordsByWeight(words, cellCaps){
    per-cell {swara, sahitya, weight, cap} out, plus any warnings to surface
    in the Step 5 review screen. */
 function buildImportCellsFromClassifiedSegment(tokens, cellCaps, sahityaWords){
-  const { cells, warnings } = splitHalfAvartanamIntoCells(tokens, cellCaps);
+  const { cells, warnings, leftoverTokens } = splitHalfAvartanamIntoCells(tokens, cellCaps);
   const sahityaPerCell = distributeImportWordsByWeight(sahityaWords || [], cellCaps);
   cells.forEach((c, i)=>{ c.sahitya = sahityaPerCell[i] || ''; });
-  return { cells, warnings };
+  return { cells, warnings, leftoverTokens };
 }
 
 /* ===================== Import pipeline — Step 4 =====================
@@ -2480,19 +3060,48 @@ function buildImportedNotationLineFromRuns(cfg, swaraRuns, sahityaText, caseSens
   }
 
   segments.forEach((segTokens, si) => {
-    const segWeight = segmentWeights[si];
-    let caps = walkCells(segWeight);
-    if(caps.reduce((a,c)=>a+c,0) < segWeight && cellIdx >= cfg.rowCells.length){
-      // Ran out of room in the current row for this segment — it begins a
-      // fresh avartanam. Close the current line and retry from cell 0.
-      flushLine();
-      caps = walkCells(segWeight);
+    let pendingTokens = segTokens;
+    let words = (wordsPerSeg[si] || '').split(/\s+/).filter(Boolean);
+    let safetyCounter = 0;
+    while(pendingTokens.length && safetyCounter < 20){
+      safetyCounter++;
+      const segWeight = pendingTokens.reduce((a,t)=>a+t.weight, 0);
+      let caps = walkCells(segWeight);
+      if(caps.reduce((a,c)=>a+c,0) < segWeight && cellIdx >= cfg.rowCells.length){
+        // Ran out of room in the current row for this segment — it begins a
+        // fresh avartanam. Close the current line and retry from cell 0.
+        flushLine();
+        caps = walkCells(segWeight);
+      }
+      const { cells, warnings: segWarnings, leftoverTokens } = buildImportCellsFromClassifiedSegment(pendingTokens, caps.length ? caps : cfg.rowCells, words);
+      cells.forEach(c=>{ rowSwara.push(c.swara); rowLyric.push(c.sahitya); });
+      segWarnings.forEach(w => warnings.push(w));
+      if(cellIdx >= cfg.rowCells.length) flushLine(); // row exactly full — next pass (if any) starts a new line
+
+      if(!leftoverTokens.length) break; // fully consumed
+      // Leftover tokens remain — most often two genuinely separate avartanam
+      // lines got merged into one segment upstream (no "|" divider between
+      // them for the normal split logic to catch, e.g. a Mukthayi/Chittai
+      // block of tightly-packed standalone lines mistaken for one wrapped
+      // line). Keep processing the remainder as its own fresh segment/line
+      // instead of silently discarding it — this is what actually fixes
+      // that case, since the "leftover" turns out to be a complete, valid
+      // line in its own right, not overflow to be dropped.
+      if(words.length) warnings.push(`A line's sahitya may not fully align after an unexpected overflow into a second line — worth checking this passage.`);
+      words = [];
+      pendingTokens = leftoverTokens;
     }
-    const words = (wordsPerSeg[si] || '').split(/\s+/).filter(Boolean);
-    const { cells, warnings: segWarnings } = buildImportCellsFromClassifiedSegment(segTokens, caps.length ? caps : cfg.rowCells, words);
-    cells.forEach(c=>{ rowSwara.push(c.swara); rowLyric.push(c.sahitya); });
-    segWarnings.forEach(w => warnings.push(w));
-    if(cellIdx >= cfg.rowCells.length) flushLine(); // row exactly full — next segment (if any) starts a new line
+    if(safetyCounter >= 20 && pendingTokens.length){
+      // Something is persistently not fitting no matter how many fresh rows
+      // are tried (should be rare) — rather than loop forever or silently
+      // drop this content, leave a blank line as a placeholder so the
+      // import's line count and order stay correct and this exact spot is
+      // easy to find and fill in by hand, without needing to reorganize
+      // anything else that imported correctly around it.
+      flushLine();
+      lines.push({ label: '', rows: [{ swara: cfg.rowCells.map(()=>''), lyric: cfg.rowCells.map(()=>'') }] });
+      warnings.push(`A line could not be fully parsed and was left blank for you to fill in — its original content: "${pendingTokens.map(t=>t.display).join(' ')}"`);
+    }
   });
   flushLine(); // trailing partial line, if any
   return lines;
@@ -2533,7 +3142,14 @@ function assembleImportedSong(fileResult, opts){
   song.title = '';
   song.sections = [];
   rawLines = rawLines.filter(l => !isImportPageArtifact(importLineText(l)));
-  let cfg = TALAS.adi;
+  // An explicit, user-provided tala takes priority over whatever the
+  // document's own text might (or might not) state — it's asked for
+  // specifically to make akshara-per-cell counting reliable even when the
+  // source is missing a recognizable "Talam: ..." line, or states it in a
+  // format the parser doesn't catch.
+  let cfg = opts.forcedTala ? (TALAS[opts.forcedTala] || TALAS.adi) : TALAS.adi;
+  if(opts.forcedTala) song.tala = opts.forcedTala;
+  if(opts.forcedKalai) song.kalai = opts.forcedKalai;
   let currentSection = null;
   let mode = 'preamble'; // preamble -> section-start -> prose -> (swara triggers) awaiting-sahitya -> prose
   let pendingSwara = null;
@@ -2586,7 +3202,7 @@ function assembleImportedSong(fileResult, opts){
     if(c.kind === 'meta'){
       c.fields.forEach(({field, value})=>{
         if(field === 'raga'){ const sp = splitRagaMelakarta(value); song.raga = sp.raga; if(sp.melakarta) song.melakarta = sp.melakarta; }
-        else if(field === 'tala'){ song.tala = normalizeTalaValue(value); cfg = TALAS[song.tala] || TALAS.adi; if(/2\s*kalai/i.test(value)) song.kalai = 2; }
+        else if(field === 'tala'){ if(!opts.forcedTala){ song.tala = normalizeTalaValue(value); cfg = TALAS[song.tala] || TALAS.adi; } if(!opts.forcedKalai && /2\s*kalai/i.test(value)) song.kalai = 2; }
         else if(field === 'composer') song.composer = value;
         else if(field === 'arohanam') song.arohanam = value.replace(/\|+$/,'').trim();
         else if(field === 'avarohanam') song.avarohanam = value.replace(/\|+$/,'').trim();
@@ -2671,6 +3287,27 @@ function assembleImportedSong(fileResult, opts){
 
   if(!song.sections.length) warnings.push('No sections were recognized — nothing was imported. Check that section headers (Pallavi, Anupallavi, etc.) are present and spelled as usual.');
 
+  // 2-kalai Adi displays one avartanam split across 2 physical rows, not as
+  // its own separate line each — pair up what the parsing above built as
+  // consecutive single-row lines into single 2-row lines, matching how the
+  // app's own manual editor already expects kalai=2 lines to be shaped. A
+  // trailing odd line (unusual, but possible on a malformed source) is left
+  // as its own single-row line rather than silently dropped.
+  if(song.kalai === 2 && cfg.kalaiAware){
+    function pairLinesForKalai2(lines){
+      const paired = [];
+      for(let i = 0; i < lines.length; i += 2){
+        if(i + 1 < lines.length){
+          paired.push({ label: lines[i].label, rows: [lines[i].rows[0], lines[i+1].rows[0]] });
+        } else {
+          paired.push(lines[i]);
+        }
+      }
+      return paired;
+    }
+    song.sections.forEach(sec => { sec.lines = pairLinesForKalai2(sec.lines); });
+  }
+
   return { song, warnings };
 }
 
@@ -2714,8 +3351,9 @@ function pdfHasNoRecoverableUnderline(fileResult){
   return sawSwaraLine;
 }
 
-function assembleImportedSongBestFit(fileResult){
-  const defaultResult = assembleImportedSong(fileResult, { commaWeight: 1, underlineMeaning: 'speed' });
+function assembleImportedSongBestFit(fileResult, forcedTala, forcedKalai){
+  const baseOpts = { ...(forcedTala ? { forcedTala } : {}), ...(forcedKalai ? { forcedKalai } : {}) };
+  const defaultResult = assembleImportedSong(fileResult, { ...baseOpts, commaWeight: 1, underlineMeaning: 'speed' });
   let chosen = defaultResult;
 
   if(fileResult.kind === 'pdf' && defaultResult.warnings.length > 0){
@@ -2725,7 +3363,7 @@ function assembleImportedSongBestFit(fileResult){
       { commaWeight: 1, underlineMeaning: 'octave' },
       { commaWeight: 2, underlineMeaning: 'octave' },
     ].forEach(opts => {
-      const result = assembleImportedSong(fileResult, opts);
+      const result = assembleImportedSong(fileResult, { ...baseOpts, ...opts });
       if(result.warnings.length < best.warnings.length) best = result;
     });
     if(best !== defaultResult && best.warnings.length <= defaultResult.warnings.length / 2) chosen = best;
@@ -3007,8 +3645,8 @@ function tokenizeSwaraForAlign(raw){
        anything beyond that is a deliberate visible-gap request
      - crossing into/out of a speed-group             -> 1 (fixed, overrides
        everything else, same as before)
-     - both plain, left is a swara letter              -> 2
-     - both plain, left is ',' or ';'                  -> 1
+     - both plain, left is a swara letter or ';'         -> 2
+     - both plain, left is ','                           -> 1
    Neither line is ever truncated: a syllable longer than its token (or vice
    versa) simply occupies more character positions — nothing pads or clips
    it to a fixed column width. Gap size depends only on the swara tokens,
@@ -3066,7 +3704,11 @@ function buildAlignedColumns(rawSwara, rawLyric){
       // >=1 here — a plain boundary only exists because at least 1 space
       // was typed there (zero typed spaces means the tokens merged into one
       // group instead, per the tokenizer above, and never reach this branch).
-      const isPunct = tokDisplay === ',' || tokDisplay === ';';
+      // isPunct only covers ',' now — ';' gets the same baseline as a swara
+      // letter (2), since a semicolon followed by a swara or another
+      // semicolon should read with the same spacing as two swara letters,
+      // not the tighter comma spacing.
+      const isPunct = tokDisplay === ',';
       const baseline = isPunct ? 1 : 2;
       const typed = nextTok.gapBefore || 0;
       gap = typed > 1 ? baseline + (typed - 1) : baseline;
@@ -3131,13 +3773,14 @@ function renderMain(){
     </div>
 
     <div class="toolbar">
-      <button class="btn primary" id="saveBtn"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h9l3 3v9a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1z"/><path d="M7 4v4h6V4M6 17v-5h8v5"/></svg> Save now</button>
-      <button class="btn" id="duplicateSongBtn"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="10" height="10" rx="1.2"/><path d="M7 6V4a1 1 0 011-1h8a1 1 0 011 1v8a1 1 0 01-1 1h-2"/></svg> Duplicate kriti</button>
-      <button class="btn" id="copyDataBtn"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="8" height="13" rx="1.2"/><path d="M8 4V3a1 1 0 011-1h2a1 1 0 011 1v1"/></svg> Copy data for Claude (→ .docx)</button>
-      <button class="btn" id="previewBtn"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 10s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6z"/><circle cx="10" cy="10" r="2.3"/></svg> Preview</button>
-      <button class="btn" id="downloadDocxBtn"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3v10M6 9l4 4 4-4M4 17h12"/></svg> Download/Export (.docx)</button>
+      <button class="btn primary" id="saveBtn"><span class="icon-chip" style="background:var(--indigo-100); color:var(--indigo-deep);"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h9l3 3v9a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1z"/><path d="M7 4v4h6V4M6 17v-5h8v5"/></svg></span> Save now</button>
+      <button class="btn" id="duplicateSongBtn"><span class="icon-chip" style="background:var(--indigo-300); color:var(--indigo-deep);"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="10" height="10" rx="1.2"/><path d="M7 6V4a1 1 0 011-1h8a1 1 0 011 1v8a1 1 0 01-1 1h-2"/></svg></span> Duplicate kriti</button>
+      <button class="btn" id="copyDataBtn"><span class="icon-chip" style="background:var(--indigo-50); color:var(--indigo-deep);"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="8" height="13" rx="1.2"/><path d="M8 4V3a1 1 0 011-1h2a1 1 0 011 1v1"/></svg></span> Copy data for Claude (→ .docx)</button>
+      <button class="btn" id="checkKritiBtn"><span class="icon-chip" style="background:var(--indigo-300); color:var(--indigo-deep);"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7.5"/><path d="M6.5 10.3l2.3 2.3 4.7-5"/></svg></span> Check Kriti</button>
+      <button class="btn" id="previewBtn"><span class="icon-chip" style="background:var(--indigo-100); color:var(--indigo-deep);"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 10s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6z"/><circle cx="10" cy="10" r="2.3"/></svg></span> Preview</button>
+      <button class="btn" id="downloadDocxBtn"><span class="icon-chip" style="background:var(--indigo-50); color:var(--indigo-deep);"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3v10M6 9l4 4 4-4M4 17h12"/></svg></span> Download/Export (.docx)</button>
       <div class="toolbar-divider"></div>
-      <button class="btn danger" id="deleteBtn"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h12M8 6V4a1 1 0 011-1h2a1 1 0 011 1v2M6 6l.6 10a1 1 0 001 .9h4.8a1 1 0 001-.9L14 6"/></svg> Delete kriti</button>
+      <button class="btn danger" id="deleteBtn"><span class="icon-chip" style="background:var(--warn-bg); color:var(--warn-deep);"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h12M8 6V4a1 1 0 011-1h2a1 1 0 011 1v2M6 6l.6 10a1 1 0 001 .9h4.8a1 1 0 001-.9L14 6"/></svg></span> Delete kriti</button>
     </div>
 
     <div class="card">
@@ -3194,6 +3837,7 @@ function renderMain(){
   document.getElementById('copyDataBtn').onclick = ()=>copyForClaude(song);
   document.getElementById('deleteBtn').onclick = ()=>deleteSong(song.id);
   document.getElementById('duplicateSongBtn').onclick = ()=>duplicateSong(song.id);
+  document.getElementById('checkKritiBtn').onclick = openCheckKriti;
   document.getElementById('addSectionBtn').onclick = ()=>{
     song.sections.push(blankSection('New Section', TALAS[song.tala], song.kalai, false));
     queueSave(); renderSections();
@@ -3212,6 +3856,7 @@ function renderSections(){
   song.sections.forEach((sec, si)=>{
     const card = document.createElement('div');
     card.className = 'card';
+    card.dataset.si = si;
     const refBlock = si === 0 ? '' : `
       <div class="fieldwrap" style="border-top:1px dashed var(--line); padding-top:10px; margin-top:14px;">
         <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
@@ -3327,6 +3972,7 @@ function renderLines(host, sec, cfg, kalai){
 
     const row = document.createElement('div');
     row.className = 'line-row';
+    row.dataset.li = li;
 
     const rowsHtml = line.rows.map((r, ri)=>{
       const { cellsHtml, cols } = buildRowGrid(cfg, noSahitya);
@@ -3842,6 +4488,20 @@ async function downloadDocxToDevice(song){
   }
 }
 
+/* PDF via the browser's own print-to-PDF, not a separate PDF library —
+   reuses buildFullPreviewHTML(), the exact same white-page, docx-matching
+   layout already used by the Document Preview modal (underlines, table
+   structure, fonts), so what comes out matches the real exported document
+   rather than the dark, spacious live-editing view. The print dialog is a
+   real browser UI the app can't skip — "Save as PDF" is a destination the
+   person picks there, same as printing any other page. */
+function downloadPdf(song){
+  const container = document.getElementById('printContainer');
+  container.innerHTML = buildFullPreviewHTML(song);
+  showToast('Opening print dialog — choose "Save as PDF" as the destination');
+  setTimeout(()=> window.print(), 150);
+}
+
 /* Export-to-Drive — the only thing this does. Checks the connection state
    BEFORE generating anything, so a not-connected person gets a clear,
    immediate message rather than a mid-flow OAuth popup or a silent failure
@@ -3871,13 +4531,18 @@ function openDocxDownloadExportChoice(song){
   overlay.classList.add('show');
   body.innerHTML = `
     <div style="display:flex; flex-direction:column; gap:8px;">
-      <button class="btn primary" id="docxChoiceDownloadBtn"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3v10M6 9l4 4 4-4M4 17h12"/></svg> Download to this device</button>
+      <button class="btn primary" id="docxChoiceDownloadBtn"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3v10M6 9l4 4 4-4M4 17h12"/></svg> Download Word (.docx)</button>
+      <button class="btn" id="docxChoicePdfBtn"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h7l3 3v11a1 1 0 01-1 1H5a1 1 0 01-1-1V4a1 1 0 011-1z"/><path d="M12 3v3h3M7 12h6M7 15h4"/></svg> Download PDF</button>
       <button class="btn" id="docxChoiceExportBtn"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15h8a3 3 0 000-6 4.5 4.5 0 00-8.6-1.5A3.5 3.5 0 006 15z"/></svg> Export to Google Drive</button>
     </div>
   `;
   document.getElementById('docxChoiceDownloadBtn').onclick = () => {
     overlay.classList.remove('show');
     downloadDocxToDevice(song);
+  };
+  document.getElementById('docxChoicePdfBtn').onclick = () => {
+    overlay.classList.remove('show');
+    downloadPdf(song);
   };
   document.getElementById('docxChoiceExportBtn').onclick = () => {
     overlay.classList.remove('show');
@@ -3966,7 +4631,7 @@ function closeImportPreview(){
   importPendingResult = null;
 }
 
-async function openImportPreview(file){
+async function openImportPreview(file, forcedTala, forcedKalai){
   const overlay = document.getElementById('importOverlay');
   const body = document.getElementById('importBody');
   overlay.classList.add('show');
@@ -3974,59 +4639,115 @@ async function openImportPreview(file){
   try{
     const fileResult = await readImportFile(file);
     body.innerHTML = '<div class="quota-loading">Parsing notation…</div>';
-    const { song, warnings } = assembleImportedSongBestFit(fileResult);
-    importPendingResult = { song, warnings, sourceKind: fileResult.kind };
-
-    const lineCount = song.sections.reduce((a,s)=>a+s.lines.length, 0);
-    const sectionRows = song.sections.map(s =>
-      `<div>${escapeHtml(s.name)} — ${s.lines.length} line${s.lines.length===1?'':'s'}${s.noSahitya?' (no sahitya)':''}</div>`
-    ).join('');
-    // Most warnings are per-cell akshara mismatches ("Cell N: expected...");
-    // a few are document-level structural notes (e.g. no underline found
-    // anywhere) that need their own visible callout, not just folding
-    // silently into a count alongside hundreds of individual cell warnings.
-    const cellWarnings = warnings.filter(w => /^Cell \d+:/.test(w));
-    const structuralNotes = warnings.filter(w => !/^Cell \d+:/.test(w));
-    const badgeCaveat = fileResult.kind === 'pdf'
-      ? `<div class="quota-text" style="margin-top:10px; font-size:12px;">
-           This is a PDF import: 3rd-speed cells were split using the source's own note-by-note
-           weighting, which can differ slightly from this app's own akshara badge (which weighs every
-           note in a group the same). A cell's badge not showing ✓ doesn't necessarily mean it's wrong —
-           check it against the source before changing it.
-         </div>`
-      : '';
-    const structuralNotesHtml = structuralNotes.map(n =>
-      `<div class="quota-text" style="margin-top:10px; color:var(--warn);">⚠ ${escapeHtml(n)}</div>`
-    ).join('');
-    body.innerHTML = `
-      <div class="quota-text">
-        <b>${escapeHtml(song.title || 'Untitled')}</b><br>
-        ${song.raga ? 'Raga: '+escapeHtml(song.raga)+(song.melakarta?' ('+escapeHtml(song.melakarta)+' mela)':'')+'<br>' : ''}
-        ${song.tala ? 'Tala: '+escapeHtml(TALAS[song.tala] ? TALAS[song.tala].label : song.tala)+(song.kalai===2?' (2 kalai)':'')+'<br>' : ''}
-        ${song.composer ? 'Composer: '+escapeHtml(song.composer)+'<br>' : ''}
-      </div>
-      <div class="quota-text" style="margin-top:10px;">
-        ${sectionRows || '<i>No sections recognized</i>'}
-      </div>
-      <div class="quota-text" style="margin-top:10px;">
-        ${lineCount} notation line${lineCount===1?'':'s'} total.
-        ${cellWarnings.length ? `<span style="color:var(--warn);">${cellWarnings.length} cell${cellWarnings.length===1?'':'s'} didn't reconcile to their expected akshara count — worth checking first.</span>` : 'All cells reconciled to their expected akshara count.'}
-      </div>
-      ${structuralNotesHtml}
-      ${badgeCaveat}
-      <div style="display:flex; flex-direction:column; gap:8px; margin-top:14px;">
-        <button class="btn primary" id="confirmImportBtn"${song.sections.length ? '' : ' disabled'}>Import and open for review</button>
-        <button class="btn" id="cancelImportBtn">Cancel</button>
-      </div>
-    `;
-    document.getElementById('confirmImportBtn').onclick = commitImportedSong;
-    document.getElementById('cancelImportBtn').onclick = closeImportPreview;
+    const { song, warnings } = assembleImportedSongBestFit(fileResult, forcedTala, forcedKalai);
+    importPendingResult = { song, warnings, sourceKind: fileResult.kind, fileResult, forcedTala, forcedKalai };
+    renderImportPreviewBody();
   }catch(e){
     console.error('[import] failed:', e);
     body.innerHTML = `<div class="quota-error">Could not read this file: ${escapeHtml(e.message || String(e))}</div>
       <div style="margin-top:12px;"><button class="btn" id="cancelImportBtn">Close</button></div>`;
     document.getElementById('cancelImportBtn').onclick = closeImportPreview;
   }
+}
+
+/* Renders the import preview body from importPendingResult, with the key
+   metadata fields editable right there — "what's missing" (a blank raga,
+   composer, etc.) or wrong is something you can just fill in or correct
+   before committing, rather than importing first and fixing it afterward
+   in the main editor. Changing tala specifically re-parses the whole
+   document from the cached fileResult, since expected akshara capacity per
+   cell depends on which tala is in effect — the other fields don't affect
+   parsing, so editing them just updates the pending song directly. */
+function renderImportPreviewBody(){
+  const body = document.getElementById('importBody');
+  const { song, warnings, sourceKind } = importPendingResult;
+  const lineCount = song.sections.reduce((a,s)=>a+s.lines.length, 0);
+  const sectionRows = song.sections.map(s =>
+    `<div>${escapeHtml(s.name)} — ${s.lines.length} line${s.lines.length===1?'':'s'}${s.noSahitya?' (no sahitya)':''}</div>`
+  ).join('');
+  const cellWarnings = warnings.filter(w => /^Cell \d+:/.test(w));
+  const structuralNotes = warnings.filter(w => !/^Cell \d+:/.test(w));
+  const badgeCaveat = sourceKind === 'pdf'
+    ? `<div class="quota-text" style="margin-top:10px; font-size:12px;">
+         This is a PDF import: 3rd-speed cells were split using the source's own note-by-note
+         weighting, which can differ slightly from this app's own akshara badge (which weighs every
+         note in a group the same). A cell's badge not showing ✓ doesn't necessarily mean it's wrong —
+         check it against the source before changing it.
+       </div>`
+    : '';
+  const structuralNotesHtml = structuralNotes.map(n =>
+    `<div class="quota-text" style="margin-top:10px; color:var(--warn);">⚠ ${escapeHtml(n)}</div>`
+  ).join('');
+  body.innerHTML = `
+    <div class="fieldwrap">
+      <label>Title</label>
+      <input type="text" id="ipTitle" value="${escapeHtml(song.title || '')}" placeholder="Untitled">
+    </div>
+    <div class="field-grid">
+      <div class="fieldwrap">
+        <label>Raga</label>
+        <input type="text" id="ipRaga" value="${escapeHtml(song.raga || '')}" placeholder="Missing — fill in if known">
+      </div>
+      <div class="fieldwrap">
+        <label>Tala</label>
+        <select id="ipTala">
+          ${Object.entries(TALAS).map(([k,v])=>{
+            let opts = `<option value="${k}" ${song.tala===k && song.kalai!==2 ?'selected':''}>${v.label} (${v.aksharasPerAvartanam}/avartanam)</option>`;
+            if(k === 'adi' && v.kalaiAware){
+              opts += `<option value="adi_2kalai" ${song.tala==='adi' && song.kalai===2 ?'selected':''}>Adi Tala (2 Kalai) (32/avartanam, 2 rows)</option>`;
+            }
+            return opts;
+          }).join('')}
+        </select>
+      </div>
+      <div class="fieldwrap">
+        <label>Composer</label>
+        <input type="text" id="ipComposer" value="${escapeHtml(song.composer || '')}" placeholder="Missing — fill in if known">
+      </div>
+      <div class="fieldwrap">
+        <label>Melakarta # (optional)</label>
+        <input type="text" id="ipMelakarta" value="${escapeHtml(song.melakarta || '')}" placeholder="e.g. 28th">
+      </div>
+      <div class="fieldwrap">
+        <label>Arohanam</label>
+        <input type="text" id="ipArohanam" value="${escapeHtml(song.arohanam || '')}" placeholder="Missing — fill in if known">
+      </div>
+      <div class="fieldwrap">
+        <label>Avarohanam</label>
+        <input type="text" id="ipAvarohanam" value="${escapeHtml(song.avarohanam || '')}" placeholder="Missing — fill in if known">
+      </div>
+    </div>
+    <div class="quota-text" style="margin-top:4px;">
+      ${sectionRows || '<i>No sections recognized</i>'}
+    </div>
+    <div class="quota-text" style="margin-top:10px;">
+      ${lineCount} notation line${lineCount===1?'':'s'} total.
+      ${cellWarnings.length ? `<span style="color:var(--warn);">${cellWarnings.length} cell${cellWarnings.length===1?'':'s'} didn't reconcile to their expected akshara count — worth checking first.</span>` : 'All cells reconciled to their expected akshara count.'}
+    </div>
+    ${structuralNotesHtml}
+    ${badgeCaveat}
+    <div style="display:flex; flex-direction:column; gap:8px; margin-top:14px;">
+      <button class="btn primary" id="confirmImportBtn"${song.sections.length ? '' : ' disabled'}>Import and open for review</button>
+      <button class="btn" id="cancelImportBtn">Cancel</button>
+    </div>
+  `;
+  document.getElementById('ipTitle').oninput = e => { song.title = e.target.value; };
+  document.getElementById('ipRaga').oninput = e => { song.raga = e.target.value; };
+  document.getElementById('ipComposer').oninput = e => { song.composer = e.target.value; };
+  document.getElementById('ipMelakarta').oninput = e => { song.melakarta = e.target.value; };
+  document.getElementById('ipArohanam').oninput = e => { song.arohanam = e.target.value; };
+  document.getElementById('ipAvarohanam').oninput = e => { song.avarohanam = e.target.value; };
+  document.getElementById('ipTala').onchange = e => {
+    const rawValue = e.target.value;
+    let newTala = rawValue, newKalai = null;
+    if(rawValue === 'adi_2kalai'){ newTala = 'adi'; newKalai = 2; }
+    body.innerHTML = '<div class="quota-loading">Re-parsing with the corrected tala…</div>';
+    const { song: reparsedSong, warnings: reparsedWarnings } = assembleImportedSongBestFit(importPendingResult.fileResult, newTala, newKalai);
+    importPendingResult = { ...importPendingResult, song: reparsedSong, warnings: reparsedWarnings, forcedTala: newTala, forcedKalai: newKalai };
+    renderImportPreviewBody();
+  };
+  document.getElementById('confirmImportBtn').onclick = commitImportedSong;
+  document.getElementById('cancelImportBtn').onclick = closeImportPreview;
 }
 
 function commitImportedSong(){
@@ -4044,12 +4765,34 @@ function commitImportedSong(){
     : `Imported "${song.title || 'Untitled'}" ✓`);
 }
 
+let pendingImportFile = null;
 document.getElementById('importBtn').onclick = () => document.getElementById('importFileInput').click();
 document.getElementById('importFileInput').onchange = (e) => {
   const file = e.target.files[0];
   e.target.value = ''; // allow re-selecting the same file next time
-  if(file) openImportPreview(file);
+  if(!file) return;
+  pendingImportFile = file;
+  document.getElementById('importTalaSelect').value = '';
+  document.getElementById('importTalaOverlay').classList.add('show');
 };
+document.getElementById('importTalaContinueBtn').onclick = () => {
+  const rawValue = document.getElementById('importTalaSelect').value || null;
+  let forcedTala = rawValue, forcedKalai = null;
+  if(rawValue === 'adi_2kalai'){ forcedTala = 'adi'; forcedKalai = 2; }
+  document.getElementById('importTalaOverlay').classList.remove('show');
+  if(pendingImportFile) openImportPreview(pendingImportFile, forcedTala, forcedKalai);
+  pendingImportFile = null;
+};
+document.getElementById('closeImportTalaBtn').onclick = () => {
+  document.getElementById('importTalaOverlay').classList.remove('show');
+  pendingImportFile = null;
+};
+document.getElementById('importTalaOverlay').addEventListener('click', e=>{
+  if(e.target.id === 'importTalaOverlay'){
+    e.currentTarget.classList.remove('show');
+    pendingImportFile = null;
+  }
+});
 document.getElementById('closeImportBtn').onclick = closeImportPreview;
 document.getElementById('importOverlay').addEventListener('click', e=>{
   if(e.target.id === 'importOverlay') closeImportPreview();
@@ -4058,19 +4801,116 @@ document.getElementById('closeDocxChoiceBtn').onclick = () => document.getElemen
 document.getElementById('docxChoiceOverlay').addEventListener('click', e=>{
   if(e.target.id === 'docxChoiceOverlay') e.currentTarget.classList.remove('show');
 });
+document.getElementById('closeFindReplaceBtn').onclick = closeFindReplace;
+document.getElementById('closeCheckKritiBtn').onclick = closeCheckKriti;
+/* Find & Replace and Check Kriti use a non-blocking, click-through overlay
+   (so the grid stays interactive underneath), which means the overlay
+   itself never receives a click to detect "clicked outside" the normal
+   way — it's not there to catch it. A global listener does the same job
+   instead: if the panel is open and the click landed outside its own box,
+   close it. Excludes the Check Kriti button itself so clicking it while
+   already open doesn't close-then-immediately-reopen. */
+document.addEventListener('mousedown', (e)=>{
+  const frOverlay = document.getElementById('findReplaceOverlay');
+  if(frOverlay.classList.contains('show') && !e.target.closest('#findReplaceOverlay .quota-modal')){
+    closeFindReplace();
+  }
+  const ckOverlay = document.getElementById('checkKritiOverlay');
+  if(ckOverlay.classList.contains('show') && !e.target.closest('#checkKritiOverlay .quota-modal') && e.target.id !== 'checkKritiBtn'){
+    closeCheckKriti();
+  }
+});
+document.getElementById('frFindNextBtn').onclick = frFindNext;
+document.getElementById('frReplaceBtn').onclick = frReplaceCurrent;
+document.getElementById('frReplaceAllBtn').onclick = frReplaceAll;
+document.getElementById('frFindInput').addEventListener('input', ()=>{ frMatchIdx = -1; frUpdateStatus(); });
+document.getElementById('frScopeSelect').addEventListener('change', ()=>{ frMatchIdx = -1; frUpdateStatus(); });
+[document.getElementById('frInSwara'), document.getElementById('frInSahitya'), document.getElementById('frMatchCase')].forEach(el=>{
+  el.addEventListener('change', ()=>{ frMatchIdx = -1; frUpdateStatus(); });
+});
+document.getElementById('frFindInput').addEventListener('keydown', e=>{
+  if(e.key === 'Enter'){ e.preventDefault(); frFindNext(); }
+});
+/* Lets a floating panel be dragged by its header, so it can be moved out
+   of the way of whatever it just found/highlighted. Wired once per panel —
+   listens on the header itself, not re-wired per open/render. */
+function makeModalDraggable(overlaySelector){
+  const headerEl = document.querySelector(overlaySelector + ' .quota-modal-head');
+  const modalEl = document.querySelector(overlaySelector + ' .quota-modal');
+  if(!headerEl || !modalEl) return;
+  let dragging = false, startX, startY, startLeft, startTop;
+  headerEl.addEventListener('mousedown', (e)=>{
+    if(e.target.closest('button')) return; // don't start a drag from the close button
+    dragging = true;
+    const rect = modalEl.getBoundingClientRect();
+    startX = e.clientX; startY = e.clientY;
+    startLeft = rect.left; startTop = rect.top;
+    modalEl.style.position = 'fixed';
+    modalEl.style.left = startLeft + 'px';
+    modalEl.style.top = startTop + 'px';
+    modalEl.style.margin = '0';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', (e)=>{
+    if(!dragging) return;
+    const dx = e.clientX - startX, dy = e.clientY - startY;
+    const maxLeft = window.innerWidth - 80; // keep at least ~80px of the header grabbable
+    const maxTop = window.innerHeight - 40;
+    modalEl.style.left = Math.max(0, Math.min(maxLeft, startLeft + dx)) + 'px';
+    modalEl.style.top = Math.max(0, Math.min(maxTop, startTop + dy)) + 'px';
+  });
+  document.addEventListener('mouseup', ()=>{
+    if(dragging){ dragging = false; document.body.style.userSelect = ''; }
+  });
+}
+makeModalDraggable('#findReplaceOverlay');
+makeModalDraggable('#checkKritiOverlay');
 document.getElementById('closeQuotaBtn').onclick = closeStorageQuota;
 document.getElementById('quotaOverlay').addEventListener('click', e=>{
   if(e.target.id === 'quotaOverlay') closeStorageQuota();
 });
 document.addEventListener('keydown', e=>{
-  if(e.key === 'Escape'){ closePreview(); closeStorageQuota(); }
+  if(e.key === 'Escape'){ closePreview(); closeStorageQuota(); closeFindReplace(); closeCheckKriti(); }
   if(e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'z'){ e.preventDefault(); performUndo(); }
   else if(e.ctrlKey && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))){ e.preventDefault(); performRedo(); }
+  else if(e.ctrlKey && e.key.toLowerCase() === 'h'){ e.preventDefault(); openFindReplace(); }
 });
+
+/* Auto-connect at page load can race the Google Identity Services script —
+   it's loaded async/defer, so there's no guarantee it's ready yet when
+   init() calls this almost immediately after the page loads. A single
+   connectDrive() call would silently bail out (its own !window.google
+   check) in exactly that situation. Retries briefly instead of giving up
+   on the first miss — up to ~3 seconds — then stops quietly if the script
+   never loads at all (blocked, offline, etc.); the button is still there
+   as a normal fallback either way. */
+function attemptAutoConnectDrive(retriesLeft){
+  if(driveAccessToken) return;
+  if(window.google && google.accounts && google.accounts.oauth2){
+    connectDrive();
+    return;
+  }
+  if(retriesLeft <= 0) return;
+  setTimeout(()=> attemptAutoConnectDrive(retriesLeft - 1), 300);
+}
 
 (async function init(){
   applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light');
   document.getElementById('themeToggleBtn').onclick = toggleTheme;
+  const talaSelect = document.getElementById('importTalaSelect');
+  Object.entries(TALAS).forEach(([k,v])=>{
+    const opt = document.createElement('option');
+    opt.value = k;
+    opt.textContent = `${v.label} (${v.aksharasPerAvartanam}/avartanam)`;
+    talaSelect.appendChild(opt);
+    if(k === 'adi' && v.kalaiAware){
+      const opt2kalai = document.createElement('option');
+      opt2kalai.value = 'adi_2kalai';
+      opt2kalai.textContent = 'Adi Tala (2 Kalai) (32/avartanam, 2 rows)';
+      talaSelect.appendChild(opt2kalai);
+    }
+  });
   await loadLibrary();
   if(library.length) currentId = library[0].id;
   renderAll();
@@ -4082,7 +4922,7 @@ document.addEventListener('keydown', e=>{
   // click — so this can be silently blocked depending on the browser. If
   // that happens, the "Connect to Drive" button is still right there as a
   // normal, always-working fallback; nothing else depends on this succeeding.
-  if(!driveAccessToken) connectDrive();
+  if(!driveAccessToken) attemptAutoConnectDrive(10);
 })();
 </script>
 </body>
