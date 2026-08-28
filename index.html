@@ -932,6 +932,7 @@ const DRIVE_LIBRARY_FILENAME = 'kriti-library.json';
 const DRIVE_LAST_SYNCED_KEY = 'kriti-notation-studio.driveLastSyncedAt';
 const DRIVE_DIRTY_COUNT_KEY = 'kriti-notation-studio.driveDirtyCount';
 const DRIVE_LIBRARY_MODIFIED_KEY = 'kriti-notation-studio.driveLibraryModifiedTime';
+const DRIVE_LIBRARY_CHECKSUM_KEY = 'kriti-notation-studio.driveLibraryChecksum';
 let driveTokenClient = null;
 let driveAccessToken = null;
 let driveTokenExpiresAt = null; // ms epoch — when the current access token expires
@@ -945,14 +946,23 @@ let driveDirtyCount = 0; // # of local saves since the last successful Drive syn
                          // as "N changes waiting to sync" so a stuck/failing sync is visible
                          // even without noticing a stale "Synced Xm ago" timestamp
 let driveLibraryModifiedTime = null; // Drive's modifiedTime for the library file, as of our last
-                         // successful push or pull — the baseline a conflict check compares against
+                         // successful push or pull — kept only for display/legacy purposes.
+let driveLibraryChecksum = null; // Drive's md5Checksum for the library file, as of our last
+                         // successful push or pull — the actual baseline a conflict check compares
+                         // against. A content hash rather than a timestamp: two separate API calls
+                         // (e.g. the upload response vs. a later metadata fetch) can report
+                         // modifiedTime strings that differ by mere formatting/precision even when
+                         // nothing about the file's content changed, which was causing the conflict
+                         // dialog to reappear on every sync instead of only on genuine external
+                         // changes. A checksum only differs when the bytes actually differ.
 let driveConflictPending = false; // true once a conflict's been detected but not yet resolved
-let driveConflictRemote = null;   // { library, modifiedTime } fetched from Drive while a conflict is open
+let driveConflictRemote = null;   // { library, checksum } fetched from Drive while a conflict is open
 try{ driveFolderId = localStorage.getItem(DRIVE_FOLDER_ID_KEY) || null; }catch(e){}
 try{ driveLibraryFileId = localStorage.getItem(DRIVE_LIBRARY_FILE_ID_KEY) || null; }catch(e){}
 try{ const ts = localStorage.getItem(DRIVE_LAST_SYNCED_KEY); if(ts) driveLastSyncedAt = parseInt(ts, 10) || null; }catch(e){}
 try{ const dc = localStorage.getItem(DRIVE_DIRTY_COUNT_KEY); if(dc) driveDirtyCount = parseInt(dc, 10) || 0; }catch(e){}
 try{ driveLibraryModifiedTime = localStorage.getItem(DRIVE_LIBRARY_MODIFIED_KEY) || null; }catch(e){}
+try{ driveLibraryChecksum = localStorage.getItem(DRIVE_LIBRARY_CHECKSUM_KEY) || null; }catch(e){}
 
 function setDriveDirtyCount(n){
   driveDirtyCount = Math.max(0, n);
@@ -1324,7 +1334,7 @@ async function driveDownloadLibraryJSON(){
 async function driveUploadLibraryJSON(){
   const body = JSON.stringify(library);
   if(driveLibraryFileId){
-    const r = await driveFetch(`https://www.googleapis.com/upload/drive/v3/files/${driveLibraryFileId}?uploadType=media&fields=id,modifiedTime`, {
+    const r = await driveFetch(`https://www.googleapis.com/upload/drive/v3/files/${driveLibraryFileId}?uploadType=media&fields=id,modifiedTime,md5Checksum`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body,
@@ -1335,7 +1345,7 @@ async function driveUploadLibraryJSON(){
   const mp = `--${boundary}\r\nContent-Type: application/json\r\n\r\n`
     + JSON.stringify({ name: DRIVE_LIBRARY_FILENAME, parents: [driveFolderId] })
     + `\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${body}\r\n--${boundary}--`;
-  const r = await driveFetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,modifiedTime', {
+  const r = await driveFetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,modifiedTime,md5Checksum', {
     method: 'POST',
     headers: { 'Content-Type': 'multipart/related; boundary=' + boundary },
     body: mp,
@@ -1423,27 +1433,37 @@ async function driveUploadBlob(blob, filename, mimeType){
    about it — either another device/browser pushed a change, or (first time
    THIS browser has seen an existing file) Drive already had data before this
    browser ever synced. Never throws — a failed check just means we proceed
-   without one. Returns:
-     null                                  — safe to push, no conflict
-     { mode:'silent-adopt', modifiedTime } — first time seeing this file, and
-                                              local has nothing to lose (empty
-                                              library) — just adopt Drive's
-                                              copy, no need to ask
-     { mode:'conflict', modifiedTime }     — a real conflict; needs the modal */
+   without one. Compares Drive's md5Checksum (a hash of the file's actual
+   bytes) rather than modifiedTime: two separate API calls — e.g. an upload's
+   own response vs. a metadata GET moments later — can report modifiedTime
+   strings that differ by mere formatting/rounding even when the content is
+   byte-identical, which was making this check see a "conflict" on every
+   single sync rather than only on genuine external changes. A checksum only
+   changes when the bytes actually do. Returns:
+     null                                — safe to push, no conflict
+     { mode:'silent-adopt', checksum }   — first time seeing this file, and
+                                            local has nothing to lose (empty
+                                            library) — just adopt Drive's
+                                            copy, no need to ask
+     { mode:'conflict', checksum }       — a real conflict; needs the modal */
 async function checkDriveConflict(){
   if(!driveLibraryFileId) return null;
   try{
-    const r = await driveFetch(`https://www.googleapis.com/drive/v3/files/${driveLibraryFileId}?fields=modifiedTime`);
+    const r = await driveFetch(`https://www.googleapis.com/drive/v3/files/${driveLibraryFileId}?fields=md5Checksum`);
     const j = await r.json();
-    if(!j.modifiedTime) return null;
-    if(!driveLibraryModifiedTime){
-      return { mode: library.length ? 'conflict' : 'silent-adopt', modifiedTime: j.modifiedTime };
+    if(!j.md5Checksum) return null;
+    if(!driveLibraryChecksum){
+      return { mode: library.length ? 'conflict' : 'silent-adopt', checksum: j.md5Checksum };
     }
-    return (j.modifiedTime !== driveLibraryModifiedTime) ? { mode: 'conflict', modifiedTime: j.modifiedTime } : null;
+    return (j.md5Checksum !== driveLibraryChecksum) ? { mode: 'conflict', checksum: j.md5Checksum } : null;
   }catch(e){
     console.warn('[drive conflict check] failed, proceeding without one:', e);
     return null;
   }
+}
+function setDriveLibraryChecksum(c){
+  driveLibraryChecksum = c;
+  try{ localStorage.setItem(DRIVE_LIBRARY_CHECKSUM_KEY, c); }catch(e){}
 }
 function setDriveLibraryModifiedTime(t){
   driveLibraryModifiedTime = t;
@@ -1487,7 +1507,7 @@ async function syncLibraryToDrive(auto){
       library = await driveDownloadLibraryJSON();
       try{ localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(library)); }catch(e){}
       setDriveDirtyCount(0);
-      setDriveLibraryModifiedTime(conflict.modifiedTime);
+      setDriveLibraryChecksum(conflict.checksum);
       driveLastSyncedAt = Date.now();
       try{ localStorage.setItem(DRIVE_LAST_SYNCED_KEY, String(driveLastSyncedAt)); }catch(e){}
       renderAll();
@@ -1497,7 +1517,7 @@ async function syncLibraryToDrive(auto){
     }
     if(conflict && conflict.mode === 'conflict'){
       driveConflictPending = true;
-      driveConflictRemote = { modifiedTime: conflict.modifiedTime };
+      driveConflictRemote = { checksum: conflict.checksum };
       updateSyncStatusText();
       if(!auto){
         driveSyncInFlight = false; // release before the modal, so its own resolve action can sync again
@@ -1512,6 +1532,7 @@ async function syncLibraryToDrive(auto){
       try{ localStorage.setItem(DRIVE_LIBRARY_FILE_ID_KEY, driveLibraryFileId); }catch(e){}
     }
     if(res && res.modifiedTime) setDriveLibraryModifiedTime(res.modifiedTime);
+    if(res && res.md5Checksum) setDriveLibraryChecksum(res.md5Checksum);
     driveSyncPending = false;
     driveLastSyncedAt = Date.now();
     try{ localStorage.setItem(DRIVE_LAST_SYNCED_KEY, String(driveLastSyncedAt)); }catch(e){}
@@ -1528,8 +1549,8 @@ async function syncLibraryToDrive(auto){
   }
 }
 
-/* Fetches Drive's actual library content and current modifiedTime (fresh —
-   not reusing the one from checkDriveConflict, in case it moved again in the
+/* Fetches Drive's actual library content and current checksum (fresh — not
+   reusing the one from checkDriveConflict, in case it moved again in the
    meantime), then shows the 3-way choice. */
 async function openConflictModal(){
   const overlay = document.getElementById('conflictOverlay');
@@ -1539,9 +1560,9 @@ async function openConflictModal(){
   try{
     const [remoteLibrary, metaRes] = await Promise.all([
       driveDownloadLibraryJSON(),
-      driveFetch(`https://www.googleapis.com/drive/v3/files/${driveLibraryFileId}?fields=modifiedTime`).then(r=>r.json()),
+      driveFetch(`https://www.googleapis.com/drive/v3/files/${driveLibraryFileId}?fields=md5Checksum`).then(r=>r.json()),
     ]);
-    driveConflictRemote = { library: remoteLibrary, modifiedTime: metaRes.modifiedTime };
+    driveConflictRemote = { library: remoteLibrary, checksum: metaRes.md5Checksum };
     const localCount = library.length, remoteCount = remoteLibrary.length;
     body.innerHTML = `
       <div class="quota-text" style="margin-bottom:14px;">
@@ -1604,10 +1625,13 @@ async function resolveDriveConflict(choice){
 
   try{ localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(library)); }catch(e){}
   setDriveDirtyCount(0);
-  // Adopt Drive's just-fetched modifiedTime as our baseline BEFORE pushing —
+  // Adopt Drive's just-fetched checksum as our baseline BEFORE pushing —
   // otherwise the push we're about to trigger would immediately detect the
-  // exact same conflict again and loop back into this same modal.
-  setDriveLibraryModifiedTime(remote.modifiedTime);
+  // exact same conflict again and loop back into this same modal. (The
+  // upload moments later overwrites this with the checksum of whatever we
+  // actually end up pushing — merged/local/drive content — this is just to
+  // get past the pre-upload conflict check cleanly.)
+  setDriveLibraryChecksum(remote.checksum);
   driveConflictPending = false;
   driveConflictRemote = null;
   document.getElementById('conflictOverlay').classList.remove('show');
