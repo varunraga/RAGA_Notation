@@ -1,0 +1,12 @@
+{
+  "name": "kriti-docx-generator",
+  "version": "1.0.0",
+  "description": "Standalone CLI: converts a Kriti Notation Studio song.json export into a formatted .docx",
+  "main": "kriti-docx-generator.js",
+  "scripts": {
+    "generate": "node kriti-docx-generator.js"
+  },
+  "dependencies": {
+    "docx": "^8.5.0"
+  }
+}
