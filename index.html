@@ -42,6 +42,7 @@
     --line:#ddd9d0;
     --panel:#faf9f5;
     --paper:#ffffff;
+    --search-bg:#b8d6f0;
     --good:#3b6d11;
     --good-soft:#6b9c5c;
     --warn:#b23a3a;
@@ -79,6 +80,7 @@
     --line:#34343f;
     --panel:#202027;
     --paper:#232329;
+    --search-bg:#b8d6f0;
     --good:#6fbf3f;
     --good-soft:#8fc47a;
     --warn:#e0685f;
@@ -176,8 +178,7 @@
     transition:filter .15s;
   }
   .newbtn:hover{ filter:brightness(0.94); }
-  .nav-group{ display:flex; flex-direction:column; gap:2px; }
-  .nav-group > .nav-item:not(:last-child){ border-bottom:1px solid var(--line); }
+  .nav-group{ display:flex; flex-direction:column; gap:14px; }
   .nav-item{
     display:flex; align-items:center; gap:12px;
     padding:10px 12px; border-radius:var(--radius-sm);
@@ -193,15 +194,23 @@
   }
   .nav-item .nav-sub{ font-size:10.5px; font-weight:500; color:var(--ink-soft); margin-top:1px; }
   .nav-item .nav-label-col{ display:flex; flex-direction:column; min-width:0; }
-  .nav-divider{ height:1px; background:var(--line); margin:10px 4px; }
+  .nav-divider{ height:0; border-top:2px solid var(--ink-soft); opacity:.35; margin:0 4px; }
   .sync-status{
     text-align:left; font-size:11.5px; line-height:1.35; color:var(--ink-soft);
     min-height:13px; padding:0 4px;
   }
   .search{
     width:100%; padding:9px 11px; border-radius:var(--radius-sm); border:1px solid var(--line);
-    background:var(--paper); font-size:13px; color:var(--ink); font-family:'Inter',sans-serif;
+    font-size:13px; color:var(--ink); font-family:'Inter',sans-serif;
   }
+  /* #searchBox (ID selector) rather than relying on .search's class specificity --
+     the generic "input[type=text], select, textarea" rule further down the sheet
+     has HIGHER specificity (element+attribute) than a bare class selector, so it
+     was silently winning the cascade and overriding this background with --panel
+     regardless of source order. An ID selector unambiguously outranks it. */
+  #searchBox{ background:var(--search-bg); }
+  .search:focus{ outline:2px solid var(--indigo); outline-offset:1px; }
+  .search::placeholder{ color:#3a5a78; }
   .song-list{ display:flex; flex-direction:column; gap:6px; margin-top:4px; }
   .side-foot{
     margin-top:auto; padding-top:14px; font-size:11px; line-height:1.5; color:var(--ink-soft);
@@ -446,6 +455,7 @@
         <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M10 4v12M4 10h12"/></svg>
         <span>New Kriti</span>
       </button>
+      <div class="nav-divider"></div>
       <button class="nav-item" id="importBtn">
         <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13V3M6 7l4-4 4 4M4 17h12"/></svg>
         <span>Import from PDF/Word</span>
@@ -458,6 +468,7 @@
         <span>Connect to Drive</span>
       </button>
       <div class="sync-status" id="syncStatus"></div>
+      <div class="nav-divider"></div>
       <button class="nav-item" id="storageQuotaBtn">
         <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16V9M10 16V4M16 16v-6"/></svg>
         <span>Storage used</span>
