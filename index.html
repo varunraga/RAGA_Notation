@@ -4,17 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Kriti Notation Studio</title>
-<meta name="description" content="Create, edit, and export Carnatic music kriti notation — swara, sahitya, and tala-aware grids, with Word/PDF export.">
-<meta name="theme-color" content="#4a4aef" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#17171d" media="(prefers-color-scheme: dark)">
-<link rel="manifest" href="./manifest.webmanifest">
-<link rel="icon" type="image/png" sizes="32x32" href="./icon-32x32.png">
-<link rel="icon" type="image/png" sizes="16x16" href="./icon-16x16.png">
-<link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Kriti Studio">
-<meta name="mobile-web-app-capable" content="yes">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Courier+Prime:wght@400;700&family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.min.js"></script>
@@ -2589,6 +2578,19 @@ function octaveDisplay(text){
     .replace(/([A-Za-z])'/g, (m,c)=> c + '\u0307')
     .replace(/([A-Za-z])\./g, (m,c)=> c + '\u0323');
 }
+/* Combining dot-above/-below (added above for higher/lower octave swaras) are
+   zero-width in rendering — they stack on the base letter rather than
+   advancing the cursor — but JS string .length still counts them as an extra
+   character. Using raw .length for alignment padding was overstating an
+   octave-marked token's true rendered width by 1 per mark, which silently
+   padded the paired sahitya syllable with a phantom extra space it didn't
+   need, throwing off every syllable after it in that cell. visualLen() strips
+   those combining marks before measuring, so padding is computed from the
+   width the token actually occupies on the page. Kept in sync with the
+   identical fix in kriti-docx-generator.js. */
+function visualLen(s){
+  return (s || '').replace(/[\u0307\u0323]/g, '').length;
+}
 
 /* ---------- Akshara counting ----------
    Outside any underline (1st speed): letter=2, ","=1, ";"=2.
@@ -3730,8 +3732,8 @@ function buildAlignedColumns(rawSwara, rawLyric){
     // when the syllable (van/de) is longer than its swara group (PG/PN).
     // Never adds a visible gap you didn't type; only ever fills in the
     // length difference that already exists between the two.
-    const core = Math.max(tokDisplay.length, syl.length, 1);
-    const swaraCore = tok ? tokDisplay.padEnd(core) : tokDisplay;
+    const core = Math.max(visualLen(tokDisplay), syl.length, 1);
+    const swaraCore = tok ? tokDisplay + ' '.repeat(Math.max(0, core - visualLen(tokDisplay))) : tokDisplay;
     const lyricCore = syl.padEnd(core);
 
     swaraCols.push({ text: swaraCore + ' '.repeat(gap), underline });
@@ -4087,7 +4089,7 @@ function buildGridRowsHTML(cfg, line, kalai, noSahitya, tableClass){
       const isEdgeL = edgeLeft && i===0;
       const isEdgeR = edgeRight && i===cfg.rowCells.length-1;
       const width = cap * GRID_CELL_UNIT;
-      const contentLen = swaraCols.reduce((a,c)=>a + c.text.length, 0);
+      const contentLen = swaraCols.reduce((a,c)=>a + visualLen(c.text), 0);
       const spacing = computeCellSpacing(contentLen, width);
       const spacingCss = spacing ? `letter-spacing:${dxaToPt(spacing)}pt;` : '';
 
@@ -4270,6 +4272,11 @@ async function buildDocxBlob(song){
   const SZ_D = SHEET_SZ, GRID_SZ_D = GRID_SZ;
   const EDGE_D = GRID_EDGE, AVART_DIV_D = GRID_AVART_DIV, PIPE_DIV_D = GRID_PIPE_DIV;
   const LABEL_W_D = GRID_LABEL_W, DIV_W_D = GRID_DIV_W;
+  const EDGE_W_D = 240; // fixed dxa reserved for the "‖" line-edge marker (~2 Consolas
+                         // chars at GRID_SZ_D). Used as an exact tab-stop/indent position
+                         // on both swara and lyric paragraphs of the line's first cell —
+                         // never approximated by counting typed spaces against "‖"'s
+                         // assumed character width. Kept in sync with kriti-docx-generator.js.
 
   function underlineProp(level){
     if(level === 1) return { type: UnderlineType.SINGLE };
@@ -4292,6 +4299,21 @@ async function buildDocxBlob(song){
      jumps straight to that position, so "‖" always lands flush at the cell
      boundary regardless of the cell's actual content length. Kept in sync
      with the identical fix in kriti-docx-generator.js. */
+  /* Same as drun(), but text is followed by a real tab character. Used for the
+     left "‖" edge marker: paired with a LEFT tab stop on the paragraph (see
+     EDGE_W_D below), the content that follows always starts at exactly
+     EDGE_W_D, regardless of how wide "‖" actually renders. Plain typed
+     spaces can't give that guarantee — Word's on-screen view and its PDF
+     export path are free to size a symbol glyph slightly differently, and a
+     space-count approximation only holds if both agree (this is what let
+     alignment look correct in Word but drift once printed/exported to PDF).
+     Kept in sync with the identical fix in kriti-docx-generator.js. */
+  function dRunThenTab(text, opts={}){
+    return new TextRun({
+      children: [text, new Tab()],
+      font: FONT_D, size: opts.size || SZ_D, bold: !!opts.bold, color: '000000',
+    });
+  }
   function dTabThenRun(text, opts={}){
     return new TextRun({
       children: [new Tab(), text],
@@ -4333,8 +4355,15 @@ async function buildDocxBlob(song){
   function dCell(children, widthDxa){
     return new TableCell({ width:{size:widthDxa,type:WidthType.DXA}, verticalAlign:VerticalAlign.CENTER, borders:CELL_BORDERS_D, children });
   }
-  function dBeatPara(children, tabStops){
-    return new Paragraph({ alignment: AlignmentType.LEFT, spacing:{after:0}, tabStops, children });
+  function dBeatPara(children, opts={}){
+    return new Paragraph({
+      alignment: AlignmentType.LEFT,
+      spacing: {after:0},
+      tabStops: opts.tabStops,
+      indent: opts.indentLeft ? { left: opts.indentLeft } : undefined,
+      keepNext: !!opts.keepNext,
+      children,
+    });
   }
 
   function dBuildLineTable(cfg, line, kalai, noSahitya){
@@ -4351,7 +4380,7 @@ async function buildDocxBlob(song){
       const swaraCells=[], lyricCells=[], cellWidths=[];
       const edgeLeft = ri===0, edgeRight = ri===numRows-1;
 
-      swaraCells.push(dCell([dBeatPara(ri===0 && line.label ? [drun(line.label,{bold:true,size:GRID_SZ_D})] : [])], LABEL_W_D));
+      swaraCells.push(dCell([dBeatPara(ri===0 && line.label ? [drun(line.label,{bold:true,size:GRID_SZ_D})] : [], {keepNext:true})], LABEL_W_D));
       if(!noSahitya) lyricCells.push(dCell([dBeatPara([])], LABEL_W_D));
 
       cfg.rowCells.forEach((cap,i)=>{
@@ -4359,7 +4388,7 @@ async function buildDocxBlob(song){
         const isEdgeL = edgeLeft && i===0;
         const isEdgeR = edgeRight && i===cfg.rowCells.length-1;
         const width = cap * GRID_CELL_UNIT;
-        const contentLen = swaraCols.reduce((a,c)=>a + c.text.length, 0);
+        const contentLen = swaraCols.reduce((a,c)=>a + visualLen(c.text), 0);
         const spacing = computeCellSpacing(contentLen, width);
         const children = [];
         // Each token's text already carries its full, correctly-computed
@@ -4370,39 +4399,39 @@ async function buildDocxBlob(song){
         });
         // The second (or later) physical row's first cell — e.g. the start of
         // the 2nd half-avartanam in a 2-kalai line — is NOT the line's true
-        // left edge, so it never gets a real "‖". But without correction its
-        // content would start 2 characters further left than row 0's first
-        // cell (which carries "‖ "), throwing off vertical alignment between
-        // the two half-avartanam rows. Reserve the same 2-character width
-        // here, invisibly (plain spaces, no "‖" glyph), purely so the
-        // swara/sahitya line up with the row above. Kept in sync with the
-        // identical fix in kriti-docx-generator.js.
+        // left edge, so it never gets a real "‖". But without reserving the
+        // same EDGE_W_D space here, its content would start further left than
+        // row 0's first cell (which reserves EDGE_W_D for "‖"), throwing off
+        // vertical alignment between the two half-avartanam rows.
         const needsAlignPlaceholder = ri > 0 && i === 0 && !isEdgeL;
-        if(isEdgeL) children.unshift(drun(EDGE_D+' ', {size:GRID_SZ_D}));
-        else if(needsAlignPlaceholder) children.unshift(drun('  ', {size:GRID_SZ_D}));
+        if(isEdgeL) children.unshift(dRunThenTab(EDGE_D, {size:GRID_SZ_D}));
         if(isEdgeR) children.push(dTabThenRun(EDGE_D, {size:GRID_SZ_D}));
-        swaraCells.push(dCell([dBeatPara(children, isEdgeR ? [{type: TabStopType.RIGHT, position: width}] : undefined)], width));
+        const tabStops = [];
+        if(isEdgeL) tabStops.push({type: TabStopType.LEFT, position: EDGE_W_D});
+        if(isEdgeR) tabStops.push({type: TabStopType.RIGHT, position: width});
+        const paraOpts = { tabStops: tabStops.length ? tabStops : undefined, keepNext: true };
+        if(needsAlignPlaceholder) paraOpts.indentLeft = EDGE_W_D;
+        swaraCells.push(dCell([dBeatPara(children, paraOpts)], width));
         if(!noSahitya){
           // Direct concatenation (not join(' ')) — each lyric column now
           // carries the exact same gap as its corresponding swara column,
           // so an extra separator space here would break that mirroring.
           let lyricText = lyricCols.join('');
-          if(isEdgeL) lyricText = '  ' + lyricText;
-          else if(needsAlignPlaceholder) lyricText = '  ' + lyricText;
           if(isEdgeR) lyricText = lyricText + '  ';
-          lyricCells.push(dCell([dBeatPara(lyricText.trim() ? [drun(lyricText,{size:GRID_SZ_D, spacing})] : [])], width));
+          const lyricParaOpts = (isEdgeL || needsAlignPlaceholder) ? { indentLeft: EDGE_W_D } : {};
+          lyricCells.push(dCell([dBeatPara(lyricText.trim() ? [drun(lyricText,{size:GRID_SZ_D, spacing})] : [], lyricParaOpts)], width));
         }
         cellWidths.push(width);
         if(i === cfg.dividerAfter && i !== cfg.rowCells.length-1){
-          swaraCells.push(dCell([dBeatPara([drun(cfg.dividerType === 'pipe' ? PIPE_DIV_D : AVART_DIV_D,{size:GRID_SZ_D})])], DIV_W_D));
+          swaraCells.push(dCell([dBeatPara([drun(cfg.dividerType === 'pipe' ? PIPE_DIV_D : AVART_DIV_D,{size:GRID_SZ_D})], {keepNext:true})], DIV_W_D));
           if(!noSahitya) lyricCells.push(dCell([dBeatPara([])], DIV_W_D));
           cellWidths.push(DIV_W_D);
         }
       });
 
       const colWidths = [LABEL_W_D, ...cellWidths];
-      const tableRows = [ new TableRow({children:swaraCells}) ];
-      if(!noSahitya) tableRows.push(new TableRow({children:lyricCells}));
+      const tableRows = [ new TableRow({cantSplit:true, children:swaraCells}) ];
+      if(!noSahitya) tableRows.push(new TableRow({cantSplit:true, children:lyricCells}));
       rowsOut.push(new Table({
         width: { size: colWidths.reduce((a,b)=>a+b,0), type: WidthType.DXA },
         columnWidths: colWidths,
@@ -4477,7 +4506,7 @@ async function buildDocxBlob(song){
   const pageWidth = song.tala === 'adi_tishra' ? 25920 : 20160; // 18in vs 14in
   const doc = new Document({
     sections: [{
-      properties: { page: { size:{width:pageWidth,height:12240}, margin:{top:1008,bottom:720,left:1008,right:720} } },
+      properties: { page: { size:{width:pageWidth,height:12240}, margin:{top:1008,bottom:1008,left:1008,right:720} } },
       children: dBuildDocBody(song),
     }],
   });
@@ -4943,18 +4972,6 @@ function attemptAutoConnectDrive(retriesLeft){
   // normal, always-working fallback; nothing else depends on this succeeding.
   if(!driveAccessToken) attemptAutoConnectDrive(10);
 })();
-
-// Register the service worker so the app installs as a PWA and keeps
-// working offline once its shell + library scripts have been fetched once.
-// Relative path (not "/sw.js") so this also works when hosted from a
-// GitHub Pages project subpath (e.g. username.github.io/kriti-notation-studio/).
-if('serviceWorker' in navigator){
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js').catch(err => {
-      console.warn('Service worker registration failed:', err);
-    });
-  });
-}
 </script>
 </body>
 </html>
