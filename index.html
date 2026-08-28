@@ -4,6 +4,17 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Kriti Notation Studio</title>
+<meta name="description" content="Create, edit, and export Carnatic music kriti notation — swara, sahitya, and tala-aware grids, with Word/PDF export.">
+<meta name="theme-color" content="#4a4aef" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#17171d" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="./icon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="./icon-16x16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Kriti Notation">
+<meta name="mobile-web-app-capable" content="yes">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Courier+Prime:wght@400;700&family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.min.js"></script>
@@ -4972,6 +4983,18 @@ function attemptAutoConnectDrive(retriesLeft){
   // normal, always-working fallback; nothing else depends on this succeeding.
   if(!driveAccessToken) attemptAutoConnectDrive(10);
 })();
+
+// Register the service worker so the app installs as a PWA and keeps
+// working offline once its shell + library scripts have been fetched once.
+// Relative path (not "/sw.js") so this also works when hosted from a
+// GitHub Pages project subpath (e.g. username.github.io/kriti-notation-studio/).
+if('serviceWorker' in navigator){
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(err => {
+      console.warn('Service worker registration failed:', err);
+    });
+  });
+}
 </script>
 </body>
 </html>
