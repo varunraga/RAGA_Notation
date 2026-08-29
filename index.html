@@ -72,7 +72,7 @@
     --ink:#e8e8f0;
     --ink-rgb:232,232,240;
     --ink-soft:#9a9aad;
-    --indigo-25:#27272f;
+    --indigo-25:#32323f;
     --indigo-50:#22223a;
     --indigo-100:#2b2b4d;
     --indigo-300:#a3a3ff;
@@ -82,8 +82,8 @@
     --brand-blue:#4a5bff;
     --brand-blue-light:#6577ff;
     --line:#34343f;
-    --panel:#202027;
-    --paper:#232329;
+    --panel:#26262f;
+    --paper:#2f2f3a;
     --search-bg:#b8d6f0;
     --good:#6fbf3f;
     --good-soft:#8fc47a;
@@ -137,39 +137,6 @@
     overflow:hidden; /* the app itself never scrolls at the page level — .sidebar and .main each own their own scroll region below */
   }
   .app{ display:grid; grid-template-columns:310px 1fr; height:100vh; }
-
-  /* Tablet/phone: the dashboard's sidebar (nav) and main content (search +
-     kriti list) become ONE natural, unified scroll — not two independently
-     boxed regions. Scrolling the page moves the nav buttons up and out of
-     the way, exactly like scrolling any normal webpage, so the search box
-     and kriti list are reached by simply continuing to scroll rather than
-     being trapped inside a separately-scrolling, height-capped sidebar box.
-     (The editor view is unaffected — its sidebar is hidden entirely via
-     .view-editor, so there's nothing to unify there.) */
-  @media (max-width:900px){
-    .app{ grid-template-columns:1fr; height:auto; min-height:100vh; }
-    .app.view-dashboard{ display:block; }
-    body{ overflow-y:auto; height:auto; }
-    .sidebar{ position:static; height:auto; max-height:none; border-right:none; border-bottom:1px solid var(--line); }
-    .main{ padding:24px 20px 60px; max-width:100%; height:auto; overflow-y:visible; }
-    .hero h1{ font-size:28px; }
-  }
-
-  /* Phone: tighter paddings, smaller type, single-column fields, buttons stay tappable. */
-  @media (max-width:600px){
-    .sidebar{ padding:16px 12px; gap:10px; }
-    .newbtn{ padding:12px; font-size:14px; }
-    .main{ padding:16px 12px 50px; }
-    .hero{ margin-bottom:18px; }
-    .hero h1{ font-size:23px; }
-    .hero p{ font-size:12.5px; }
-    .toolbar{ gap:6px; }
-    .toolbar .btn{ font-size:12.5px; padding:10px 12px; }
-    .card{ padding:16px 14px; }
-    .beat-cell{ min-width:54px; }
-    .line-top{ gap:6px; }
-    .aksh-badge{ font-size:9px; }
-  }
 
   /* ---------- Sidebar ---------- */
   .sidebar{
@@ -511,7 +478,9 @@
   .preview{
     font-family:'Consolas','Courier Prime',monospace; background:#1a1a2e; color:#ececeb;
     border-radius:var(--radius-md); padding:16px 18px; font-size:14px; line-height:2; overflow-x:auto; margin-top:14px;
+    border:1px solid #3a3a5c;
   }
+  [data-theme="dark"] .preview{ background:#23233f; border-color:var(--indigo-300); box-shadow:0 0 0 1px rgba(163,163,255,0.15); }
   /* ---------- Notation grid tables (shared by live preview and the full
      Preview modal — mirrors the .docx export's real table structure:
      fixed per-cell widths, an explicit divider cell, Consolas font. ---------- */
@@ -610,6 +579,58 @@
   .quota-text b{ color:var(--ink); }
   .quota-loading, .quota-error{ font-size:13px; color:var(--ink-soft); padding:6px 0; }
   .conflict-modal{ max-width:480px; }
+
+  /* These two responsive blocks are kept LAST in the stylesheet deliberately.
+     CSS resolves equal-specificity conflicts by source order, not by which
+     rule "sounds like" it should win — a later plain ".sidebar{}" rule beats
+     an earlier "@media(...){ .sidebar{} }" one at any matching width, media
+     query or not. Every override below needs to win over its unscoped
+     counterpart defined earlier in this file, so it has to come after all of
+     them. (This was a real, confirmed bug: these two blocks previously sat
+     near the top of the stylesheet, before most base rules existed, so at
+     mobile widths the later base .app/.sidebar/.main rules silently
+     overrode almost everything here — the mobile layout was never actually
+     applying.) If you add a new mobile override here, it still only works
+     as long as this stays the last thing in the stylesheet.
+
+     Tablet/phone: the dashboard's sidebar (nav) and main content (search +
+     kriti list) become ONE natural, unified scroll — not two independently
+     boxed regions. Scrolling the page moves the nav buttons up and out of
+     the way, exactly like scrolling any normal webpage, so the search box
+     and kriti list are reached by simply continuing to scroll rather than
+     being trapped inside a separately-scrolling, height-capped sidebar box.
+     (The editor view is unaffected — its sidebar is hidden entirely via
+     .view-editor, so there's nothing to unify there.) */
+  @media (max-width:900px){
+    .app{ grid-template-columns:1fr; height:auto; min-height:100vh; }
+    .app.view-dashboard{ display:block; }
+    body{ overflow-y:auto; height:auto; }
+    .sidebar{ position:static; height:auto; max-height:none; border-right:none; border-bottom:1px solid var(--line); }
+    .main{ padding:24px 20px 60px; max-width:100%; min-width:0; height:auto; overflow-y:visible; }
+    .hero h1{ font-size:28px; }
+    .rules-page-head{ flex-wrap:wrap; }
+    .section-head{ flex-wrap:wrap; row-gap:8px; }
+    .line-top{ flex-wrap:wrap; row-gap:6px; }
+  }
+
+  /* Phone: tighter paddings, smaller type, single-column fields, buttons stay tappable. */
+  @media (max-width:600px){
+    .sidebar{ padding:16px 12px; gap:10px; }
+    .newbtn{ padding:12px; font-size:14px; }
+    .main{ padding:16px 12px 50px; }
+    .hero{ margin-bottom:18px; }
+    .hero h1{ font-size:23px; }
+    .hero p{ font-size:12.5px; }
+    .toolbar{ gap:6px; }
+    .toolbar .btn{ font-size:12.5px; padding:10px 12px; }
+    .card{ padding:16px 14px; }
+    .beat-cell{ min-width:54px; }
+    .line-top{ gap:6px; }
+    .aksh-badge{ font-size:9px; }
+    .dashboard-search-row{ flex-direction:column; }
+    .dashboard-grid{ grid-template-columns:1fr; }
+    .rule-example{ flex-direction:column; }
+  }
 </style>
 <script>
   (function(){
