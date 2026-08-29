@@ -242,6 +242,11 @@
   .dashboard-grid .song-item .snippet{
     font-size:11.5px; color:var(--ink-soft); font-style:italic; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
   }
+  .dashboard-grid .song-item .card-chevron{
+    flex:none; color:var(--brand-blue); opacity:0; transform:translateX(-4px);
+    transition:opacity .18s ease, transform .18s ease;
+  }
+  .dashboard-grid .song-item:hover .card-chevron{ opacity:1; transform:translateX(0); }
   .editor-topbar{ display:flex; align-items:center; gap:10px; margin-bottom:14px; }
   .editor-topbar .back-btn{
     display:flex; align-items:center; gap:8px; padding:11px 20px; border-radius:var(--radius-md);
@@ -366,14 +371,44 @@
   .section-head input{ font-family:'Fraunces',serif; font-size:19px; font-weight:600; color:var(--heading); border:none; background:transparent; padding:2px 4px; }
   .section-head input:focus{ outline:1px solid var(--indigo-300); border-radius:var(--radius-sm); }
 
-  .line-row{ margin-bottom:16px; padding:12px; background:var(--panel); border-radius:var(--radius-md); border:1px solid var(--line); }
+  .line-row{ margin-bottom:16px; padding:12px; background:var(--panel); border-radius:var(--radius-md); border:1px solid var(--line); transition:opacity .25s ease, filter .25s ease; }
+  #sectionsHost.focus-active .line-row:not(.line-row-focused){ opacity:.28; filter:saturate(.7); }
+  #sectionsHost.focus-active .line-row.line-row-focused{ box-shadow:0 0 0 2px var(--brand-blue); }
   .line-top{ display:flex; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
   .line-top input.label{ width:56px; font-size:13px; font-weight:700; font-family:'Courier Prime',monospace; text-align:center; padding:6px 4px; background:var(--paper); border:1px solid var(--line); color:var(--ink); border-radius:var(--radius-sm); }
   .line-top .spacer{ flex:1; }
 
-  .grid-wrap{ overflow-x:auto; }
+  /* padding + matching negative margin: gives box-shadow rings and the
+     scale-flag badge room to fully render before hitting this container's
+     own overflow-clipping edge, without changing grid-wrap's actual
+     footprint/position in the layout. (Explicitly writing overflow-y:visible
+     here would NOT help — per spec, browsers force overflow-y to also
+     become 'auto' whenever overflow-x isn't 'visible', so vertical clipping
+     happens regardless of what overflow-y says; the only real fix is
+     ensuring nothing needs to render past the edge in the first place.) */
+  .grid-wrap{ overflow-x:auto; padding:6px 6px 8px; margin:-6px -6px -8px; }
   .beat-grid{ display:grid; gap:6px; align-items:stretch; min-width:max-content; }
-  .beat-cell{ display:flex; flex-direction:column; gap:4px; min-width:64px; }
+  .beat-cell{ display:flex; flex-direction:column; gap:4px; min-width:64px; border-radius:var(--radius-sm); transition:background-color .2s ease, box-shadow .2s ease; }
+  .beat-cell.heat-ok{ background:rgba(76,175,110,0.13); box-shadow:0 0 0 1px rgba(76,175,110,0.35); }
+  .beat-cell.heat-near{ background:rgba(250,204,21,0.28); box-shadow:0 0 0 1px rgba(202,158,10,0.55); }
+  .beat-cell.heat-far{ background:rgba(214,69,69,0.18); box-shadow:0 0 0 1px rgba(214,69,69,0.45); }
+  .beat-cell.scale-flag{ position:relative; box-shadow:0 0 0 1.5px #a855c9; }
+  .beat-cell.scale-flag::after{
+    content:'!'; position:absolute; top:2px; right:2px; width:13px; height:13px;
+    border-radius:50%; background:#a855c9; color:#fff; font-size:9px; font-weight:800;
+    display:flex; align-items:center; justify-content:center; line-height:1; font-family:'Inter',sans-serif;
+    pointer-events:none; box-shadow:0 1px 3px rgba(0,0,0,0.3); z-index:2;
+  }
+  .heatmap-toggle{
+    display:flex; align-items:center; gap:6px; padding:9px 13px; border-radius:var(--radius-sm);
+    border:1px solid var(--line); background:var(--paper); color:var(--ink); font-size:12.5px; font-weight:600;
+    cursor:pointer; font-family:'Inter',sans-serif;
+  }
+  .heatmap-toggle:hover{ background:var(--surface-deep); }
+  .heatmap-toggle.active{ background:linear-gradient(135deg, var(--indigo), var(--brand-blue)); color:var(--paper); border-color:var(--brand-blue); }
+  .heatmap-legend{ display:flex; align-items:center; gap:14px; font-size:11.5px; color:var(--ink-soft); margin:8px 0 4px; }
+  .heatmap-legend span{ display:inline-flex; align-items:center; gap:5px; }
+  .heatmap-legend i{ width:10px; height:10px; border-radius:3px; display:inline-block; }
   .beat-cell input{
     font-family:'Courier Prime',monospace; font-size:14px; text-align:left;
     padding:7px 6px; border-radius:var(--radius-sm);
@@ -654,31 +689,31 @@
     <div class="nav-divider"></div>
     <div class="nav-group">
       <button class="nav-item" id="newSongBtn">
-        <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M10 4v12M4 10h12"/></svg>
+        <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 4v12M4 10h12"/></svg>
         <span>New Kriti</span>
       </button>
       <div class="nav-divider"></div>
       <button class="nav-item" id="importBtn">
-        <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13V3M6 7l4-4 4 4M4 17h12"/></svg>
+        <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3v10M6 9l4 4 4-4M4 17h12"/></svg>
         <span>Import from PDF/Word</span>
       </button>
     </div>
     <div class="nav-divider"></div>
     <div class="nav-group">
       <button class="nav-item" id="syncBtn">
-        <svg class="sync-icon-chip" id="syncIcon" width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15h8a3 3 0 000-6 4.5 4.5 0 00-8.6-1.5A3.5 3.5 0 006 15z"/></svg>
+        <svg class="sync-icon-chip" id="syncIcon" width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15h8a3 3 0 000-6 4.5 4.5 0 00-8.6-1.5A3.5 3.5 0 006 15z"/></svg>
         <span>Connect to Drive</span>
       </button>
       <div class="sync-status" id="syncStatus"></div>
       <div class="nav-divider"></div>
       <button class="nav-item" id="storageQuotaBtn">
-        <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16V9M10 16V4M16 16v-6"/></svg>
+        <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16V9M10 16V4M16 16v-6"/></svg>
         <span>Storage used</span>
       </button>
     </div>
     <div class="nav-divider"></div>
     <button class="nav-item" id="rulesNavBtn">
-      <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="8"/><path d="M10 13.5v.01M10 6.2a2.1 2.1 0 011.9 3 2.5 2.5 0 01-1.9 1.6v1"/></svg>
+      <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="8"/><path d="M7.7 8.1c0-1.9 1.5-3.3 3.3-3.1 1.7.2 2.9 1.6 2.7 3.3-.2 1.4-1.3 2-2.2 2.5-.7.4-1.2.9-1.2 1.8v.4"/><path d="M10.3 14.3v.01"/></svg>
       <span>Notation Rules</span>
     </button>
     <div class="nav-divider"></div>
@@ -707,6 +742,18 @@
       <div class="quota-modal-title">Drive has other changes</div>
     </div>
     <div id="conflictBody"><div class="quota-loading">Loading…</div></div>
+  </div>
+</div>
+
+<div class="quota-overlay" id="spreadPatternOverlay">
+  <div class="quota-modal conflict-modal">
+    <div class="quota-modal-head">
+      <div class="quota-modal-title">Spread swara pattern</div>
+      <button class="btn small icon-btn" id="closeSpreadPatternBtn"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 5l10 10M15 5L5 15"/></svg></button>
+    </div>
+    <div class="quota-text" style="margin-bottom:12px;" id="spreadPatternIntro"></div>
+    <div id="spreadPatternList" style="display:flex; flex-direction:column; gap:8px; margin-bottom:16px;"></div>
+    <button class="btn primary" id="spreadPatternApplyBtn">Copy swara to selected sections</button>
   </div>
 </div>
 
@@ -1864,6 +1911,62 @@ function blankLine(cfg, kalai){
 function blankSection(name, cfg, kalai, isFirst){
   return { name, sahitya: '', lines: [ blankLine(cfg, kalai), blankLine(cfg, kalai) ], showPallaviRef: !isFirst, pallaviOverride: '', noSahitya: false };
 }
+
+/* "Spread swara pattern" — many kritis repeat the same swara skeleton across
+   multiple charanams with only the sahitya changing line to line. This lets
+   you draft one section fully, then copy just its swara structure (line
+   count, cell contents, underline markup) into other sections, leaving
+   their sahitya blank so you type the new words in against an already-
+   correct rhythmic skeleton instead of rebuilding it from scratch. */
+let spreadPatternSourceIndex = null;
+function openSpreadPatternPicker(sourceIndex){
+  const song = getSong();
+  spreadPatternSourceIndex = sourceIndex;
+  const source = song.sections[sourceIndex];
+  document.getElementById('spreadPatternIntro').textContent =
+    `Copy "${source.name || 'this section'}"'s swara (not its sahitya) into other sections you pick below. ` +
+    `Each target section's own sahitya is left blank for you to fill in against the copied rhythm — its existing ` +
+    `swara and sahitya, if any, will be replaced.`;
+  const list = document.getElementById('spreadPatternList');
+  const others = song.sections.map((s, i) => ({s, i})).filter(x => x.i !== sourceIndex);
+  if(!others.length){
+    list.innerHTML = '<div class="quota-text">There are no other sections to copy into yet.</div>';
+  } else {
+    list.innerHTML = others.map(({s, i}) => `
+      <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; font-weight:600; cursor:pointer;">
+        <input type="checkbox" class="spreadTargetCheck" data-si="${i}">
+        ${escapeHtml(s.name || 'Untitled section')} <span style="color:var(--ink-soft); font-weight:500;">(${s.lines.length} line${s.lines.length===1?'':'s'})</span>
+      </label>`).join('');
+  }
+  document.getElementById('spreadPatternOverlay').classList.add('show');
+}
+function closeSpreadPatternPicker(){
+  document.getElementById('spreadPatternOverlay').classList.remove('show');
+  spreadPatternSourceIndex = null;
+}
+function applySpreadPattern(){
+  const song = getSong();
+  const source = song.sections[spreadPatternSourceIndex];
+  const targetIndices = Array.from(document.querySelectorAll('.spreadTargetCheck:checked')).map(el => parseInt(el.dataset.si, 10));
+  if(!targetIndices.length){ closeSpreadPatternPicker(); return; }
+  if(!confirm(`Replace the swara (and clear the sahitya) in ${targetIndices.length} section${targetIndices.length===1?'':'s'}? This can't be undone with Ctrl+Z across sections, only per line.`)) return;
+  targetIndices.forEach(ti=>{
+    const target = song.sections[ti];
+    target.lines = source.lines.map(line => ({
+      label: line.label,
+      rows: line.rows.map(row => ({
+        swara: row.swara.slice(),
+        lyric: row.lyric.map(()=>''),
+      })),
+    }));
+    target.sahitya = '';
+    target.noSahitya = source.noSahitya;
+  });
+  closeSpreadPatternPicker();
+  queueSave();
+  renderSections();
+  showToast(`Swara pattern copied to ${targetIndices.length} section${targetIndices.length===1?'':'s'}`);
+}
 function newSong(tala, kalai){
   tala = tala && TALAS[tala] ? tala : 'adi';
   kalai = (kalai === 2 && TALAS[tala].kalaiAware) ? 2 : 1;
@@ -2194,7 +2297,7 @@ function renderSongList(){
     el.className = 'song-item' + (s.id===currentId ? ' active' : '');
     el.style.borderLeft = `4px solid ${talaAccentColor(s.tala)}`;
     const snippet = songPreviewSnippet(s);
-    el.innerHTML = `<div class="col-left"><div class="t">${escapeHtml(s.title||'Untitled')}</div>${snippet ? `<div class="snippet">${escapeHtml(snippet)}</div>` : ''}</div><div class="m"><div>${escapeHtml(s.raga||'—')} · ${TALAS[s.tala]?.label||s.tala}</div>${s.composer ? `<div class="composer">${escapeHtml(s.composer)}</div>` : ''}</div>`;
+    el.innerHTML = `<div class="col-left"><div class="t">${escapeHtml(s.title||'Untitled')}</div>${snippet ? `<div class="snippet">${escapeHtml(snippet)}</div>` : ''}</div><div class="m"><div>${escapeHtml(s.raga||'—')} · ${TALAS[s.tala]?.label||s.tala}</div>${s.composer ? `<div class="composer">${escapeHtml(s.composer)}</div>` : ''}</div><svg class="card-chevron" width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4l6 6-6 6"/></svg>`;
     el.onclick = ()=>{ currentId = s.id; currentView = 'editor'; renderAll(); };
     list.appendChild(el);
   });
@@ -3880,14 +3983,88 @@ function applyBadge(badge, text, className){
     badge.classList.add('badge-pop');
   }
 }
+let heatmapMode = false; // when on, .beat-cell gets a background wash by mismatch severity,
+                          // not just the small badge text — for scanning a long/just-imported
+                          // kriti for problem cells at a glance instead of reading each badge.
 function updateAksharaBadge(cellDiv, raw, capacity){
   const badge = cellDiv.querySelector('.aksh-badge');
   if(!badge) return;
+  cellDiv.classList.remove('heat-ok','heat-near','heat-far');
   if(!raw){ applyBadge(badge, '', 'aksh-badge'); return; }
   const { total } = computeCellAkshara(raw);
   const ok = Math.abs(total - capacity) < 1e-9;
   const text = ok ? `${formatAksh(total)} \u2713` : `${formatAksh(total)}/${capacity} \u26A0`;
   applyBadge(badge, text, 'aksh-badge ' + (ok ? 'ok' : 'bad'));
+  if(heatmapMode){
+    const deviation = Math.abs(total - capacity);
+    cellDiv.classList.add(ok ? 'heat-ok' : (deviation <= 1 ? 'heat-near' : 'heat-far'));
+  }
+}
+
+/* Raga-aware scale check — given the kriti's own arohanam/avarohanam text,
+   gently flags (never blocks) a swara letter that doesn't appear in either
+   scale. Cell inputs only ever accept the 7 letters S R G M P D N to begin
+   with, so this genuinely means "outside this raga's own scale" (catches a
+   typo like a stray N in an audava raga that never uses N), not a general
+   validity check. Whole-cell flag rather than per-letter, since these are
+   plain <input> elements — you can't color individual characters inside a
+   native text input. Skips entirely (flags nothing) if arohanam/avarohanam
+   haven't been filled in yet, since there's no scale to check against. */
+function getRagaScale(song){
+  const combined = (song.arohanam || '') + ' ' + (song.avarohanam || '');
+  const letters = new Set();
+  const re = /[SRGMPDN]/gi;
+  let m;
+  while((m = re.exec(combined)) !== null) letters.add(m[0].toUpperCase());
+  return letters;
+}
+function findOutOfScaleLetters(raw, scale){
+  if(!scale || !scale.size || !raw) return [];
+  const out = new Set();
+  const re = /[A-Za-z]/g;
+  let m;
+  while((m = re.exec(raw)) !== null){
+    const letter = m[0].toUpperCase();
+    if(!scale.has(letter)) out.add(letter);
+  }
+  return Array.from(out);
+}
+function updateRagaScaleFlag(cellDiv, raw, scale){
+  const outOfScale = findOutOfScaleLetters(raw, scale);
+  cellDiv.classList.toggle('scale-flag', outOfScale.length > 0);
+  if(outOfScale.length){
+    cellDiv.title = `Not in this raga's arohanam/avarohanam: ${outOfScale.join(', ')} — double-check this isn't a typo (the app never blocks it, in case the source really does use it).`;
+  } else if(cellDiv.title && cellDiv.title.startsWith("Not in this raga")){
+    cellDiv.removeAttribute('title');
+  }
+}
+/* Re-checks every already-rendered swara cell against the current raga
+   scale — called once whenever arohanam/avarohanam text itself changes,
+   since the scale everything is being checked against just changed. */
+function rescanRagaScale(){
+  const song = getSong();
+  if(!song) return;
+  const scale = getRagaScale(song);
+  document.querySelectorAll('.beat-cell input.swara').forEach(inp=>{
+    updateRagaScaleFlag(inp.closest('.beat-cell'), inp.value, scale);
+  });
+}
+function setHeatmapMode(on){
+  heatmapMode = on;
+  document.querySelectorAll('.beat-cell').forEach(cellDiv=>{
+    cellDiv.classList.remove('heat-ok','heat-near','heat-far');
+  });
+  if(on){
+    // Re-run the same per-cell check already driving the live badges — no
+    // separate calculation, just also painting the result onto the cell.
+    document.querySelectorAll('.beat-cell input.swara').forEach(inp=>{
+      const cellDiv = inp.closest('.beat-cell');
+      const cap = parseFloat(cellDiv.dataset.cap);
+      if(!isNaN(cap)) updateAksharaBadge(cellDiv, inp.value, cap);
+    });
+  }
+  const btn = document.getElementById('heatmapToggleBtn');
+  if(btn) btn.classList.toggle('active', on);
 }
 /* parse inline underline markup: **text** -> double underline (3rd speed),
    *text* -> single underline (2nd speed). Returns escaped+styled HTML. */
@@ -4362,6 +4539,12 @@ function renderMain(){
       <button class="btn" id="previewBtn"><span class="icon-chip" style="background:var(--paper); color:var(--indigo-deep);"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 10s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6z"/><circle cx="10" cy="10" r="2.3"/></svg></span> Preview</button>
       <button class="btn" id="findReplaceBtn"><span class="icon-chip" style="background:var(--paper); color:var(--indigo-deep);"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="8.5" cy="8.5" r="5.5"/><path d="M17 17l-4.3-4.3"/></svg></span> Find & Replace</button>
       <button class="btn" id="downloadDocxBtn"><span class="icon-chip" style="background:var(--paper); color:var(--indigo-deep);"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3v10M6 9l4 4 4-4M4 17h12"/></svg></span> Download/Export (.docx)</button>
+      <button class="heatmap-toggle" id="heatmapToggleBtn" type="button"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="6" height="6" rx="1"/><rect x="11" y="3" width="6" height="6" rx="1"/><rect x="3" y="11" width="6" height="6" rx="1"/><rect x="11" y="11" width="6" height="6" rx="1"/></svg> Akshara heatmap</button>
+    </div>
+    <div class="heatmap-legend" id="heatmapLegend" style="display:none;">
+      <span><i style="background:#4caf6e;"></i> matches capacity</span>
+      <span><i style="background:#facc15;"></i> off by ≤1</span>
+      <span><i style="background:#d64545;"></i> off by more than 1</span>
     </div>
     <div class="toolbar-danger-row">
       <button class="btn danger" id="deleteBtn"><span class="icon-chip" style="background:var(--paper); color:var(--warn-deep);"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h12M8 6V4a1 1 0 011-1h2a1 1 0 011 1v2M6 6l.6 10a1 1 0 001 .9h4.8a1 1 0 001-.9L14 6"/></svg></span> Delete kriti</button>
@@ -4400,6 +4583,17 @@ function renderMain(){
 
   document.getElementById('backToLibraryBtn').onclick = goToDashboard;
   document.getElementById('themeMiniBtn').onclick = toggleTheme;
+  document.getElementById('heatmapToggleBtn').onclick = ()=>{
+    setHeatmapMode(!heatmapMode);
+    document.getElementById('heatmapLegend').style.display = heatmapMode ? 'flex' : 'none';
+  };
+  // heatmapMode can persist from a previously-viewed kriti (module-level
+  // state) — sync this freshly-rendered toggle button/legend to match; the
+  // cells themselves get colored naturally when renderSections() below
+  // calls updateAksharaBadge() for the first time, which already checks
+  // this same flag — no need to re-trigger that here.
+  document.getElementById('heatmapToggleBtn').classList.toggle('active', heatmapMode);
+  document.getElementById('heatmapLegend').style.display = heatmapMode ? 'flex' : 'none';
   // Sync this freshly-rendered button's icon/label to the current theme —
   // applyTheme() is only called on toggle or at page load, and this button
   // is rebuilt from scratch every time the editor view renders.
@@ -4408,8 +4602,8 @@ function renderMain(){
   document.getElementById('f_raga').oninput = e=>{ song.raga=e.target.value; renderSongList(); queueSave(); };
   document.getElementById('f_mela').oninput = e=>{ song.melakarta=e.target.value; renderSongList(); queueSave(); };
   document.getElementById('f_composer').oninput = e=>{ song.composer=e.target.value; queueSave(); };
-  document.getElementById('f_aro').oninput = e=>{ song.arohanam=e.target.value; queueSave(); };
-  document.getElementById('f_ava').oninput = e=>{ song.avarohanam=e.target.value; queueSave(); };
+  document.getElementById('f_aro').oninput = e=>{ song.arohanam=e.target.value; queueSave(); rescanRagaScale(); };
+  document.getElementById('f_ava').oninput = e=>{ song.avarohanam=e.target.value; queueSave(); rescanRagaScale(); };
   document.getElementById('f_tala').onchange = e=>{
     song.tala = e.target.value;
     document.getElementById('kalaiWrap').style.display = TALAS[song.tala].kalaiAware ? '' : 'none';
@@ -4458,6 +4652,7 @@ function renderSections(){
         <input value="${escapeHtml(sec.name)}" data-si="${si}" class="secName" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off">
         <button class="btn small icon-only" data-si="${si}" data-act="secUp" title="Move section up"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15V5M5 9l5-5 5 5"/></svg></button>
         <button class="btn small icon-only" data-si="${si}" data-act="secDown" title="Move section down"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 5v10M5 11l5 5 5-5"/></svg></button>
+        <button class="btn small" data-si="${si}" data-act="spreadPattern" title="Copy this section's swara (not sahitya) into other sections"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10h8m0 0l-3-3m3 3l-3 3M16 5v10"/></svg> Spread pattern</button>
         <button class="btn small danger" data-si="${si}" data-act="delSec">Remove section</button>
       </div>
       <div class="fieldwrap">
@@ -4518,6 +4713,7 @@ function renderSections(){
       [song.sections[si+1], song.sections[si]] = [song.sections[si], song.sections[si+1]];
       queueSave(); renderSections();
     };
+    card.querySelector('[data-act="spreadPattern"]').onclick = ()=> openSpreadPatternPicker(si);
     card.querySelector('[data-act="delSec"]').onclick = ()=>{
       if(confirm('Remove this section?')){ song.sections.splice(si,1); queueSave(); renderSections(); }
     };
@@ -4594,6 +4790,29 @@ function ensureLineShape(line, cfg, kalai){
   });
 }
 
+/* "Focus mode" — while actively editing any cell, every OTHER line dims so
+   the one you're working on stands out, restoring full brightness the
+   moment focus leaves that line (not just that one cell, so tabbing between
+   a line's own swara/lyric cells doesn't flicker the dimming on and off). */
+function focusModeEnter(row){
+  const host = document.getElementById('sectionsHost');
+  if(host) host.classList.add('focus-active');
+  document.querySelectorAll('.line-row.line-row-focused').forEach(el=>{
+    if(el !== row) el.classList.remove('line-row-focused');
+  });
+  row.classList.add('line-row-focused');
+}
+function focusModeLeave(row){
+  // Deferred so the element focus is MOVING TO (if any) has already taken
+  // focus by the time we check — otherwise document.activeElement would
+  // still (briefly) report the element that's blurring, not its replacement.
+  requestAnimationFrame(()=>{
+    if(row.contains(document.activeElement)) return; // focus moved within the same line — stay in focus mode
+    row.classList.remove('line-row-focused');
+    const host = document.getElementById('sectionsHost');
+    if(host && !host.querySelector('.line-row-focused')) host.classList.remove('focus-active');
+  });
+}
 function renderLines(host, sec, cfg, kalai){
   host.innerHTML = '';
   const noSahitya = !!sec.noSahitya;
@@ -4680,12 +4899,16 @@ function renderLines(host, sec, cfg, kalai){
         const cellDiv = inp.closest('.beat-cell');
         updateAksharaBadge(cellDiv, r.swara[i], cap);
         if(!noSahitya) updateAlignBadge(cellDiv, r.swara[i], r.lyric[i]);
+        updateRagaScaleFlag(cellDiv, r.swara[i], getRagaScale(getSong()));
         inp.oninput = e=>{
           r.swara[i] = sanitizeSwaraLive(inp);
           updateAksharaBadge(cellDiv, r.swara[i], cap);
           if(!noSahitya) updateAlignBadge(cellDiv, r.swara[i], r.lyric[i]);
+          updateRagaScaleFlag(cellDiv, r.swara[i], getRagaScale(getSong()));
           queueSave(); updatePreview(row, line, noSahitya, cfg, kalai);
         };
+        inp.onfocus = ()=> focusModeEnter(row);
+        inp.onblur = ()=> focusModeLeave(row);
       });
       lyricInputs.forEach((inp,i)=>{
         if(r.lyric[i] && r.lyric[i] !== r.lyric[i].toLowerCase()) r.lyric[i] = r.lyric[i].toLowerCase();
@@ -4696,6 +4919,8 @@ function renderLines(host, sec, cfg, kalai){
           updateAlignBadge(cellDiv, r.swara[i], r.lyric[i]);
           queueSave(); updatePreview(row, line, noSahitya, cfg, kalai);
         };
+        inp.onfocus = ()=> focusModeEnter(row);
+        inp.onblur = ()=> focusModeLeave(row);
       });
       wireCellNavigation(swaraInputs, lyricInputs);
     });
@@ -5298,6 +5523,11 @@ function createNewSong(tala, kalai){
 }
 document.getElementById('newSongBtn').onclick = () => createNewSong();
 document.getElementById('closePreviewBtn').onclick = closePreview;
+document.getElementById('closeSpreadPatternBtn').onclick = closeSpreadPatternPicker;
+document.getElementById('spreadPatternApplyBtn').onclick = applySpreadPattern;
+document.getElementById('spreadPatternOverlay').addEventListener('click', e=>{
+  if(e.target.id === 'spreadPatternOverlay') closeSpreadPatternPicker();
+});
 document.getElementById('previewOverlay').addEventListener('click', e=>{
   if(e.target.id === 'previewOverlay') closePreview();
 });
