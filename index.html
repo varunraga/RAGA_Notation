@@ -39,6 +39,8 @@
     --indigo:#4a4aef;
     --indigo-deep:#2e2ecc;
     --indigo-900:#1d1d94;
+    --brand-blue:#1c2be0;
+    --brand-blue-light:#2f3ff5;
     --line:#ddd9d0;
     --panel:#faf9f5;
     --paper:#ffffff;
@@ -77,6 +79,8 @@
     --indigo:#6f6fff;
     --indigo-deep:#8a8aff;
     --indigo-900:#dcdcff;
+    --brand-blue:#4a5bff;
+    --brand-blue-light:#6577ff;
     --line:#34343f;
     --panel:#202027;
     --paper:#232329;
@@ -123,7 +127,7 @@
   }
   body{
     margin:0;
-    background:var(--surface);
+    background:var(--surface-light);
     background-image:
       radial-gradient(circle at 10% 10%, rgba(74,74,239,0.045), transparent 40%),
       radial-gradient(circle at 90% 30%, rgba(74,74,239,0.035), transparent 45%);
@@ -132,21 +136,28 @@
     height:100vh;
     overflow:hidden; /* the app itself never scrolls at the page level — .sidebar and .main each own their own scroll region below */
   }
-  .app{ display:grid; grid-template-columns:280px 1fr; height:100vh; }
+  .app{ display:grid; grid-template-columns:310px 1fr; height:100vh; }
 
-  /* Tablet: sidebar collapses above content but keeps a bounded, scrollable height
-     instead of the old 100vh (which pushed the whole page down on mobile). */
+  /* Tablet/phone: the dashboard's sidebar (nav) and main content (search +
+     kriti list) become ONE natural, unified scroll — not two independently
+     boxed regions. Scrolling the page moves the nav buttons up and out of
+     the way, exactly like scrolling any normal webpage, so the search box
+     and kriti list are reached by simply continuing to scroll rather than
+     being trapped inside a separately-scrolling, height-capped sidebar box.
+     (The editor view is unaffected — its sidebar is hidden entirely via
+     .view-editor, so there's nothing to unify there.) */
   @media (max-width:900px){
-    .app{ grid-template-columns:1fr; grid-template-rows:auto 1fr; height:100vh; }
-    body{ overflow:hidden; }
-    .sidebar{ position:static; height:auto; max-height:320px; border-right:none; border-bottom:1px solid var(--line); }
-    .main{ padding:24px 20px 60px; max-width:100%; height:auto; overflow-y:auto; }
+    .app{ grid-template-columns:1fr; height:auto; min-height:100vh; }
+    .app.view-dashboard{ display:block; }
+    body{ overflow-y:auto; height:auto; }
+    .sidebar{ position:static; height:auto; max-height:none; border-right:none; border-bottom:1px solid var(--line); }
+    .main{ padding:24px 20px 60px; max-width:100%; height:auto; overflow-y:visible; }
     .hero h1{ font-size:28px; }
   }
 
   /* Phone: tighter paddings, smaller type, single-column fields, buttons stay tappable. */
   @media (max-width:600px){
-    .sidebar{ padding:16px 12px; max-height:220px; gap:10px; }
+    .sidebar{ padding:16px 12px; gap:10px; }
     .newbtn{ padding:12px; font-size:14px; }
     .main{ padding:16px 12px 50px; }
     .hero{ margin-bottom:18px; }
@@ -211,6 +222,11 @@
   #searchBox{ background:var(--search-bg); }
   .search:focus{ outline:2px solid var(--indigo); outline-offset:1px; }
   .search::placeholder{ color:#3a5a78; }
+  .filter-row{ display:flex; gap:6px; margin-top:2px; }
+  .filter-select{
+    flex:1; min-width:0; padding:6px 6px; border-radius:var(--radius-sm); border:1px solid var(--line);
+    background:var(--paper); font-size:11.5px; color:var(--ink); font-family:'Inter',sans-serif;
+  }
   .song-list{ display:flex; flex-direction:column; gap:6px; margin-top:4px; }
   .side-foot{
     margin-top:auto; padding-top:14px; font-size:11px; line-height:1.5; color:var(--ink-soft);
@@ -224,6 +240,56 @@
   .song-item .t{ font-weight:600; font-size:13.5px; color:var(--ink); }
   .song-item .m{ font-size:10.5px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:1px; font-weight:600; }
   .empty-note{ font-size:12.5px; color:var(--ink-soft); padding:8px 4px; line-height:1.5; }
+
+  /* ---------- Dashboard (home) view ---------- */
+  /* .app toggles between showing the nav sidebar + a spacious library browser
+     ("dashboard" — search, filters, and the full song list with room to
+     breathe) OR the sidebar hidden entirely with the notation editor taking
+     the full viewport ("editor"). Splitting these into two distinct views —
+     rather than always showing sidebar+editor side by side — is what fixes
+     the cramped mobile/iPad-landscape navigation: on a narrow or short
+     viewport there's now only ever ONE thing competing for space at a time,
+     with an explicit "← Library" action to move between them, instead of a
+     squeezed 320px-tall sidebar always fighting the editor for room. */
+  .app.view-editor .sidebar{ display:none; }
+  .app.view-editor{ grid-template-columns:1fr; }
+  .dashboard-hero{ margin-bottom:28px; }
+  .dashboard-hero h1{ font-family:'Fraunces',serif; font-size:30px; font-weight:600; color:var(--heading); margin-bottom:6px; }
+  .dashboard-hero p{ font-size:13.5px; color:var(--ink-soft); }
+  .dashboard-search-row{ display:flex; gap:10px; margin-bottom:14px; flex-wrap:wrap; }
+  .dashboard-search-row .search{ flex:2; min-width:220px; padding:11px 14px; font-size:14px; }
+  .dashboard-search-row .filter-select{ flex:1; min-width:130px; padding:10px 10px; font-size:12.5px; }
+  .dashboard-grid{
+    display:grid; grid-template-columns:1fr; gap:10px; margin-top:6px;
+  }
+  .dashboard-grid .song-item{
+    padding:14px 18px; border:1px solid var(--line); border-radius:var(--radius-md); background:var(--panel);
+    flex-direction:row; align-items:center; justify-content:space-between; gap:12px;
+  }
+  .dashboard-grid .song-item:hover{ border-color:var(--indigo-300); box-shadow:0 2px 8px rgba(0,0,0,0.06); }
+  .dashboard-grid .song-item.active{ border-color:var(--brand-blue); box-shadow:0 2px 8px rgba(0,0,0,0.08); }
+  .dashboard-grid .song-item .t{ font-size:15.5px; font-family:'Fraunces',serif; font-weight:600; }
+  .dashboard-grid .song-item .m{ font-size:11px; text-align:right; flex:none; }
+  .dashboard-grid .song-item .m .composer{ margin-top:2px; font-size:10.5px; font-weight:600; color:var(--ink-soft); text-transform:none; letter-spacing:normal; }
+  .dashboard-grid .song-item .col-left{ display:flex; flex-direction:column; gap:3px; min-width:0; flex:1; }
+  .dashboard-grid .song-item .snippet{
+    font-size:11.5px; color:var(--ink-soft); font-style:italic; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .editor-topbar{ display:flex; align-items:center; gap:10px; margin-bottom:14px; }
+  .editor-topbar .back-btn{
+    display:flex; align-items:center; gap:8px; padding:11px 20px; border-radius:var(--radius-md);
+    border:1px solid var(--brand-blue); background:linear-gradient(135deg, var(--indigo), var(--brand-blue));
+    color:var(--paper); font-size:14.5px; font-weight:700;
+    cursor:pointer; font-family:'Inter',sans-serif; box-shadow:0 1px 3px rgba(0,0,0,0.08);
+  }
+  .editor-topbar .back-btn:hover{ filter:brightness(0.94); }
+  .editor-topbar .theme-mini{
+    margin-left:auto; display:flex; align-items:center; gap:8px; padding:11px 20px; border-radius:var(--radius-md);
+    border:1px solid var(--brand-blue); background:linear-gradient(135deg, var(--indigo), var(--brand-blue));
+    color:var(--paper); font-size:14.5px; font-weight:700;
+    cursor:pointer; font-family:'Inter',sans-serif; box-shadow:0 1px 3px rgba(0,0,0,0.08);
+  }
+  .editor-topbar .theme-mini:hover{ filter:brightness(0.94); }
 
   /* ---------- Main ---------- */
   .main{ padding:32px 40px 80px; max-width:1220px; height:100vh; overflow-y:auto; }
@@ -262,15 +328,28 @@
   textarea{ font-family:'Courier Prime',monospace; font-size:13.5px; line-height:1.7; resize:vertical; min-height:70px; }
   .fieldwrap{ margin-bottom:12px; }
 
-  .toolbar{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:22px; }
+  .toolbar{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
+  .toolbar-danger-row{ display:flex; justify-content:flex-end; margin-bottom:22px; }
+  .save-btn-wrap{ position:relative; display:inline-flex; }
+  .save-confirm{
+    position:absolute; left:50%; top:calc(100% + 6px); transform:translateX(-50%) translateY(-4px);
+    display:flex; align-items:center; gap:5px; white-space:nowrap;
+    color:var(--good-soft); font-size:12px; font-weight:700;
+    opacity:0; pointer-events:none; transition:opacity .2s ease, transform .2s ease;
+    background:var(--panel); padding:3px 9px; border-radius:999px; box-shadow:0 2px 6px rgba(0,0,0,0.08); z-index:2;
+  }
+  .save-confirm.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+  .sync-icon-chip.syncing{ animation:syncPulse 1.1s ease-in-out infinite; }
+  @keyframes syncPulse{ 0%,100%{ opacity:1; } 50%{ opacity:.4; } }
+  @media (prefers-reduced-motion: reduce){ .sync-icon-chip.syncing{ animation:none; } .save-confirm{ transition:opacity .01s; } }
   .toolbar-divider{ width:1px; align-self:stretch; min-height:20px; background:var(--line); margin:0 4px; }
   .btn{
     border:1px solid var(--line); background:var(--paper); color:var(--ink);
-    padding:9px 14px; border-radius:var(--radius-sm); font-size:13px; font-weight:600; cursor:pointer;
-    display:flex; align-items:center; justify-content:center; gap:7px; transition:filter .15s;
+    padding:9px 13px; border-radius:var(--radius-sm); font-size:12.5px; font-weight:600; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; gap:6px; transition:filter .15s;
   }
   .btn:hover{ filter:brightness(0.94); }
-  .btn.primary{ background:var(--indigo); color:var(--paper); border-color:var(--indigo); }
+  .btn.primary{ background:linear-gradient(135deg, var(--indigo), var(--brand-blue)); color:var(--paper); border-color:var(--brand-blue); }
   .btn.danger{ color:var(--warn); }
 
   /* Main toolbar: every button — regardless of primary/danger modifier —
@@ -282,11 +361,15 @@
      here anymore. */
   .toolbar .btn:not(.danger),
   .toolbar .btn.primary{
-    background:var(--indigo); color:var(--paper); border-color:var(--indigo);
+    background:linear-gradient(135deg, var(--indigo), var(--brand-blue));
+    color:var(--paper); border-color:var(--brand-blue);
     padding:9px 14px; font-size:13px; border-radius:var(--radius-sm); height:36px;
   }
   .toolbar .btn.danger{ height:36px; }
   .btn.small{ padding:6px 10px; font-size:12px; }
+  .btn.icon-only{ padding:6px; display:inline-flex; align-items:center; justify-content:center; }
+  .btn:disabled{ opacity:.35; cursor:not-allowed; }
+  .btn:disabled:hover{ filter:none; }
   .icon-btn{ width:34px; height:34px; padding:0; flex:none; }
   .icon-chip{
     display:inline-flex; align-items:center; justify-content:center;
@@ -294,17 +377,35 @@
   }
 
   .section-block{ border-top:1px solid var(--line); padding-top:16px; margin-top:16px; }
-  .section-head{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; }
+  .section-head{
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    position:sticky; top:44px; z-index:3;
+    background:var(--paper);
+    margin:-24px -26px 14px; padding:16px 26px 12px;
+    border-radius:var(--radius-md) var(--radius-md) 0 0;
+    box-shadow:0 2px 4px rgba(var(--ink-rgb),0.03);
+  }
+  .section-jumpnav{
+    position:sticky; top:0; z-index:4; display:flex; flex-wrap:wrap; gap:6px;
+    background:var(--surface-light); border:1px solid var(--line); border-radius:var(--radius-md);
+    padding:9px 12px; margin-bottom:18px;
+  }
+  .section-jumpnav .jump-label{ font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:1px; color:var(--ink-soft); align-self:center; margin-right:2px; }
+  .section-jumpnav button{
+    padding:5px 11px; border-radius:999px; border:1px solid var(--line); background:var(--paper);
+    color:var(--ink); font-size:12px; font-weight:600; cursor:pointer; font-family:'Inter',sans-serif;
+  }
+  .section-jumpnav button:hover{ background:var(--surface-deep); }
   .section-head input{ font-family:'Fraunces',serif; font-size:19px; font-weight:600; color:var(--heading); border:none; background:transparent; padding:2px 4px; }
   .section-head input:focus{ outline:1px solid var(--indigo-300); border-radius:var(--radius-sm); }
 
   .line-row{ margin-bottom:16px; padding:12px; background:var(--panel); border-radius:var(--radius-md); border:1px solid var(--line); }
   .line-top{ display:flex; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
-  .line-top input.label{ width:56px; font-weight:700; font-family:'Courier Prime',monospace; text-align:center; padding:6px 4px; background:var(--paper); border:1px solid var(--line); color:var(--ink); border-radius:var(--radius-sm); }
+  .line-top input.label{ width:56px; font-size:13px; font-weight:700; font-family:'Courier Prime',monospace; text-align:center; padding:6px 4px; background:var(--paper); border:1px solid var(--line); color:var(--ink); border-radius:var(--radius-sm); }
   .line-top .spacer{ flex:1; }
 
   .grid-wrap{ overflow-x:auto; }
-  .beat-grid{ display:grid; gap:4px; align-items:stretch; min-width:max-content; }
+  .beat-grid{ display:grid; gap:6px; align-items:stretch; min-width:max-content; }
   .beat-cell{ display:flex; flex-direction:column; gap:4px; min-width:64px; }
   .beat-cell input{
     font-family:'Courier Prime',monospace; font-size:14px; text-align:left;
@@ -317,14 +418,94 @@
   .beat-cell input.swara:focus{ background:var(--indigo-50); border-color:var(--indigo-300); }
   .beat-cell input.lyric:focus{ background:var(--indigo-100); border-color:var(--indigo-300); }
   .num{ font-variant-numeric:tabular-nums; }
-  .aksh-badge{ font-size:9.5px; text-align:center; height:12px; line-height:12px; font-weight:700; letter-spacing:.3px; font-variant-numeric:tabular-nums; }
+  .aksh-badge{ font-size:9.5px; text-align:center; height:12px; line-height:12px; font-weight:700; letter-spacing:.3px; font-variant-numeric:tabular-nums; transition:color .18s ease; }
   .aksh-badge.ok{ color:var(--good-soft); }
   .aksh-badge.bad{ color:var(--warn-soft); }
-  .align-badge{ font-size:8.5px; text-align:left; min-height:11px; line-height:11px; font-weight:700; color:var(--warn-soft); letter-spacing:.2px; font-variant-numeric:tabular-nums; }
+  .align-badge{ font-size:8.5px; text-align:left; min-height:11px; line-height:11px; font-weight:700; color:var(--warn-soft); letter-spacing:.2px; font-variant-numeric:tabular-nums; transition:color .18s ease; }
+  @keyframes badgePop{ 0%{ opacity:.35; transform:scale(.82); } 100%{ opacity:1; transform:scale(1); } }
+  .badge-pop{ animation:badgePop .18s ease; }
+  @media (prefers-reduced-motion: reduce){ .badge-pop{ animation:none; } }
   .sep-cell{ display:flex; align-items:center; justify-content:center; color:var(--indigo-300); font-size:20px; font-weight:700; padding:0 2px; }
   .edge-mark{ display:flex; align-items:center; justify-content:center; color:var(--indigo); font-size:20px; font-weight:700; padding:0 4px; }
 
   .hint{ font-size:11.5px; color:var(--ink-soft); margin-top:10px; line-height:1.6; }
+  .rules-panel{ margin-top:18px; }
+  .rules-toggle{
+    display:flex; align-items:center; gap:8px; width:100%; text-align:left;
+    background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-sm);
+    padding:9px 12px; font-size:12.5px; font-weight:600; color:var(--ink); cursor:pointer;
+    font-family:'Inter',sans-serif;
+  }
+  .rules-toggle:hover{ background:var(--surface-deep); }
+  .rules-toggle-badge{
+    display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px;
+    border-radius:50%; background:var(--indigo); color:#fff; font-size:11px; font-weight:700; flex:none;
+  }
+  .rules-chevron{ margin-left:auto; transition:transform .15s ease; flex:none; }
+  .rules-chevron.open{ transform:rotate(180deg); }
+  .rules-body{ margin-top:0; padding:12px; border:1px solid var(--line); border-top:none; border-radius:0 0 var(--radius-sm) var(--radius-sm); background:var(--panel); }
+
+  /* ---------- Rules page (dashboard) ---------- */
+  .rules-page{ max-width:820px; }
+  .rules-page-head > .back-btn{
+    display:flex; align-items:center; gap:8px; padding:11px 20px; border-radius:var(--radius-md);
+    border:1px solid var(--brand-blue); background:linear-gradient(135deg, var(--indigo), var(--brand-blue));
+    color:var(--paper); font-size:14.5px; font-weight:700; cursor:pointer; font-family:'Inter',sans-serif;
+    box-shadow:0 1px 3px rgba(0,0,0,0.08);
+  }
+  .rules-page-head > .back-btn:hover{ filter:brightness(0.94); }
+  .rules-page h1{ font-family:'Fraunces',serif; font-size:28px; font-weight:600; color:var(--heading); margin-bottom:6px; }
+  .rules-page > .intro{ font-size:13.5px; color:var(--ink-soft); margin-bottom:26px; line-height:1.6; }
+  .rule-section{ background:var(--paper); border:1px solid var(--line); border-radius:var(--radius-md); padding:22px 26px; margin-bottom:18px; }
+  .rule-section h2{
+    font-family:'Fraunces',serif; font-size:18px; font-weight:600; color:var(--heading);
+    display:flex; align-items:center; gap:10px; margin:0 0 12px;
+  }
+  .rule-section .rule-num{
+    display:inline-flex; align-items:center; justify-content:center; width:24px; height:24px;
+    border-radius:50%; background:var(--indigo-50); color:var(--indigo-deep); font-size:12px; font-weight:700; flex:none;
+  }
+  .rule-section p{ font-size:13.5px; line-height:1.65; color:var(--ink); margin:0 0 10px; }
+  .rule-section p:last-of-type{ margin-bottom:0; }
+  .rule-section code{ background:var(--indigo-50); color:var(--indigo-deep); padding:1px 5px; border-radius:4px; font-size:12.5px; }
+  .rule-example{
+    display:flex; align-items:flex-start; gap:18px; flex-wrap:wrap; margin:14px 0;
+    padding:14px 16px; background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-sm);
+  }
+  .rule-example .ex-block{ display:flex; flex-direction:column; gap:8px; }
+  .rule-example .ex-label{ font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.6px; color:var(--ink-soft); }
+  .rule-example .ex-cells{ display:flex; gap:4px; }
+  .ex-cell{
+    display:flex; flex-direction:column; gap:3px; min-width:56px; border:1px solid var(--line);
+    border-radius:var(--radius-sm); padding:5px 6px; background:var(--paper);
+  }
+  .ex-cell .ex-swara{ background:var(--indigo-25,var(--indigo-50)); border-radius:3px; padding:3px 5px; font-family:'Courier Prime',monospace; font-weight:700; font-size:12.5px; text-align:center; color:var(--ink); }
+  .ex-cell .ex-lyric{ background:var(--paper); border:1px solid var(--line); border-radius:3px; padding:3px 5px; font-family:'Courier Prime',monospace; font-weight:700; font-size:11px; text-align:center; color:var(--ink-soft); }
+  .ex-cell .ex-badge{ font-size:9px; text-align:center; font-weight:700; letter-spacing:.2px; }
+  .ex-cell .ex-badge.ok{ color:var(--good-soft); }
+  .ex-cell .ex-badge.bad{ color:var(--warn-soft); }
+  .rule-example .ex-note{ font-size:12px; color:var(--ink-soft); align-self:center; line-height:1.5; max-width:280px; }
+  .rule-table{ width:100%; border-collapse:collapse; margin:14px 0; font-size:13px; }
+  .rule-table th, .rule-table td{ text-align:left; padding:7px 10px; border-bottom:1px solid var(--line); }
+  .rule-table th{ font-size:10.5px; text-transform:uppercase; letter-spacing:.5px; color:var(--ink-soft); font-weight:700; }
+  .rule-table td b{ color:var(--ink); }
+  .rules-print-btn{
+    display:inline-flex; align-items:center; gap:8px; padding:11px 20px; border-radius:var(--radius-md);
+    border:1px solid var(--brand-blue); background:linear-gradient(135deg, var(--indigo), var(--brand-blue));
+    color:var(--paper); font-size:14.5px; font-weight:700;
+    cursor:pointer; font-family:'Inter',sans-serif; box-shadow:0 1px 3px rgba(0,0,0,0.08);
+    margin-left:auto;
+  }
+  .rules-print-btn:hover{ filter:brightness(0.94); }
+  .rules-page-head{ display:flex; align-items:center; gap:10px; margin-bottom:20px; flex-wrap:wrap; }
+  @media print{
+    body *{ visibility:hidden; }
+    .rules-page, .rules-page *{ visibility:visible; }
+    .rules-page{ position:absolute; left:0; top:0; width:100%; max-width:100%; }
+    .rules-page-head > .back-btn, .rules-print-btn{ display:none !important; }
+    .rule-section{ break-inside:avoid; box-shadow:none; }
+    * { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  }
   .hint code{ background:var(--surface-deep); padding:1px 5px; border-radius:var(--radius-sm); font-family:'Courier Prime',monospace; }
 
   .preview{
@@ -464,7 +645,7 @@
     <div class="nav-divider"></div>
     <div class="nav-group">
       <button class="nav-item" id="syncBtn">
-        <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15h8a3 3 0 000-6 4.5 4.5 0 00-8.6-1.5A3.5 3.5 0 006 15z"/></svg>
+        <svg class="sync-icon-chip" id="syncIcon" width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15h8a3 3 0 000-6 4.5 4.5 0 00-8.6-1.5A3.5 3.5 0 006 15z"/></svg>
         <span>Connect to Drive</span>
       </button>
       <div class="sync-status" id="syncStatus"></div>
@@ -475,9 +656,12 @@
       </button>
     </div>
     <div class="nav-divider"></div>
+    <button class="nav-item" id="rulesNavBtn">
+      <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="8"/><path d="M10 13.5v.01M10 6.2a2.1 2.1 0 011.9 3 2.5 2.5 0 01-1.9 1.6v1"/></svg>
+      <span>Notation Rules</span>
+    </button>
+    <div class="nav-divider"></div>
     <input type="file" id="importFileInput" accept=".pdf,.docx" style="display:none;">
-    <input class="search" id="searchBox" type="text" placeholder="Search by title or raga…" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off">
-    <div class="song-list" id="songList"></div>
     <div class="side-foot">Your kritis are stored in this browser, with Google Drive as optional backup.</div>
   </aside>
 
@@ -904,6 +1088,11 @@ async function readImportFile(file){
 
 let library = [];
 let currentId = null;
+let currentView = 'dashboard'; // 'dashboard' (spacious library browser) or 'editor' (full-width notation grid)
+                                // for one song. Kept as two distinct views — rather than sidebar+editor
+                                // always shown side by side — so a narrow/short viewport (mobile, iPad
+                                // landscape) only ever shows ONE thing at a time, with an explicit
+                                // "← Library" action between them.
 
 /* ===================== Google Drive sync =====================
    Client-side OAuth via Google Identity Services (GIS), using the drive.file scope
@@ -1073,8 +1262,8 @@ async function flushPendingDriveDeletes(){
 function updateSyncButton(){
   const b = document.getElementById('syncBtn');
   if(!b) return;
-  const cloudIcon = '<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15h8a3 3 0 000-6 4.5 4.5 0 00-8.6-1.5A3.5 3.5 0 006 15z"/></svg>';
-  const syncIcon = '<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10a6 6 0 0110-4.5M16 10a6 6 0 01-10 4.5M14 3v3h-3M6 17v-3h3"/></svg>';
+  const cloudIcon = '<svg class="sync-icon-chip" id="syncIcon" width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15h8a3 3 0 000-6 4.5 4.5 0 00-8.6-1.5A3.5 3.5 0 006 15z"/></svg>';
+  const syncIcon = '<svg class="sync-icon-chip" id="syncIcon" width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10a6 6 0 0110-4.5M16 10a6 6 0 01-10 4.5M14 3v3h-3M6 17v-3h3"/></svg>';
   b.innerHTML = (driveAccessToken ? syncIcon + ' <span>Sync</span>' : cloudIcon + ' <span>Connect to Drive</span>')
     + '<span class="nav-badge num" id="syncPendingBadge" style="display:none;"></span>';
   b.title = driveAccessToken ? 'Click to sync now' : 'Click to connect to Google Drive';
@@ -1492,6 +1681,7 @@ async function syncLibraryToDrive(auto){
   }
   if(driveSyncInFlight) return;
   driveSyncInFlight = true;
+  setSyncIconPulsing(true);
   try{
     if(!driveFolderId) driveFolderId = await driveFindOrCreateFolder(DRIVE_FOLDER_NAME);
     if(!driveLibraryFileId){
@@ -1546,6 +1736,7 @@ async function syncLibraryToDrive(auto){
     }
   } finally {
     driveSyncInFlight = false;
+    setSyncIconPulsing(false);
   }
 }
 
@@ -1650,16 +1841,18 @@ function blankLine(cfg, kalai){
   return { label: '', rows: Array.from({length:n}, () => blankRow(cfg.rowCells.length)) };
 }
 function blankSection(name, cfg, kalai, isFirst){
-  return { name, sahitya: '', lines: [ blankLine(cfg, kalai) ], showPallaviRef: !isFirst, pallaviOverride: '', noSahitya: false };
+  return { name, sahitya: '', lines: [ blankLine(cfg, kalai), blankLine(cfg, kalai) ], showPallaviRef: !isFirst, pallaviOverride: '', noSahitya: false };
 }
-function newSong(){
-  const cfg = TALAS.adi;
+function newSong(tala, kalai){
+  tala = tala && TALAS[tala] ? tala : 'adi';
+  kalai = (kalai === 2 && TALAS[tala].kalaiAware) ? 2 : 1;
+  const cfg = TALAS[tala];
   return {
     id: uid(),
     title: 'Untitled Kriti',
     raga: '', melakarta: '', arohanam: '', avarohanam: '',
-    tala: 'adi', kalai: 1, composer: '',
-    sections: [ blankSection('Pallavi', cfg, 1, true), blankSection('Anupallavi', cfg, 1, false), blankSection('Charanam', cfg, 1, false) ]
+    tala, kalai, composer: '',
+    sections: [ blankSection('Pallavi', cfg, kalai, true), blankSection('Anupallavi', cfg, kalai, false), blankSection('Charanam', cfg, kalai, false) ]
   };
 }
 
@@ -1864,6 +2057,12 @@ function applyTheme(theme){
   const label = document.getElementById('themeToggleLabel');
   if(icon) icon.innerHTML = theme === 'dark' ? SUN_ICON_PATH : MOON_ICON_PATH;
   if(label) label.textContent = theme === 'dark' ? 'Light mode' : 'Dark mode';
+  // Editor view's own mini toggle (sidebar is hidden there, so it needs its
+  // own icon/label kept in sync the same way).
+  const miniIcon = document.getElementById('themeMiniIcon');
+  const miniLabel = document.getElementById('themeMiniLabel');
+  if(miniIcon) miniIcon.innerHTML = theme === 'dark' ? SUN_ICON_PATH : MOON_ICON_PATH;
+  if(miniLabel) miniLabel.textContent = theme === 'dark' ? 'Light mode' : 'Dark mode';
 }
 
 function toggleTheme(){
@@ -1877,12 +2076,90 @@ function showToast(msg){
   clearTimeout(t._hideT);
   t._hideT = setTimeout(()=>t.classList.remove('show'), 1400);
 }
+/* Small inline "Saved ✓" that fades in beside the Save button and fades back
+   out shortly after — used instead of the toast for this specific action
+   since it happens constantly and a toast popping up every time is more
+   disruptive than a quiet inline confirmation. */
+function showSaveConfirm(){
+  const el = document.getElementById('saveConfirm');
+  if(!el) return; // not in the editor view right now
+  el.classList.add('show');
+  clearTimeout(el._hideT);
+  el._hideT = setTimeout(()=> el.classList.remove('show'), 1500);
+}
+function setSyncIconPulsing(on){
+  const icon = document.getElementById('syncIcon');
+  if(icon) icon.classList.toggle('syncing', on);
+}
+
+function populateFilterOptions(){
+  const talaSel = document.getElementById('filterTala');
+  const ragaSel = document.getElementById('filterRaga');
+  const composerSel = document.getElementById('filterComposer');
+  if(!talaSel || !ragaSel || !composerSel) return; // dashboard isn't the current view — nothing to populate
+  const prevTala = talaSel.value, prevRaga = ragaSel.value, prevComposer = composerSel.value;
+
+  const talasInUse = [...new Set(library.map(s=>s.tala).filter(Boolean))];
+  talaSel.innerHTML = '<option value="">All talas</option>' +
+    talasInUse.map(t=>`<option value="${escapeHtml(t)}">${escapeHtml(TALAS[t]?.label || t)}</option>`).join('');
+  talaSel.value = talasInUse.includes(prevTala) ? prevTala : '';
+
+  const ragasInUse = [...new Set(library.map(s=>(s.raga||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  ragaSel.innerHTML = '<option value="">All ragas</option>' +
+    ragasInUse.map(r=>`<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('');
+  ragaSel.value = ragasInUse.includes(prevRaga) ? prevRaga : '';
+
+  const composersInUse = [...new Set(library.map(s=>(s.composer||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  composerSel.innerHTML = '<option value="">All composers</option>' +
+    composersInUse.map(c=>`<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+  composerSel.value = composersInUse.includes(prevComposer) ? prevComposer : '';
+}
+/* A short preview snippet for the dashboard's kriti cards — the Pallavi's
+   plain sahitya first line if there is one, else its first line's per-cell
+   sahitya joined, else nothing (card just shows title/raga/tala as before). */
+function songPreviewSnippet(song){
+  const pallavi = song.sections && song.sections[0];
+  if(!pallavi) return '';
+  const plainFirstLine = (pallavi.sahitya || '').split('\n').map(l=>l.trim()).filter(Boolean)[0];
+  if(plainFirstLine) return plainFirstLine;
+  const line = pallavi.lines && pallavi.lines[0];
+  if(line && line.rows && line.rows[0]){
+    const cellLyrics = (line.rows[0].lyric || []).filter(Boolean).join(' ').trim();
+    if(cellLyrics) return cellLyrics;
+  }
+  return '';
+}
+/* A fixed, deliberately distinct color per tala family — used as a left
+   border accent on dashboard kriti cards so the list can be visually
+   scanned by tala at a glance, rather than reading every line. Fixed
+   assignments (not a hash) since there are only ever a handful of tala
+   keys, so each can get a genuinely distinguishable hue rather than
+   whatever a hash happens to land on. */
+const TALA_ACCENT_COLORS = {
+  adi: '#4a6cf7',
+  adi_tishra: '#0ea5a5',
+  rupakam: '#e08a2c',
+  khanda_chapu: '#d1548a',
+  misra_chapu: '#4caf6e',
+};
+function talaAccentColor(tala){ return TALA_ACCENT_COLORS[tala] || 'var(--line)'; }
 
 function renderSongList(){
   const list = document.getElementById('songList');
+  if(!list) return; // dashboard isn't the current view — nothing to render into
   const q = (document.getElementById('searchBox').value || '').toLowerCase();
+  const talaFilter = document.getElementById('filterTala').value;
+  const ragaFilter = document.getElementById('filterRaga').value;
+  const composerFilter = document.getElementById('filterComposer').value;
+  populateFilterOptions();
   list.innerHTML = '';
-  const filtered = library.filter(s => (s.title+' '+s.raga).toLowerCase().includes(q));
+  const filtered = library.filter(s=>{
+    if((s.title+' '+s.raga).toLowerCase().indexOf(q) === -1) return false;
+    if(talaFilter && s.tala !== talaFilter) return false;
+    if(ragaFilter && (s.raga||'').trim() !== ragaFilter) return false;
+    if(composerFilter && (s.composer||'').trim() !== composerFilter) return false;
+    return true;
+  });
   if(!library.length){
     list.innerHTML = '<div class="empty-note">No kritis yet. Click <b>+ New Kriti</b> to start your library — everything you add stays saved here.</div>';
     return;
@@ -1894,8 +2171,10 @@ function renderSongList(){
   filtered.forEach(s=>{
     const el = document.createElement('div');
     el.className = 'song-item' + (s.id===currentId ? ' active' : '');
-    el.innerHTML = `<div class="t">${escapeHtml(s.title||'Untitled')}</div><div class="m">${escapeHtml(s.raga||'—')} · ${TALAS[s.tala]?.label||s.tala}</div>`;
-    el.onclick = ()=>{ currentId = s.id; renderAll(); };
+    el.style.borderLeft = `4px solid ${talaAccentColor(s.tala)}`;
+    const snippet = songPreviewSnippet(s);
+    el.innerHTML = `<div class="col-left"><div class="t">${escapeHtml(s.title||'Untitled')}</div>${snippet ? `<div class="snippet">${escapeHtml(snippet)}</div>` : ''}</div><div class="m"><div>${escapeHtml(s.raga||'—')} · ${TALAS[s.tala]?.label||s.tala}</div>${s.composer ? `<div class="composer">${escapeHtml(s.composer)}</div>` : ''}</div>`;
+    el.onclick = ()=>{ currentId = s.id; currentView = 'editor'; renderAll(); };
     list.appendChild(el);
   });
 }
@@ -2869,10 +3148,15 @@ function splitHalfAvartanamIntoCells(tokens, cellCaps){
       acc += t.weight;
       idx++;
     }
+    const cellMarkup = generateImportCellMarkup(cellTokens);
     if(Math.abs(acc - cap) > 1e-9){
-      warnings.push(`Cell ${cellIdx+1}: expected ${cap} aksharas, got ${acc}`);
+      // Include the cell's own content so a reviewer can spot it immediately
+      // in the imported grid, rather than hunting through the whole document
+      // for which of possibly many similar-looking cells this refers to.
+      const contentNote = cellMarkup ? ` — cell reads "${cellMarkup}"` : ' — cell is empty';
+      warnings.push(`Cell ${cellIdx+1}: expected ${cap} aksharas, got ${acc}${contentNote}`);
     }
-    cells.push({ swara: generateImportCellMarkup(cellTokens), weight: acc, cap, tokens: cellTokens });
+    cells.push({ swara: cellMarkup, weight: acc, cap, tokens: cellTokens });
   });
   return { cells, warnings, leftoverTokens: tokens.slice(idx) };
 }
@@ -3560,14 +3844,29 @@ function assembleFromDocxTable(song, getCfg, table, warnings, ensureSection){
   flushPending();
 }
 
+/* Applies new badge content with a quick, synchronous "pop" — no delay to
+   when the correct text/color actually shows, just a subtle scale+fade cue
+   layered on top so rapid typing doesn't make the ✓/⚠ badges feel like
+   they're snapping in and out. The color itself also transitions smoothly
+   via the plain CSS `transition` on .aksh-badge/.align-badge. */
+function applyBadge(badge, text, className){
+  const changed = badge.textContent !== text || badge.className !== className;
+  badge.textContent = text;
+  badge.className = className;
+  if(changed){
+    badge.classList.remove('badge-pop');
+    void badge.offsetWidth; // force reflow so the animation restarts even if it's already mid-pulse
+    badge.classList.add('badge-pop');
+  }
+}
 function updateAksharaBadge(cellDiv, raw, capacity){
   const badge = cellDiv.querySelector('.aksh-badge');
   if(!badge) return;
-  if(!raw){ badge.textContent = ''; badge.className = 'aksh-badge'; return; }
+  if(!raw){ applyBadge(badge, '', 'aksh-badge'); return; }
   const { total } = computeCellAkshara(raw);
   const ok = Math.abs(total - capacity) < 1e-9;
-  badge.textContent = ok ? `${formatAksh(total)} \u2713` : `${formatAksh(total)}/${capacity} \u26A0`;
-  badge.className = 'aksh-badge ' + (ok ? 'ok' : 'bad');
+  const text = ok ? `${formatAksh(total)} \u2713` : `${formatAksh(total)}/${capacity} \u26A0`;
+  applyBadge(badge, text, 'aksh-badge ' + (ok ? 'ok' : 'bad'));
 }
 /* parse inline underline markup: **text** -> double underline (3rd speed),
    *text* -> single underline (2nd speed). Returns escaped+styled HTML. */
@@ -3792,36 +4091,237 @@ function buildAlignedColumns(rawSwara, rawLyric){
 function updateAlignBadge(cellDiv, rawSwara, rawLyric){
   const badge = cellDiv.querySelector('.align-badge');
   if(!badge) return;
-  if(!rawSwara && !rawLyric){ badge.textContent = ''; badge.className = 'align-badge'; return; }
+  if(!rawSwara && !rawLyric){ applyBadge(badge, '', 'align-badge'); return; }
   const { tokenCount, syllableCount, mismatch } = buildAlignedColumns(rawSwara, rawLyric);
-  if(!rawLyric){ badge.textContent = ''; badge.className = 'align-badge'; return; }
-  badge.textContent = mismatch ? `${syllableCount}/${tokenCount} syl \u26A0` : '';
-  badge.className = 'align-badge' + (mismatch ? ' bad' : '');
+  if(!rawLyric){ applyBadge(badge, '', 'align-badge'); return; }
+  const text = mismatch ? `${syllableCount}/${tokenCount} syl \u26A0` : '';
+  applyBadge(badge, text, 'align-badge' + (mismatch ? ' bad' : ''));
 }
 
 function getSong(){ return library.find(s=>s.id===currentId); }
+
+let dashboardSubView = 'list'; // 'list' (kriti browser) or 'rules' (notation rules reference) —
+                                // which content shows in the dashboard's main area.
+
+function goToDashboard(){
+  currentView = 'dashboard';
+  dashboardSubView = 'list';
+  renderAll();
+}
+function showKritiList(){
+  dashboardSubView = 'list';
+  renderAll();
+}
+function showRulesPage(){
+  dashboardSubView = 'rules';
+  renderAll();
+}
+
+/* Builds the dashboard shell fresh only when the sub-view actually changes
+   (tracked via which root id is present) — repeated renderAll() calls while
+   already showing the same sub-view (e.g. a background Drive sync finishing
+   while you're mid-search) just refresh the list contents via
+   renderSongList(), so a search you're mid-typing never gets reset out from
+   under you. */
+function renderDashboard(){
+  const main = document.getElementById('main');
+  const app = document.querySelector('.app');
+  app.classList.remove('view-editor');
+  app.classList.add('view-dashboard');
+  const expectedRootId = dashboardSubView === 'rules' ? 'rulesPageRoot' : 'dashboardRoot';
+  if(!document.getElementById(expectedRootId)){
+    if(dashboardSubView === 'rules'){
+      main.innerHTML = buildRulesPageHTML();
+      document.getElementById('rulesBackBtn').onclick = showKritiList;
+      document.getElementById('rulesPrintBtn').onclick = () => window.print();
+      return;
+    }
+    main.innerHTML = `
+      <div id="dashboardRoot">
+        <img class="banner" src="${BANNER}" alt="Kriti Notation Studio">
+        <div class="dashboard-hero">
+          <h1>Your Kritis</h1>
+          <p>Pick a kriti to open it, or start a new one from the left.</p>
+        </div>
+        <div class="dashboard-search-row">
+          <input class="search" id="searchBox" type="text" placeholder="Search by title or raga…" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off">
+          <select class="filter-select" id="filterTala"><option value="">All talas</option></select>
+          <select class="filter-select" id="filterRaga"><option value="">All ragas</option></select>
+          <select class="filter-select" id="filterComposer"><option value="">All composers</option></select>
+        </div>
+        <div class="dashboard-grid song-list" id="songList"></div>
+      </div>`;
+    document.getElementById('searchBox').oninput = renderSongList;
+    document.getElementById('filterTala').onchange = renderSongList;
+    document.getElementById('filterRaga').onchange = renderSongList;
+    document.getElementById('filterComposer').onchange = renderSongList;
+  }
+  if(dashboardSubView === 'list') renderSongList();
+}
+
+function buildRulesPageHTML(){
+  return `
+  <div id="rulesPageRoot" class="rules-page">
+    <div class="rules-page-head">
+      <button class="back-btn" id="rulesBackBtn"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15l-5-5 5-5"/></svg> Kriti List</button>
+      <button class="rules-print-btn" id="rulesPrintBtn"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8V3h8v5M4 8h12v6H4V8zM6 12h8v5H6v-5z"/></svg> Download as PDF</button>
+    </div>
+    <h1>Notation Rules</h1>
+    <p class="intro">Everything the grid expects when you type — how spacing actually transcribes to Word, octave/speed shortcuts, fillers, sahitya alignment, tala cell shapes, and the section-level options. Each rule includes a small worked example.</p>
+
+    <div class="rule-section">
+      <h2><span class="rule-num">1</span>Swara entry &amp; spacing — what actually happens when you export</h2>
+      <p><b>What to type:</b> just the swara letters for each note, in order — <code>S R G M</code>. You do not have to type a space between them for the notes to count as separate — the app already treats each letter as its own note by default.</p>
+      <p><b>If you type a single space uniformly between every letter</b> — <code>S R G M</code> — that produces the exact same result as typing them with no spaces at all — <code>SRGM</code>: 4 separate notes, evenly spaced, each pairing with its own sahitya syllable.</p>
+      <p><b>But a space only "counts" where you actually put one — and where you don't, letters stick together into one group.</b> This is the one place spacing genuinely changes the outcome: if you type <code>SR G</code> (no space between S and R, but a space before G), "SR" becomes <em>one</em> group and "G" becomes a separate group — just 2 groups total, not 3. And this matters beyond just how it looks: the sahitya alignment checker pairs syllables against these groups, not against individual letters — so <code>SR G</code> expects exactly 2 syllables (e.g. "ja la"), not 3. Type a 3rd syllable expecting it to match the "G" and you'll get a mismatch warning, even though there are 3 letters.</p>
+      <p>One thing that does <em>not</em> change with grouping: the akshara-weight badge. It always counts every individual letter at full weight regardless of spacing — "SR G" still weighs 2+2+2=6, the same as "S R G" or "SRG". Grouping only affects how many sahitya syllables the app expects, never the akshara count.</p>
+      <p><b>If you type two or more spaces</b> in a row between two notes, that's different — the app treats every space beyond the first as a deliberate request for a wider gap, and that extra gap really does show up as visible extra white space, both on screen and in the exported Word file. So use 2+ spaces only when you actually want a bigger-than-normal gap at that one spot.</p>
+      <div class="rule-example">
+        <div class="ex-block">
+          <div class="ex-label">One space (normal)</div>
+          <div class="ex-cells"><div class="ex-cell"><div class="ex-swara">S R</div><div class="ex-badge ok">4 ✓</div><div class="ex-lyric">ja la</div></div></div>
+        </div>
+        <div class="ex-block">
+          <div class="ex-label">Three spaces typed</div>
+          <div class="ex-cells"><div class="ex-cell"><div class="ex-swara">S&nbsp;&nbsp;&nbsp;R</div><div class="ex-badge ok">4 ✓</div><div class="ex-lyric">ja&nbsp;&nbsp;&nbsp;la</div></div></div>
+        </div>
+        <div class="ex-note">Same two notes, same akshara count either way — but the second cell (typed as <code>S&nbsp;&nbsp;&nbsp;R</code>) actually prints with a visibly wider gap between "S" and "R" in Word, because 2 of those 3 typed spaces count as a deliberate wide-gap request.</div>
+      </div>
+
+      <div class="rule-example">
+        <div class="ex-block">
+          <div class="ex-label">Typed as <code>SR G</code> — 2 syllables</div>
+          <div class="ex-cells"><div class="ex-cell"><div class="ex-swara">SR G</div><div class="ex-badge ok">6 ✓</div><div class="ex-lyric">ja la</div></div></div>
+        </div>
+        <div class="ex-block">
+          <div class="ex-label">Same cell, but 3 syllables typed</div>
+          <div class="ex-cells"><div class="ex-cell"><div class="ex-swara">SR G</div><div class="ex-badge ok">6 ✓</div><div class="ex-lyric">ja la ra</div><div class="ex-badge bad">3/2 syl ⚠</div></div></div>
+        </div>
+        <div class="ex-note">"SR" (no space between them) sticks together as one group, "G" is its own separate group — 2 groups in total, even though there are 3 letters. The app expects exactly 2 syllables here, not 3, so "ja la" lines up cleanly while "ja la ra" gets flagged. The akshara weight (6) doesn't change either way — grouping only affects the syllable count the app expects.</div>
+      </div>
+
+      <p><b>How much each thing "weighs"</b> — this is what the akshara badge under each cell is actually counting:</p>
+      <table class="rule-table">
+        <tr><th>You type</th><th>Counts as</th><th>Example</th></tr>
+        <tr><td>A plain swara letter (<code>S R G M</code>…)</td><td><b>2</b> per letter</td><td><code>SR</code> = 4</td></tr>
+        <tr><td>Comma <code>,</code></td><td><b>1</b></td><td><code>S,</code> = 3</td></tr>
+        <tr><td>Semicolon <code>;</code></td><td><b>2</b> (same as a full letter)</td><td><code>S;</code> = 4</td></tr>
+        <tr><td>A letter inside <code>*single*</code> underline</td><td><b>1</b> per letter</td><td><code>*SR*</code> = 2</td></tr>
+        <tr><td>A letter inside <code>**double**</code> underline</td><td><b>0.5</b> per letter</td><td><code>**SR**</code> = 1</td></tr>
+      </table>
+
+      <p><b>How much space actually prints between things</b> — this happens automatically; you never set it directly, but it helps to know what to expect:</p>
+      <table class="rule-table">
+        <tr><th>Between</th><th>Space that prints</th></tr>
+        <tr><td>Two ordinary swara letters, or right after a semicolon</td><td>Wide — about 2 letters' worth</td></tr>
+        <tr><td>Right after a comma</td><td>Tight — about 1 letter's worth</td></tr>
+        <tr><td>Moving into or out of a <code>*single*</code>/<code>**double**</code> underlined group</td><td>Fixed at about 1 letter's worth — always, no matter how many spaces you type there</td></tr>
+        <tr><td>Between two letters inside the <em>same</em> underlined group</td><td>None by default — they sit right next to each other, since they're one fast phrase</td></tr>
+      </table>
+      <p>In every case above, typing 2+ spaces at that spot adds real extra width on top of these defaults — that's the one place your own typed spacing matters.</p>
+    </div>
+
+    <div class="rule-section">
+      <h2><span class="rule-num">2</span>Octave marks</h2>
+      <p><code>S'</code> types as upper octave (tāra sthāyi) — shown with a dot above the letter. <code>S.</code> types as lower octave (mandra sthāyi) — shown with a dot below. These apply per-letter, so you can mix octaves freely within one cell. An octave mark doesn't add to a letter's weight — <code>S'</code> still counts as 2, same as plain <code>S</code>.</p>
+      <div class="rule-example">
+        <div class="ex-block">
+          <div class="ex-label">Typed as <code>S R'</code></div>
+          <div class="ex-cells"><div class="ex-cell"><div class="ex-swara">S Ṙ</div><div class="ex-badge ok">4 ✓</div><div class="ex-lyric">sa ri</div></div></div>
+        </div>
+        <div class="ex-note">A plain note plus an upper-octave note — 2 + 2 = 4, exactly filling a 4-akshara cell.</div>
+      </div>
+    </div>
+
+    <div class="rule-section">
+      <h2><span class="rule-num">3</span>Speed underline</h2>
+      <p>Wrap part or all of a cell's text in <code>*text*</code> for single underline (2nd speed — each letter worth 1) or <code>**text**</code> for double underline (3rd speed — each letter worth 0.5). You can mix plain, single, and double all in the same cell.</p>
+      <div class="rule-example">
+        <div class="ex-block">
+          <div class="ex-label">Typed as <code>S *R* **GM**</code></div>
+          <div class="ex-cells"><div class="ex-cell"><div class="ex-swara">S <u>R</u> <u style="text-decoration-style:double;">GM</u></div><div class="ex-badge ok">4 ✓</div><div class="ex-lyric">sa ri ga</div></div></div>
+        </div>
+        <div class="ex-note">"S" plain (2) + "R" single-underlined (1) + "GM" double-underlined (0.5 × 2 = 1) = 4 total — one cell, all three speeds at once.</div>
+      </div>
+    </div>
+
+    <div class="rule-section">
+      <h2><span class="rule-num">4</span>Fillers: comma vs semicolon</h2>
+      <p>Both <code>,</code> and <code>;</code> are fillers — they don't add a new swara letter — but they carry different weight. A comma is worth 1 (half of a normal letter's 2), used for a brief carry within a beat. A semicolon is worth 2 (the same as a full letter), holding the previous swara through an entire beat. Mixing these up is one of the most common reasons a cell comes up short or over on its akshara count.</p>
+      <div class="rule-example">
+        <div class="ex-block">
+          <div class="ex-label">With comma: <code>S,</code></div>
+          <div class="ex-cells"><div class="ex-cell"><div class="ex-swara">S,</div><div class="ex-badge bad">3/4 ⚠</div><div class="ex-lyric">sa</div></div></div>
+        </div>
+        <div class="ex-block">
+          <div class="ex-label">With semicolon: <code>S;</code></div>
+          <div class="ex-cells"><div class="ex-cell"><div class="ex-swara">S;</div><div class="ex-badge ok">4 ✓</div><div class="ex-lyric">sa</div></div></div>
+        </div>
+        <div class="ex-note">Same swara, same 4-akshara cell — with a comma it only reaches 3 (short by 1), but with a semicolon it fills the cell exactly.</div>
+      </div>
+    </div>
+
+    <div class="rule-section">
+      <h2><span class="rule-num">5</span>Sahitya entry &amp; the alignment badge</h2>
+      <p>Each cell's sahitya (lyric) row pairs directly with its swara row, syllable by syllable — and per the grouping rule above, a "syllable" here means one <em>group</em> of swara, not necessarily one letter. Use <code>-</code> or <code>.</code> for a syllable that simply continues or holds rather than starting a new one — both are accepted and work identically, so use whichever you're used to writing. A second, smaller badge appears under the cell specifically when the syllable count doesn't match the swara group count — that's the alignment warning, separate from the akshara-count badge above it.</p>
+      <div class="rule-example">
+        <div class="ex-block">
+          <div class="ex-label">Aligned</div>
+          <div class="ex-cells"><div class="ex-cell"><div class="ex-swara">S R G</div><div class="ex-badge ok">6 ✓</div><div class="ex-lyric">sa - ri</div></div></div>
+        </div>
+        <div class="ex-block">
+          <div class="ex-label">Misaligned</div>
+          <div class="ex-cells"><div class="ex-cell"><div class="ex-swara">S R G</div><div class="ex-badge ok">6 ✓</div><div class="ex-lyric">sa ri</div><div class="ex-badge bad">2/3 syl ⚠</div></div></div>
+        </div>
+        <div class="ex-note">3 swara notes (2+2+2=6, filling a 6-akshara cell) but only 2 sahitya syllables typed on the right — the akshara count is still fine, but the alignment badge flags the syllable mismatch separately.</div>
+      </div>
+    </div>
+
+    <div class="rule-section">
+      <h2><span class="rule-num">6</span>Tala structure &amp; cell capacity</h2>
+      <p>Each tala shapes a printed row into a fixed sequence of cells, and each cell's capacity (the number shown in its badge) comes directly from that shape:</p>
+      <p>
+        <b>Adi</b> — 8 cells of 4 aksharas each (32/avartanam).<br>
+        <b>Adi, 2 kalai</b> — the same 8-cell shape, but doubled: one avartanam prints as <i>two</i> physical rows of 32 (64 total), since 2-kalai content is too dense for one printed line.<br>
+        <b>Adi (Tishra Nadai)</b> — 8 cells of 6 aksharas each (48/avartanam), a wider page layout to fit.<br>
+        <b>Rupakam</b> — 6 cells of 4 aksharas each (12/avartanam).<br>
+        <b>Khanda Chapu</b> — 4 cells alternating 4 and 6 aksharas (10/avartanam).<br>
+        <b>Misra Chapu</b> — 6 cells alternating 6 and 4 aksharas (14/avartanam), typically two avartanams printed per row.
+      </p>
+      <p>You choose the tala once for the whole kriti (Song details, or up front for an import) — every cell's capacity across every section follows from that single choice.</p>
+    </div>
+
+    <div class="rule-section">
+      <h2><span class="rule-num">7</span>Section-level options</h2>
+      <p><b>"No sahitya for this section"</b> — for sections that are pure swara with no lyrics, like a Chittaswaram. Turning this on removes the sahitya row entirely for that section's lines.</p>
+      <p><b>Pallavi-reference line</b> — every section after the first (Anupallavi, Charanam, etc.) automatically shows a small reference line echoing back to the Pallavi's opening, since that's how these sections are traditionally sung. You can override the auto-generated text with your own if the default guess isn't quite right.</p>
+    </div>
+
+    <div class="rule-section">
+      <h2><span class="rule-num">8</span>Edge markers in the exported grid</h2>
+      <p>You'll see <code>║</code> and <code>|</code> appear automatically in Preview, Check Kriti, and the exported document — you never type these yourself. <code>║</code> marks an avartanam boundary (the start/end of a full tala cycle); <code>|</code> marks a half-avartanam divider within one row (used in talas like Adi). Both are placed by the app based on your tala choice, not something to add manually.</p>
+    </div>
+  </div>`;
+}
 
 function renderMain(){
   const main = document.getElementById('main');
   const song = getSong();
   if(song) ensureUndoBaseline(song);
-  if(!song){
-    main.innerHTML = `
-      <img class="banner" src="${BANNER}" alt="Kriti Notation Studio">
-      <div class="hero"><div><h1>Kriti Notation Studio</h1><p>Pick a kriti on the left, or start a new one.</p></div></div>
-      <div class="placeholder">
-        <div class="glyph">॥</div>
-        <h2>Your library is ready</h2>
-        <div>Click <b>+ New Kriti</b> to notate your first song in your own grid format.</div>
-        <button class="btn primary" id="placeholderNewSongBtn" style="margin:16px auto 0;">
-          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M10 4v12M4 10h12"/></svg> New Kriti
-        </button>
-      </div>`;
-    document.getElementById('placeholderNewSongBtn').onclick = createNewSong;
+
+  if(currentView !== 'editor' || !song){
+    renderDashboard();
     return;
   }
 
+  document.querySelector('.app').classList.add('view-editor');
+  document.querySelector('.app').classList.remove('view-dashboard');
+
   main.innerHTML = `
+    <div class="editor-topbar">
+      <button class="back-btn" id="backToLibraryBtn"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15l-5-5 5-5"/></svg> Library</button>
+      <button class="theme-mini" id="themeMiniBtn" title="Toggle dark mode"><svg id="themeMiniIcon" width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></svg> <span id="themeMiniLabel">Dark mode</span></button>
+    </div>
     <img class="banner" src="${BANNER}" alt="Kriti Notation Studio">
     <div class="hero">
       <div>
@@ -3831,13 +4331,18 @@ function renderMain(){
     </div>
 
     <div class="toolbar">
-      <button class="btn primary" id="saveBtn"><span class="icon-chip" style="background:var(--paper); color:var(--indigo-deep);"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h9l3 3v9a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1z"/><path d="M7 4v4h6V4M6 17v-5h8v5"/></svg></span> Save now</button>
+      <div class="save-btn-wrap">
+        <button class="btn primary" id="saveBtn"><span class="icon-chip" style="background:var(--paper); color:var(--indigo-deep);"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h9l3 3v9a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1z"/><path d="M7 4v4h6V4M6 17v-5h8v5"/></svg></span> Save now</button>
+        <span class="save-confirm" id="saveConfirm"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.5l4 4 8-9"/></svg> Saved</span>
+      </div>
       <button class="btn" id="duplicateSongBtn"><span class="icon-chip" style="background:var(--paper); color:var(--indigo-deep);"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="10" height="10" rx="1.2"/><path d="M7 6V4a1 1 0 011-1h8a1 1 0 011 1v8a1 1 0 01-1 1h-2"/></svg></span> Duplicate kriti</button>
-      <button class="btn" id="copyDataBtn"><span class="icon-chip" style="background:var(--paper); color:var(--indigo-deep);"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="8" height="13" rx="1.2"/><path d="M8 4V3a1 1 0 011-1h2a1 1 0 011 1v1"/></svg></span> Copy data for Claude (→ .docx)</button>
+      <button class="btn" id="copyDataBtn" title="Copies this kriti's data for pasting into a Claude chat, formatted so Claude can turn it into a .docx"><span class="icon-chip" style="background:var(--paper); color:var(--indigo-deep);"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="8" height="13" rx="1.2"/><path d="M8 4V3a1 1 0 011-1h2a1 1 0 011 1v1"/></svg></span> Copy for Claude</button>
       <button class="btn" id="checkKritiBtn"><span class="icon-chip" style="background:var(--paper); color:var(--indigo-deep);"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7.5"/><path d="M6.5 10.3l2.3 2.3 4.7-5"/></svg></span> Check Kriti</button>
       <button class="btn" id="previewBtn"><span class="icon-chip" style="background:var(--paper); color:var(--indigo-deep);"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 10s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6z"/><circle cx="10" cy="10" r="2.3"/></svg></span> Preview</button>
+      <button class="btn" id="findReplaceBtn"><span class="icon-chip" style="background:var(--paper); color:var(--indigo-deep);"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="8.5" cy="8.5" r="5.5"/><path d="M17 17l-4.3-4.3"/></svg></span> Find & Replace</button>
       <button class="btn" id="downloadDocxBtn"><span class="icon-chip" style="background:var(--paper); color:var(--indigo-deep);"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3v10M6 9l4 4 4-4M4 17h12"/></svg></span> Download/Export (.docx)</button>
-      <div class="toolbar-divider"></div>
+    </div>
+    <div class="toolbar-danger-row">
       <button class="btn danger" id="deleteBtn"><span class="icon-chip" style="background:var(--paper); color:var(--warn-deep);"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h12M8 6V4a1 1 0 011-1h2a1 1 0 011 1v2M6 6l.6 10a1 1 0 001 .9h4.8a1 1 0 001-.9L14 6"/></svg></span> Delete kriti</button>
     </div>
 
@@ -3865,16 +4370,19 @@ function renderMain(){
       </div>
     </div>
 
+    <div class="section-jumpnav" id="sectionJumpNav"></div>
+
     <div id="sectionsHost"></div>
 
     <button class="btn add-line-btn" id="addSectionBtn">+ Add section (e.g. Chittaswaram)</button>
-    <div class="hint" style="margin-top:18px;">
-      Octave shortcuts — <code>S'</code> → upper-octave dot (tāra sthāyi) &nbsp; <code>S.</code> → lower-octave dot (mandra sthāyi).<br>
-      Speed underline — wrap part (or all) of a cell in <code>*text*</code> for single underline (2nd speed) or <code>**text**</code> for double underline (3rd speed), e.g. <code>SR*GSR*</code>.<br>
-      Each cell checks its own akshara count live as you type — a small green ✓ under the cell means it matches that cell's capacity; a red count/⚠ means it doesn't.
-    </div>
   `;
 
+  document.getElementById('backToLibraryBtn').onclick = goToDashboard;
+  document.getElementById('themeMiniBtn').onclick = toggleTheme;
+  // Sync this freshly-rendered button's icon/label to the current theme —
+  // applyTheme() is only called on toggle or at page load, and this button
+  // is rebuilt from scratch every time the editor view renders.
+  applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light');
   document.getElementById('titleEdit').oninput = e=>{ song.title = e.target.textContent; renderSongList(); queueSave(); };
   document.getElementById('f_raga').oninput = e=>{ song.raga=e.target.value; renderSongList(); queueSave(); };
   document.getElementById('f_mela').oninput = e=>{ song.melakarta=e.target.value; renderSongList(); queueSave(); };
@@ -3889,8 +4397,9 @@ function renderMain(){
   const kalaiEl = document.getElementById('f_kalai');
   if(kalaiEl) kalaiEl.onchange = e=>{ song.kalai = Number(e.target.value); queueSave(); renderMain(); };
 
-  document.getElementById('saveBtn').onclick = async ()=>{ await persist(); showToast('Saved'); };
+  document.getElementById('saveBtn').onclick = async ()=>{ await persist(); showSaveConfirm(); };
   document.getElementById('previewBtn').onclick = openPreview;
+  document.getElementById('findReplaceBtn').onclick = openFindReplace;
   document.getElementById('downloadDocxBtn').onclick = ()=>openDocxDownloadExportChoice(song);
   document.getElementById('copyDataBtn').onclick = ()=>copyForClaude(song);
   document.getElementById('deleteBtn').onclick = ()=>deleteSong(song.id);
@@ -3926,6 +4435,8 @@ function renderSections(){
     card.innerHTML = `
       <div class="section-head">
         <input value="${escapeHtml(sec.name)}" data-si="${si}" class="secName" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off">
+        <button class="btn small icon-only" data-si="${si}" data-act="secUp" title="Move section up"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15V5M5 9l5-5 5 5"/></svg></button>
+        <button class="btn small icon-only" data-si="${si}" data-act="secDown" title="Move section down"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 5v10M5 11l5 5 5-5"/></svg></button>
         <button class="btn small danger" data-si="${si}" data-act="delSec">Remove section</button>
       </div>
       <div class="fieldwrap">
@@ -3972,6 +4483,20 @@ function renderSections(){
     }
     const refOverride = card.querySelector('.secPallaviOverride');
     if(refOverride){ refOverride.oninput = e=>{ sec.pallaviOverride = e.target.value; queueSave(); }; }
+    const secUpBtn = card.querySelector('[data-act="secUp"]');
+    const secDownBtn = card.querySelector('[data-act="secDown"]');
+    if(si === 0) secUpBtn.disabled = true;
+    if(si === song.sections.length - 1) secDownBtn.disabled = true;
+    secUpBtn.onclick = ()=>{
+      if(si === 0) return;
+      [song.sections[si-1], song.sections[si]] = [song.sections[si], song.sections[si-1]];
+      queueSave(); renderSections();
+    };
+    secDownBtn.onclick = ()=>{
+      if(si === song.sections.length - 1) return;
+      [song.sections[si+1], song.sections[si]] = [song.sections[si], song.sections[si+1]];
+      queueSave(); renderSections();
+    };
     card.querySelector('[data-act="delSec"]').onclick = ()=>{
       if(confirm('Remove this section?')){ song.sections.splice(si,1); queueSave(); renderSections(); }
     };
@@ -3982,11 +4507,37 @@ function renderSections(){
     renderLines(card.querySelector('.linesHost'), sec, cfg, kalai);
   });
 
+  const jumpNav = document.getElementById('sectionJumpNav');
+  if(jumpNav){
+    if(song.sections.length > 1){
+      jumpNav.style.display = '';
+      jumpNav.innerHTML = '<span class="jump-label">Jump to:</span>' +
+        song.sections.map((sec, si)=>`<button type="button" data-si="${si}">${escapeHtml(sec.name || 'Untitled section')}</button>`).join('');
+      jumpNav.querySelectorAll('button').forEach(btn=>{
+        btn.onclick = ()=> scrollToSection(parseInt(btn.dataset.si, 10));
+      });
+    } else {
+      jumpNav.style.display = 'none'; // not useful with only one section
+    }
+  }
+
   wireGlobalCtrlNavigation(host);
   wireCellCopyPaste(host);
 }
 
-function cellWidthPx(capacity){ return Math.max(46, capacity*13+18); }
+/* Scrolls a section's card into view within .main, offset so it lands just
+   below the sticky jump-nav bar rather than being hidden underneath it. */
+function scrollToSection(si){
+  const main = document.getElementById('main');
+  const card = document.querySelector(`.card[data-si="${si}"]`);
+  const jumpNav = document.getElementById('sectionJumpNav');
+  if(!card || !main) return;
+  const offset = (jumpNav ? jumpNav.offsetHeight : 0) + 14;
+  const top = card.offsetTop - offset;
+  main.scrollTo({ top, behavior: 'smooth' });
+}
+
+function cellWidthPx(capacity){ return Math.max(50, capacity*15+20); }
 
 /* builds the cell markup + column widths for ONE physical row (no edge marks) */
 function buildRowGrid(cfg, noSahitya){
@@ -4050,6 +4601,10 @@ function renderLines(host, sec, cfg, kalai){
       <div class="line-top">
         <input class="label" placeholder="1)" value="${escapeHtml(line.label)}" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off">
         <div class="spacer"></div>
+        <button class="btn small icon-only" data-act="undo" title="Undo (Ctrl+Z)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg></button>
+        <button class="btn small icon-only" data-act="redo" title="Redo (Ctrl+Y)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg></button>
+        <button class="btn small icon-only" data-act="moveup" title="Move line up"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15V5M5 9l5-5 5 5"/></svg></button>
+        <button class="btn small icon-only" data-act="movedown" title="Move line down"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 5v10M5 11l5 5 5-5"/></svg></button>
         <button class="btn small" data-act="dup"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="10" height="10" rx="1.2"/><path d="M7 6V4a1 1 0 011-1h8a1 1 0 011 1v8a1 1 0 01-1 1h-2"/></svg> Duplicate</button>
         <button class="btn small" data-act="clear"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3l4 4-8.5 8.5H4v-4.5z"/><path d="M9 17H4"/></svg> Clear</button>
         <button class="btn small danger" data-act="del"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 5l10 10M15 5L5 15"/></svg> Remove line</button>
@@ -4061,6 +4616,22 @@ function renderLines(host, sec, cfg, kalai){
 
     const labelInput = row.querySelector('.label');
     labelInput.oninput = e=>{ line.label = e.target.value; queueSave(); updatePreview(row, line, noSahitya, cfg, kalai); };
+    row.querySelector('[data-act="undo"]').onclick = performUndo;
+    row.querySelector('[data-act="redo"]').onclick = performRedo;
+    const moveUpBtn = row.querySelector('[data-act="moveup"]');
+    const moveDownBtn = row.querySelector('[data-act="movedown"]');
+    if(li === 0) moveUpBtn.disabled = true;
+    if(li === sec.lines.length - 1) moveDownBtn.disabled = true;
+    moveUpBtn.onclick = ()=>{
+      if(li === 0) return;
+      [sec.lines[li-1], sec.lines[li]] = [sec.lines[li], sec.lines[li-1]];
+      queueSave(); renderSections();
+    };
+    moveDownBtn.onclick = ()=>{
+      if(li === sec.lines.length - 1) return;
+      [sec.lines[li+1], sec.lines[li]] = [sec.lines[li], sec.lines[li+1]];
+      queueSave(); renderSections();
+    };
     row.querySelector('[data-act="dup"]').onclick = ()=>{
       sec.lines.splice(li+1, 0, JSON.parse(JSON.stringify(line))); queueSave(); renderSections();
     };
@@ -4667,6 +5238,7 @@ function deleteSong(id){
   const song = library.find(s=>s.id===id);
   library = library.filter(s=>s.id!==id);
   currentId = library.length ? library[0].id : null;
+  currentView = 'dashboard';
   persist(); renderAll();
   showToast('Deleted');
   // Also removes the matching .docx from Drive (queued + retried — see
@@ -4691,25 +5263,25 @@ function copyForClaude(song){
 
 /* ===================== Boot ===================== */
 async function renderAll(){
-  renderSongList();
-  renderMain();
+  renderMain(); // handles both the dashboard (incl. its own song list refresh) and the editor view
 }
 
 document.getElementById('syncBtn').onclick = onSyncButtonClick;
-function createNewSong(){
-  const s = newSong();
+function createNewSong(tala, kalai){
+  const s = newSong(tala, kalai);
   library.unshift(s);
   currentId = s.id;
+  currentView = 'editor';
   persist();
   renderAll();
 }
-document.getElementById('newSongBtn').onclick = createNewSong;
-document.getElementById('searchBox').oninput = renderSongList;
+document.getElementById('newSongBtn').onclick = () => createNewSong();
 document.getElementById('closePreviewBtn').onclick = closePreview;
 document.getElementById('previewOverlay').addEventListener('click', e=>{
   if(e.target.id === 'previewOverlay') closePreview();
 });
 document.getElementById('storageQuotaBtn').onclick = openStorageQuota;
+document.getElementById('rulesNavBtn').onclick = showRulesPage;
 
 /* ===================== Import pipeline — Step 5 =====================
    The entry point and review screen. Parses the file (Steps 1-4), shows a
@@ -4850,6 +5422,7 @@ function commitImportedSong(){
   song.id = uid();
   library.unshift(song);
   currentId = song.id;
+  currentView = 'editor';
   const warningCount = importPendingResult.warnings.length;
   closeImportPreview();
   persist();
@@ -4992,19 +5565,21 @@ function attemptAutoConnectDrive(retriesLeft){
 (async function init(){
   applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light');
   document.getElementById('themeToggleBtn').onclick = toggleTheme;
-  const talaSelect = document.getElementById('importTalaSelect');
-  Object.entries(TALAS).forEach(([k,v])=>{
-    const opt = document.createElement('option');
-    opt.value = k;
-    opt.textContent = `${v.label} (${v.aksharasPerAvartanam}/avartanam)`;
-    talaSelect.appendChild(opt);
-    if(k === 'adi' && v.kalaiAware){
-      const opt2kalai = document.createElement('option');
-      opt2kalai.value = 'adi_2kalai';
-      opt2kalai.textContent = 'Adi Tala (2 Kalai) (32/avartanam, 2 rows)';
-      talaSelect.appendChild(opt2kalai);
-    }
-  });
+  function populateTalaSelect(sel){
+    Object.entries(TALAS).forEach(([k,v])=>{
+      const opt = document.createElement('option');
+      opt.value = k;
+      opt.textContent = `${v.label} (${v.aksharasPerAvartanam}/avartanam)`;
+      sel.appendChild(opt);
+      if(k === 'adi' && v.kalaiAware){
+        const opt2kalai = document.createElement('option');
+        opt2kalai.value = 'adi_2kalai';
+        opt2kalai.textContent = 'Adi Tala (2 Kalai) (32/avartanam, 2 rows)';
+        sel.appendChild(opt2kalai);
+      }
+    });
+  }
+  populateTalaSelect(document.getElementById('importTalaSelect'));
   await loadLibrary();
   if(library.length) currentId = library[0].id;
   renderAll();
