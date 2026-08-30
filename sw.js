@@ -13,7 +13,7 @@
    Bump CACHE_VERSION whenever index.html (or anything precached) changes,
    so returning users get the update instead of a stale cached copy. */
 
-const CACHE_VERSION = 'kriti-studio-v1';
+const CACHE_VERSION = 'kriti-studio-v2';
 const PRECACHE_URLS = [
   './',
   './index.html',

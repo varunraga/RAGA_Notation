@@ -1,6 +1,6 @@
 {
   "name": "Kriti Notation Studio",
-  "short_name": "Kriti Notation",
+  "short_name": "Kriti Studio",
   "description": "Create, edit, and export Carnatic music kriti notation — swara, sahitya, and tala-aware grids, with Word/PDF export.",
   "start_url": "./index.html",
   "scope": "./",
