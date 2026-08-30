@@ -21,6 +21,7 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
 <style>
   :root{
     --radius-sm:6px;
@@ -269,7 +270,18 @@
   .hero{
     display:flex; align-items:baseline; justify-content:space-between; gap:20px; margin-bottom:28px; flex-wrap:wrap;
   }
-  .hero h1{ font-family:'Fraunces',serif; font-weight:600; font-size:34px; margin:0; color:var(--heading); }
+  /* The kriti title gets real ceremony — this is "the piece" — clearly
+     distinct from a section name or card heading, which both sit at 19px
+     with no adornment. Larger, a touch of letter-spacing, and a short
+     brand-gradient rule underneath rather than just a bigger font size. */
+  .hero h1{
+    font-family:'Fraunces',serif; font-weight:600; font-size:38px; margin:0; color:var(--heading);
+    letter-spacing:.2px; position:relative; padding-bottom:12px; display:inline-block;
+  }
+  .hero h1::after{
+    content:''; position:absolute; left:0; bottom:0; width:64px; height:3px; border-radius:2px;
+    background:linear-gradient(90deg, var(--indigo), var(--brand-blue));
+  }
   .hero p{ margin:4px 0 0; color:var(--ink-soft); font-size:13.5px; }
 
   .banner{ width:100%; display:block; border-radius:13px; border:1px solid var(--line); box-shadow:0 8px 24px rgba(0,0,0,0.12); margin-bottom:22px; }
@@ -302,6 +314,33 @@
 
   .toolbar{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
   .toolbar-danger-row{ display:flex; justify-content:flex-end; margin-bottom:22px; }
+
+  /* Reusable "Other actions" dropdown — used in the top toolbar, section
+     header, and line toolbar to hold less-frequently-used buttons out of
+     the way, without deleting or hiding the functionality itself. */
+  .actions-dd{ position:relative; display:inline-flex; }
+  .actions-dd-btn{
+    display:flex; align-items:center; gap:5px; cursor:pointer; font-family:'Inter',sans-serif;
+  }
+  .actions-dd-btn svg.chev{ transition:transform .15s ease; }
+  .actions-dd.open .actions-dd-btn svg.chev{ transform:rotate(180deg); }
+  .actions-dd-menu{
+    position:absolute; top:calc(100% + 6px); left:0; z-index:20; min-width:180px;
+    background:var(--paper); border:1px solid var(--line); border-radius:var(--radius-md);
+    box-shadow:0 6px 20px rgba(0,0,0,0.14); padding:6px; display:none; flex-direction:column; gap:2px;
+  }
+  .actions-dd.open .actions-dd-menu{ display:flex; }
+  .actions-dd-menu .btn{ justify-content:flex-start; width:100%; border:none; background:transparent; box-shadow:none; }
+  .actions-dd-menu .btn:hover{ background:var(--surface-deep); }
+  /* Higher specificity than ".toolbar .btn:not(.danger)" (which fills every
+     direct toolbar button blue) — without this, dropdown menu items inside
+     the top toolbar's "Other actions" menu incorrectly inherit that same
+     blue fill instead of looking like plain list items. */
+  .toolbar .actions-dd .actions-dd-menu .btn{ background:transparent; color:var(--ink); border:none; box-shadow:none; height:auto; }
+  .toolbar .actions-dd .actions-dd-menu .btn:hover{ background:var(--surface-deep); }
+  .actions-dd-menu .icon-only-row{ display:flex; gap:2px; }
+  .actions-dd-menu .icon-only-row .btn{ width:auto; flex:1; justify-content:center; border:1px solid var(--line); }
+
   .save-btn-wrap{ position:relative; display:inline-flex; }
   .save-confirm{
     position:absolute; left:50%; top:calc(100% + 6px); transform:translateX(-50%) translateY(-4px);
@@ -372,7 +411,7 @@
   .section-head input:focus{ outline:1px solid var(--indigo-300); border-radius:var(--radius-sm); }
 
   .line-row{ margin-bottom:16px; padding:12px; background:var(--panel); border-radius:var(--radius-md); border:1px solid var(--line); transition:opacity .25s ease, filter .25s ease; }
-  #sectionsHost.focus-active .line-row:not(.line-row-focused){ opacity:.28; filter:saturate(.7); }
+  #sectionsHost.focus-active .line-row:not(.line-row-focused){ opacity:.62; }
   #sectionsHost.focus-active .line-row.line-row-focused{ box-shadow:0 0 0 2px var(--brand-blue); }
   .line-top{ display:flex; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
   .line-top input.label{ width:56px; font-size:13px; font-weight:700; font-family:'Courier Prime',monospace; text-align:center; padding:6px 4px; background:var(--paper); border:1px solid var(--line); color:var(--ink); border-radius:var(--radius-sm); }
@@ -393,12 +432,46 @@
   .beat-cell.heat-near{ background:rgba(250,204,21,0.28); box-shadow:0 0 0 1px rgba(202,158,10,0.55); }
   .beat-cell.heat-far{ background:rgba(214,69,69,0.18); box-shadow:0 0 0 1px rgba(214,69,69,0.45); }
   .beat-cell.scale-flag{ position:relative; box-shadow:0 0 0 1.5px #a855c9; }
+  .beat-cell.playing{ background:rgba(74,108,247,0.22); box-shadow:0 0 0 2px var(--brand-blue); transition:none; }
+  .btn.icon-only.playing-active{ background:linear-gradient(135deg, var(--indigo), var(--brand-blue)); color:var(--paper); border-color:var(--brand-blue); }
   .beat-cell.scale-flag::after{
     content:'!'; position:absolute; top:2px; right:2px; width:13px; height:13px;
     border-radius:50%; background:#a855c9; color:#fff; font-size:9px; font-weight:800;
     display:flex; align-items:center; justify-content:center; line-height:1; font-family:'Inter',sans-serif;
     pointer-events:none; box-shadow:0 1px 3px rgba(0,0,0,0.3); z-index:2;
   }
+  /* Small and subtle, deliberately — same visual weight as the scale-flag
+     "!" badge, just a distinct teal so the two are never confused for one
+     another at a glance. Only appears at all when a raga genuinely has an
+     ambiguous letter AND this specific cell contains it — most kritis
+     never show this. Sits in its own reserved row above the swara input
+     (.variant-badge-row), not absolutely positioned over the cell's own
+     content — floating it over the input was overlapping/obscuring the
+     actual swara text, especially with longer or underlined content. An
+     empty row collapses to zero height, so cells with no badge lose
+     nothing.  */
+  .variant-badge-row{ display:flex; gap:4px; min-height:0; }
+  .variant-badge-row:not(:empty){ margin-bottom:2px; }
+  .variant-badge{
+    width:17px; height:13px; border-radius:4px; flex:none;
+    background:#0f9b8e; color:#fff; font-size:8px; font-weight:800; font-family:'Inter',sans-serif;
+    border:none; display:flex; align-items:center; justify-content:center; line-height:1;
+    cursor:pointer; padding:0; box-shadow:0 1px 3px rgba(0,0,0,0.25);
+  }
+  .variant-badge:hover{ filter:brightness(1.1); }
+  .variant-defaults{
+    margin-top:16px; padding:14px 16px; background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-sm);
+  }
+  .variant-defaults-title{ font-size:12.5px; font-weight:700; color:var(--ink); margin-bottom:10px; }
+  .variant-defaults-row{ display:flex; flex-wrap:wrap; gap:18px; margin-bottom:8px; }
+  .variant-defaults-group{ display:flex; align-items:center; gap:6px; }
+  .variant-defaults-group span{ font-size:12.5px; font-weight:700; color:var(--ink-soft); }
+  .variant-default-btn{
+    padding:5px 10px; border-radius:var(--radius-sm); border:1px solid var(--line); background:var(--paper);
+    color:var(--ink); font-size:12px; font-weight:700; cursor:pointer; font-family:'Inter',sans-serif;
+  }
+  .variant-default-btn.active{ background:#0f9b8e; border-color:#0f9b8e; color:#fff; }
+  .variant-defaults-hint{ font-size:11.5px; color:var(--ink-soft); line-height:1.5; }
   .heatmap-toggle{
     display:flex; align-items:center; gap:6px; padding:9px 13px; border-radius:var(--radius-sm);
     border:1px solid var(--line); background:var(--paper); color:var(--ink); font-size:12.5px; font-weight:600;
@@ -406,6 +479,13 @@
   }
   .heatmap-toggle:hover{ background:var(--surface-deep); }
   .heatmap-toggle.active{ background:linear-gradient(135deg, var(--indigo), var(--brand-blue)); color:var(--paper); border-color:var(--brand-blue); }
+  .tempo-control-bar{
+    display:flex; align-items:center; gap:10px; padding:9px 14px; margin-bottom:10px;
+    background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-sm); color:var(--indigo-deep);
+  }
+  .tempo-control-bar label{ font-size:12.5px; font-weight:600; color:var(--ink-soft); white-space:nowrap; text-transform:none; letter-spacing:normal; display:inline; margin-bottom:0; }
+  .tempo-control-bar label span{ color:var(--ink); font-weight:700; }
+  .tempo-control-bar input[type="range"]{ flex:1; max-width:220px; accent-color:var(--brand-blue); }
   .heatmap-legend{ display:flex; align-items:center; gap:14px; font-size:11.5px; color:var(--ink-soft); margin:8px 0 4px; }
   .heatmap-legend span{ display:inline-flex; align-items:center; gap:5px; }
   .heatmap-legend i{ width:10px; height:10px; border-radius:3px; display:inline-block; }
@@ -529,9 +609,19 @@
   .grid-table-dark .lyric-row td{ color:#a8acbf; font-size:12.5px; font-weight:400; }
   .grid-table-doc .swara-row td{ color:#111; font-weight:700; font-size:12.5px; }
   .grid-table-doc .lyric-row td{ color:#444; font-size:11px; font-weight:400; }
-  .grid-table-dark .swara-row .ul-sgl, .grid-table-dark .swara-row .ul-dbl{ text-decoration-color:#8484ff; text-decoration-thickness:2px; }
-  .grid-table-dark .swara-row .ul-sgl, .grid-table-doc .swara-row .ul-sgl{ text-decoration:underline; }
-  .grid-table-dark .swara-row .ul-dbl, .grid-table-doc .swara-row .ul-dbl{ text-decoration:underline; text-decoration-style:double; }
+  /* Warm, more calligraphic underline treatment for speed markup — thicker,
+     with a small gap from the letters (offset) so it reads as a deliberate
+     notation mark rather than a plain web-underline, and each speed gets
+     its own ink color so 2nd vs 3rd speed is recognizable by color at a
+     glance, not just by counting how many lines are under the text. */
+  .grid-table-dark .swara-row .ul-sgl, .grid-table-doc .swara-row .ul-sgl{
+    text-decoration:underline; text-decoration-color:#d99a44; text-decoration-thickness:2.5px;
+    text-underline-offset:3px;
+  }
+  .grid-table-dark .swara-row .ul-dbl, .grid-table-doc .swara-row .ul-dbl{
+    text-decoration:underline; text-decoration-style:double; text-decoration-color:#b8503f;
+    text-decoration-thickness:2px; text-underline-offset:3px;
+  }
   .grid-half-gap{ height:6px; }
 
   .toast{
@@ -540,6 +630,28 @@
     opacity:0; pointer-events:none; transition:all .25s; z-index:50; font-weight:600;
   }
   .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+
+  /* Fixed to the viewport, not the scrolling content — auto-scroll during
+     section/whole-kriti playback can carry the playhead (and every normal
+     Play/Stop/tempo control) far out of view, so both Stop and tempo need
+     a copy that's never at risk of scrolling away. Shown only while
+     something is actually playing. */
+  .floating-playback-bar{
+    position:fixed; bottom:22px; right:22px; z-index:60; display:flex; align-items:center; gap:10px;
+  }
+  .floating-tempo{
+    display:flex; align-items:center; gap:8px; padding:10px 16px; border-radius:999px;
+    background:var(--paper); border:1px solid var(--line); box-shadow:0 4px 16px rgba(0,0,0,0.18);
+    font-size:12.5px; font-weight:700; color:var(--ink); white-space:nowrap;
+  }
+  .floating-tempo input[type="range"]{ width:110px; accent-color:var(--brand-blue); }
+  .floating-stop-btn{
+    display:flex; align-items:center; gap:8px; padding:12px 20px; border-radius:999px;
+    background:linear-gradient(135deg, var(--indigo), var(--brand-blue)); color:var(--paper);
+    border:none; font-size:13.5px; font-weight:700; cursor:pointer; font-family:'Inter',sans-serif;
+    box-shadow:0 4px 16px rgba(0,0,0,0.25);
+  }
+  .floating-stop-btn:hover{ filter:brightness(0.94); }
 
   .add-line-btn{ display:flex; align-items:center; gap:6px; }
 
@@ -724,6 +836,13 @@
   <main class="main" id="main"></main>
 </div>
 <div class="toast" id="toast"></div>
+<div class="floating-playback-bar" id="floatingPlaybackBar" style="display:none;">
+  <div class="floating-tempo">
+    <span id="floatingTempoLabel">120</span>/min
+    <input type="range" id="floatingTempoSlider" min="120" max="450" step="10" value="120">
+  </div>
+  <button class="floating-stop-btn" id="floatingStopBtn" title="Stop playback (Esc)"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="10" height="10" rx="1.5"/></svg> Stop playback</button>
+</div>
 <div id="printContainer"></div>
 
 <div class="quota-overlay" id="quotaOverlay">
@@ -1085,7 +1204,11 @@ async function pdfExtractUnderlineRects(page, viewportHeight){
 async function pdfExtractItems(page, viewportHeight){
   const tc = await page.getTextContent({disableCombineTextItems:true});
   return tc.items.filter(it=>it.str.trim()).map(it=>({
-    str: it.str,
+    // decodeOctaveDiacritics was previously only ever called on the DOCX
+    // import path — PDF import never decoded a precomposed octave mark
+    // (e.g. "Ṡ") back into this app's own "'"/"." convention at all, so
+    // every octave mark in a PDF source was silently dropped on import.
+    str: decodeOctaveDiacritics(it.str),
     x0: it.transform[4], x1: it.transform[4]+it.width,
     top: viewportHeight - it.transform[5], // baseline-referenced top
   }));
@@ -1902,7 +2025,7 @@ async function resolveDriveConflict(choice){
 const uid = () => 'k_' + Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 
 function blankRow(n){
-  return { swara: Array(n).fill(''), lyric: Array(n).fill('') };
+  return { swara: Array(n).fill(''), lyric: Array(n).fill(''), variantOverride: Array(n).fill(null) };
 }
 function blankLine(cfg, kalai){
   const n = numRowsForLine(cfg, kalai);
@@ -2298,7 +2421,7 @@ function renderSongList(){
     el.style.borderLeft = `4px solid ${talaAccentColor(s.tala)}`;
     const snippet = songPreviewSnippet(s);
     el.innerHTML = `<div class="col-left"><div class="t">${escapeHtml(s.title||'Untitled')}</div>${snippet ? `<div class="snippet">${escapeHtml(snippet)}</div>` : ''}</div><div class="m"><div>${escapeHtml(s.raga||'—')} · ${TALAS[s.tala]?.label||s.tala}</div>${s.composer ? `<div class="composer">${escapeHtml(s.composer)}</div>` : ''}</div><svg class="card-chevron" width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4l6 6-6 6"/></svg>`;
-    el.onclick = ()=>{ currentId = s.id; currentView = 'editor'; renderAll(); };
+    el.onclick = ()=>{ currentId = s.id; currentView = 'editor'; pushAppHistoryState(); renderAll(); };
     list.appendChild(el);
   });
 }
@@ -2948,10 +3071,23 @@ function closeFindReplace(){
 }
 
 /* ===================== Check Kriti ===================== */
-/* Scans every already-rendered swara/alignment badge in the whole open
-   kriti at once — these badges are live and always up to date as you
-   type, so this is a pure read of existing DOM state, not a fresh
-   recomputation. */
+/* Scans every already-rendered swara/alignment badge, plus any raga-scale
+   flag, in the whole open kriti at once — these are live and always up to
+   date as you type, so this is a pure read of existing DOM state, not a
+   fresh recomputation. */
+function locateBeatCell(beatCell){
+  const card = beatCell.closest('.card[data-si]');
+  const sectionName = card ? (card.querySelector('.secName')?.value || 'Untitled section') : 'Unknown section';
+  const lineRow = beatCell.closest('.line-row');
+  let lineLabel = 'Line';
+  if(lineRow){
+    const labelInput = lineRow.querySelector('input.label');
+    lineLabel = (labelInput && labelInput.value) ? labelInput.value : `Line ${Number(lineRow.dataset.li)+1}`;
+  }
+  const beatGrid = beatCell.parentElement;
+  const cellPos = beatGrid ? Array.from(beatGrid.querySelectorAll('.beat-cell')).indexOf(beatCell) + 1 : null;
+  return { sectionName, lineLabel, cellPos };
+}
 function scanKritiIssues(){
   const host = document.getElementById('sectionsHost');
   const issues = [];
@@ -2962,22 +3098,15 @@ function scanKritiIssues(){
     const isAksh = badge.classList.contains('aksh-badge');
     const targetInput = isAksh ? beatCell.querySelector('input.swara') : beatCell.querySelector('input.lyric');
     if(!targetInput) return;
-    const card = badge.closest('.card[data-si]');
-    const sectionName = card ? (card.querySelector('.secName')?.value || 'Untitled section') : 'Unknown section';
-    const lineRow = badge.closest('.line-row');
-    let lineLabel = 'Line';
-    if(lineRow){
-      const labelInput = lineRow.querySelector('input.label');
-      lineLabel = (labelInput && labelInput.value) ? labelInput.value : `Line ${Number(lineRow.dataset.li)+1}`;
-    }
-    const beatGrid = beatCell.parentElement;
-    const cellPos = beatGrid ? Array.from(beatGrid.querySelectorAll('.beat-cell')).indexOf(beatCell) + 1 : null;
-    issues.push({
-      type: isAksh ? 'Swara' : 'Sahitya',
-      badgeText: badge.textContent,
-      sectionName, lineLabel, cellPos,
-      input: targetInput,
-    });
+    const loc = locateBeatCell(beatCell);
+    issues.push({ type: isAksh ? 'Swara' : 'Sahitya', badgeText: badge.textContent, input: targetInput, ...loc });
+  });
+  host.querySelectorAll('.beat-cell.scale-flag').forEach(beatCell => {
+    const targetInput = beatCell.querySelector('input.swara');
+    if(!targetInput) return;
+    const loc = locateBeatCell(beatCell);
+    const flagged = (beatCell.title || '').replace(/^Not in this raga's arohanam\/avarohanam:\s*/, '').split(' — ')[0];
+    issues.push({ type: 'Raga scale', badgeText: `⚠ not in scale: ${flagged || targetInput.value}`, input: targetInput, ...loc });
   });
   return issues;
 }
@@ -3076,6 +3205,437 @@ function computeCellAkshara(raw){
   return { total };
 }
 function formatAksh(n){ return Number.isInteger(n) ? String(n) : n.toFixed(1); }
+
+/* Same walk as computeCellAkshara (markup regex + token regex), but instead
+   of summing to one total, returns the ordered list of individual tokens —
+   each note or filler, in the sequence they're actually sung — for use by
+   audio playback. Kept as a genuine mirror of computeCellAkshara rather
+   than a shared refactor, since the two have different jobs (a live-typing
+   running total vs. a full ordered token list) and diverging is easy to
+   miss if they're merged into one over-general function. */
+function tokenizeCellForPlayback(raw){
+  if(!raw) return [];
+  const markupRe = /\*\*(.+?)\*\*|\*(.+?)\*/g;
+  const tokenRe = /([A-Za-z])([\'\.]?)|(,)|(;)/g;
+  const tokens = [];
+  let last = 0, m;
+
+  function walk(text, speedLevel, flatWeight){
+    let tm; tokenRe.lastIndex = 0;
+    while((tm = tokenRe.exec(text)) !== null){
+      if(tm[1]){ // a letter, optionally with an octave mark
+        const weight = flatWeight !== null ? flatWeight : 2;
+        tokens.push({ kind:'note', letter: tm[1].toUpperCase(), octave: tm[2] || '', weight, speedLevel });
+      } else if(tm[3] === ','){
+        tokens.push({ kind:'sustain', weight: flatWeight !== null ? flatWeight : 1, speedLevel });
+      } else if(tm[4] === ';'){
+        tokens.push({ kind:'sustain', weight: flatWeight !== null ? flatWeight : 2, speedLevel });
+      }
+    }
+  }
+
+  while((m = markupRe.exec(raw)) !== null){
+    if(m.index > last) walk(raw.slice(last, m.index), 1, null);
+    if(m[1] !== undefined) walk(m[1], 3, 0.5);
+    else walk(m[2], 2, 1);
+    last = markupRe.lastIndex;
+  }
+  if(last < raw.length) walk(raw.slice(last), 1, null);
+  return tokens;
+}
+
+/* Parses arohanam/avarohanam text for explicit variant numbers (R2, G3,
+   M1, etc.) so playback uses the pitch THIS raga actually specifies,
+   rather than guessing. Falls back to a common default variant for any
+   letter the text doesn't explicitly number (including R/G/M/D/N with no
+   digit at all, and S/P which have no variants to begin with). */
+const RAGA_VARIANT_DEFAULTS = { R:2, G:3, M:1, D:2, N:3 };
+function getRagaVariantMap(song){
+  const combined = (song.arohanam || '') + ' ' + (song.avarohanam || '');
+  const map = Object.assign({}, RAGA_VARIANT_DEFAULTS);
+  const re = /([RGMDN])([123])/g;
+  let m;
+  while((m = re.exec(combined)) !== null) map[m[1]] = parseInt(m[2], 10);
+  // Song-level choice (Song Details, shown only when a letter is genuinely
+  // ambiguous — see getAmbiguousVariantLetters) overrides whatever the
+  // scan above picked, since that scan can only ever keep one match per
+  // letter and has no way to know which of several stated variants is
+  // actually the one you want as the default.
+  if(song.variantDefaults){
+    Object.keys(song.variantDefaults).forEach(letter=>{ map[letter] = song.variantDefaults[letter]; });
+  }
+  return map;
+}
+/* Scans arohanam+avarohanam for every DISTINCT variant seen per letter
+   (not just the last, which is all getRagaVariantMap's regex loop can
+   track) — a raga like Bhairavi genuinely states more than one variant
+   for the same letter, and silently keeping only the last-seen one would
+   discard real information the raga text is telling us. Returns e.g.
+   { D: [1,2] } only for letters with 2+ variants actually present;
+   ordinary single-variant letters aren't included at all. */
+function getAmbiguousVariantLetters(song){
+  const combined = (song.arohanam || '') + ' ' + (song.avarohanam || '');
+  const seen = {};
+  const re = /([RGMDN])([123])/g;
+  let m;
+  while((m = re.exec(combined)) !== null){
+    const letter = m[1], variant = parseInt(m[2], 10);
+    if(!seen[letter]) seen[letter] = new Set();
+    seen[letter].add(variant);
+  }
+  const ambiguous = {};
+  Object.keys(seen).forEach(letter=>{
+    if(seen[letter].size > 1) ambiguous[letter] = Array.from(seen[letter]).sort();
+  });
+  return ambiguous;
+}
+
+/* Standard 12-semitone approximation of the swarasthana positions,
+   relative to Sa=0. This intentionally collapses some enharmonic overlaps
+   (e.g. R3 and G2 land on the same semitone in many ragas) — a simplified
+   but standard mapping, adequate for "does this sound like the right
+   note", not a full just-intonation microtonal model. */
+const SWARA_SEMITONES = {
+  S:0, R1:1, R2:2, R3:3, G1:2, G2:3, G3:4, M1:5, M2:6, P:7, D1:8, D2:9, D3:10, N1:9, N2:10, N3:11,
+};
+function swaraToFrequency(letter, octaveMark, variantMap, saFreq){
+  let key = letter;
+  if(letter === 'R' || letter === 'G' || letter === 'M' || letter === 'D' || letter === 'N'){
+    key = letter + variantMap[letter];
+  }
+  let semitone = SWARA_SEMITONES[key];
+  if(semitone === undefined) semitone = 0;
+  let octaveShift = 0;
+  if(octaveMark === "'") octaveShift = 1;
+  else if(octaveMark === '.') octaveShift = -1;
+  return saFreq * Math.pow(2, (semitone + octaveShift*12) / 12);
+}
+
+/* ===================== Playback prototype =====================
+   Plays one line's first physical row back as audio, highlighting each
+   cell as its notes sound. A prototype specifically: one voice, one row
+   (not both rows of a 2-kalai line), a fixed reference Sa pitch and
+   tempo — enough to actually hear whether a transcription sounds right,
+   not a full practice-audio feature yet. */
+const PLAYBACK_SA_FREQ = 261.63; // C4 — arbitrary reference pitch, not tied to any real tanpura
+let PLAYBACK_SECONDS_PER_AKSHARA = 0.5; // i.e. a normal (weight-2) note = 1 second; adjustable via the tempo slider
+const PLAY_ICON_SVG = '<svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4.5v11l9-5.5-9-5.5z"/></svg>';
+const STOP_ICON_SVG = '<svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="10" height="10" rx="1.5"/></svg>';
+/* Single place that sets a play button's icon/title/active-class together,
+   so "is this button showing Play or Stop" can never drift out of sync
+   with whether this line is actually the one playing. */
+function setPlayButtonState(btn, isPlaying){
+  if(!btn) return;
+  // Target just the SVG (which may be nested inside an .icon-chip wrapper,
+  // e.g. the "Play kriti" toolbar button, which also has a text label) —
+  // replacing the WHOLE button's innerHTML would silently wipe out any
+  // text label alongside the icon, not just swap the icon itself.
+  const svg = btn.querySelector('svg');
+  if(svg) svg.outerHTML = isPlaying ? STOP_ICON_SVG : PLAY_ICON_SVG;
+  btn.title = isPlaying ? 'Stop playback' : (btn.dataset.playTitle || 'Play (prototype — synthesized/sampled tone, not a real instrument)');
+  btn.classList.toggle('playing-active', isPlaying);
+}
+let playbackSynth = null;
+let playbackInstrument = null;
+let playbackInstrumentLoading = null;
+let playbackActive = false;
+let playbackPart = null; // the currently-running Tone.Part, if any — the actual thing Stop needs to cancel
+// Tracked so a mid-playback tempo change knows what's left to play and
+// where to resume from — see applyTempoChangeDuringPlayback().
+let currentPlaybackCellDivs = null;
+let currentPlaybackSong = null;
+let currentPlaybackStartBtn = null;
+let currentPlaybackHighlightIdx = -1;
+let currentPlaybackCellEndTime = 0; // Tone.now()-scale absolute time the currently-sounding cell finishes
+// Incremented every time a genuinely new session starts or a real Stop
+// happens — lets a delayed mid-tempo-change resume (see
+// applyTempoChangeDuringPlayback) recognize it's been superseded and
+// should not go ahead, e.g. if the user hits Stop during the brief gap
+// while waiting for the current note to finish before that resume fires.
+let playbackGeneration = 0;
+
+/* Real single-sustained-note flute recording (analyzed and confirmed a
+   stable, in-tune C5 = 523.3Hz throughout — see the FFT check done before
+   embedding this), trimmed and MP3-compressed from the original WAV. Tone's
+   Sampler pitch-shifts this ONE recording to cover every note, rather than
+   needing a separate recording per pitch. */
+const PLAYBACK_FLUTE_C5_MP3_B64 = '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';
+
+function getPlaybackFallbackSynth(){
+  if(!playbackSynth && window.Tone){
+    playbackSynth = new Tone.Synth({
+      oscillator: { type: 'triangle' },
+      envelope: { attack: 0.02, decay: 0.08, sustain: 0.6, release: 0.15 },
+    }).toDestination();
+  }
+  return playbackSynth;
+}
+/* Loads the flute sample into a Tone.Sampler exactly once, reusing it on
+   every subsequent play. Falls back to the plain synth (rather than
+   failing playback entirely) if the sample can't load for any reason —
+   and says so via a toast either way, so which path actually fired is
+   visible rather than a silent guess. */
+function getPlaybackInstrument(){
+  if(playbackInstrument) return Promise.resolve(playbackInstrument);
+  if(playbackInstrumentLoading) return playbackInstrumentLoading;
+  playbackInstrumentLoading = new Promise((resolve)=>{
+    let settled = false;
+    const settleSampler = (sampler)=>{
+      if(settled) return; settled = true;
+      playbackInstrument = sampler;
+      showToast('🎵 Flute sample loaded');
+      resolve(sampler);
+    };
+    const settleFallback = (reason)=>{
+      if(settled) return; settled = true;
+      console.warn('Flute sample unavailable, using backup tone:', reason);
+      showToast('⚠ Flute sample unavailable — using backup tone (' + reason + ')');
+      resolve(getPlaybackFallbackSynth());
+    };
+    try{
+      const sampler = new Tone.Sampler({
+        urls: { C5: 'data:audio/mp3;base64,' + PLAYBACK_FLUTE_C5_MP3_B64 },
+        onload: ()=> settleSampler(sampler),
+        onerror: (err)=> settleFallback(String(err && err.message ? err.message : err)),
+      }).toDestination();
+      setTimeout(()=> settleFallback('timed out after 4s'), 4000);
+    }catch(e){
+      settleFallback(String(e));
+    }
+  });
+  return playbackInstrumentLoading;
+}
+
+function clearPlaybackHighlight(){
+  document.querySelectorAll('.beat-cell.playing').forEach(el => el.classList.remove('playing'));
+}
+
+/* Gathers every physical row's cells for a single line, in order — a
+   2-kalai line has two .beat-grid rows for one doubled avartanam, and both
+   need to play in sequence, not just the first. */
+function cellsForLine(lineRow){
+  return Array.from(lineRow.querySelectorAll('.beat-grid'))
+    .flatMap(grid => Array.from(grid.querySelectorAll('.beat-cell')));
+}
+/* Every line within one section's card, in order, flattened into one
+   continuous sequence. */
+function cellsForSection(sectionCard){
+  return Array.from(sectionCard.querySelectorAll('.line-row')).flatMap(cellsForLine);
+}
+/* Every section in the kriti, in order — the whole piece, start to finish. */
+function cellsForKriti(){
+  return Array.from(document.querySelectorAll('#sectionsHost .card[data-si]')).flatMap(cellsForSection);
+}
+/* If the last cell you clicked into is within the given scope element,
+   returns the (possibly-sliced) cell list starting there instead of at
+   the beginning — the same "pick up where you left off" behavior at
+   whatever scope (line/section/kriti) you're playing. */
+function startFromCursorWithin(scopeEl, cellDivs){
+  const focusedInput = lastFocusedNotationCell && lastFocusedNotationCell.input;
+  if(focusedInput && document.body.contains(focusedInput) && scopeEl.contains(focusedInput)){
+    const focusedCellDiv = focusedInput.closest('.beat-cell');
+    const startIdx = cellDivs.indexOf(focusedCellDiv);
+    if(startIdx > 0) return cellDivs.slice(startIdx);
+  }
+  return cellDivs;
+}
+
+async function playLine(lineRow, line, song){
+  const cellDivs = startFromCursorWithin(lineRow, cellsForLine(lineRow));
+  await playCellSequence(cellDivs, song, lineRow.querySelector('[data-act="play"]'));
+}
+async function playSection(sectionCard, song){
+  const cellDivs = startFromCursorWithin(sectionCard, cellsForSection(sectionCard));
+  await playCellSequence(cellDivs, song, sectionCard.querySelector('[data-act="playSection"]'));
+}
+async function playKriti(song){
+  const host = document.getElementById('sectionsHost');
+  const cellDivs = startFromCursorWithin(host, cellsForKriti());
+  await playCellSequence(cellDivs, song, document.getElementById('playKritiBtn'));
+}
+
+/* The shared playback core — takes any flat, ordered list of cells
+   (whether from one line, one section, or the whole kriti) and handles
+   everything: pitch/duration computation, scheduling, highlighting, and
+   auto-scroll to keep the playhead in view as it moves further than a
+   single screen can show. */
+async function playCellSequence(cellDivs, song, startBtn, isResume){
+  if(!window.Tone){ showToast('Playback engine failed to load — check your connection and reload'); return; }
+  if(playbackActive && !isResume) return;
+  if(!cellDivs.length) return;
+  if(!isResume) playbackGeneration++; // a genuinely new session invalidates any pending delayed resume from before
+  const myGeneration = playbackGeneration;
+
+  const variantMap = getRagaVariantMap(song);
+  // Tone.start() MUST run first, and awaited before anything else touches
+  // Tone — it resumes the browser's AudioContext, which starts suspended
+  // until a real user gesture unlocks it. Constructing/loading the Sampler
+  // while the context is still suspended can silently fail to decode the
+  // audio, which then falls back to the plain synth a few seconds later —
+  // this exact ordering bug was the reason the flute sample wasn't
+  // actually being heard, even though it loaded correctly in testing that
+  // used a Chromium flag forcing the AudioContext to already be running.
+  await Tone.start();
+  const instrument = await getPlaybackInstrument();
+  if(myGeneration !== playbackGeneration) return; // superseded by a real Stop/new Play while the above was resolving
+
+  // Two PARALLEL lists, not one shared list — audio and highlight have
+  // different rules for what a sustain token means. A comma/semicolon
+  // extends the AUDIO of the previous note (no new attack, so it genuinely
+  // sustains rather than re-striking) — but the HIGHLIGHT still needs its
+  // own entry for that token, in whatever cell it's actually in, or the
+  // sweep silently skips any cell whose entire content is just a filler.
+  const audioEvents = [];
+  const highlightEvents = [];
+  let clock = 0;
+  let lastFreq = PLAYBACK_SA_FREQ;
+  cellDivs.forEach((cellDiv, cellIdx)=>{
+    const inp = cellDiv.querySelector('input.swara');
+    const tokens = tokenizeCellForPlayback(inp ? inp.value : '');
+    const cellOverride = cellDiv.dataset.variantOverride ? JSON.parse(cellDiv.dataset.variantOverride) : null;
+    tokens.forEach(tok=>{
+      const duration = tok.weight * PLAYBACK_SECONDS_PER_AKSHARA;
+      if(tok.kind === 'note'){
+        // A per-cell variant override (set via the small badge on
+        // ambiguous cells, e.g. Bhairavi's D1/D2) always wins over the
+        // song-level default for THIS specific note, letter by letter.
+        const effectiveVariantMap = (cellOverride && cellOverride[tok.letter] !== undefined)
+          ? Object.assign({}, variantMap, { [tok.letter]: cellOverride[tok.letter] })
+          : variantMap;
+        lastFreq = swaraToFrequency(tok.letter, tok.octave, effectiveVariantMap, PLAYBACK_SA_FREQ);
+        audioEvents.push({ freq: lastFreq, duration, startTime: clock });
+      } else if(audioEvents.length){
+        audioEvents[audioEvents.length-1].duration += duration;
+      } else {
+        audioEvents.push({ freq: lastFreq, duration, startTime: clock });
+      }
+      highlightEvents.push({ cellDiv, cellIdx, startTime: clock, duration });
+      clock += duration;
+    });
+  });
+  if(!audioEvents.length) return;
+
+  playbackActive = true;
+  setPlayButtonState(startBtn, true);
+  setFloatingStopVisible(true);
+
+  // Remembered so a mid-playback tempo change (see applyTempoChangeDuringPlayback
+  // below) knows exactly what's left to play and where to resume from —
+  // the WHOLE cell list this session covers (not just the remainder, so a
+  // second tempo change later still has the full picture), which cell is
+  // currently sounding, and which button to keep updating.
+  currentPlaybackCellDivs = cellDivs;
+  currentPlaybackSong = song;
+  currentPlaybackStartBtn = startBtn;
+  currentPlaybackHighlightIdx = -1;
+
+  // Both audio AND highlight now go through ONE Tone.Part, rather than raw
+  // absolute-time triggerAttackRelease/Tone.Draw.schedule calls. This is
+  // the actual reason Stop didn't work before: those raw calls bypass
+  // Tone's Transport entirely once fired, so there was nothing left to
+  // cancel — stopPlayback() could set a flag, but the already-scheduled
+  // audio just played out regardless, and a second Play then scheduled a
+  // NEW set of notes on top of the still-sounding old ones. A Tone.Part is
+  // Tone's actual cancelable primitive: stopping/disposing it immediately
+  // halts everything still pending, audio included.
+  const combined = audioEvents.map(ev => ({ time: ev.startTime, freq: ev.freq, duration: ev.duration, kind: 'audio' }))
+    .concat(highlightEvents.map(ev => ({ time: ev.startTime, cellDiv: ev.cellDiv, cellIdx: ev.cellIdx, duration: ev.duration, kind: 'highlight' })));
+  const totalDuration = highlightEvents.reduce((s,e)=>Math.max(s, e.startTime + e.duration), 0);
+
+  const part = new Tone.Part((time, ev)=>{
+    if(ev.kind === 'audio'){
+      instrument.triggerAttackRelease(ev.freq, ev.duration * 0.92, time);
+    } else {
+      Tone.Draw.schedule(()=>{
+        clearPlaybackHighlight();
+        ev.cellDiv.classList.add('playing');
+        currentPlaybackHighlightIdx = ev.cellIdx;
+        currentPlaybackCellEndTime = time + ev.duration;
+        // Auto-scroll so the playhead stays visible across a section/whole
+        // kriti long enough to scroll past one screen — 'nearest' so it
+        // only actually scrolls once the cell is close to leaving view,
+        // rather than re-centering on every single note.
+        ev.cellDiv.scrollIntoView({ behavior:'smooth', block:'nearest' });
+      }, time);
+    }
+  }, combined.map(ev => [ev.time, ev]));
+  part.start(0);
+
+  playbackPart = part;
+  Tone.Transport.start();
+
+  Tone.Transport.scheduleOnce(()=>{
+    Tone.Draw.schedule(()=>{
+      clearPlaybackHighlight();
+      playbackActive = false;
+      setPlayButtonState(startBtn, false);
+      setFloatingStopVisible(false);
+      currentPlaybackCellDivs = null;
+    }, Tone.now());
+    if(playbackPart === part){ part.stop(); part.dispose(); playbackPart = null; Tone.Transport.stop(); Tone.Transport.cancel(); }
+  }, totalDuration + 0.05);
+}
+/* Called when either tempo slider is adjusted WHILE something is already
+   playing. The already-scheduled Tone.Part has every note's timing baked
+   in from whatever tempo was in effect when playback started — changing
+   the tempo variable alone does nothing to notes already queued. So: let
+   the cell that's currently sounding finish its full original duration
+   (don't cut it off — this deliberately does NOT call releaseAll(), unlike
+   a real Stop, specifically so the current note keeps ringing out
+   naturally), cancel only the FUTURE notes, and once the current cell's
+   remaining time has actually elapsed, start a fresh schedule for
+   everything from the next cell onward at the new tempo. */
+function applyTempoChangeDuringPlayback(){
+  if(!playbackActive || !currentPlaybackCellDivs) return;
+  const resumeFromIdx = currentPlaybackHighlightIdx + 1;
+  if(resumeFromIdx >= currentPlaybackCellDivs.length) return; // the current cell was already the last one
+  const remaining = currentPlaybackCellDivs.slice(resumeFromIdx);
+  const song = currentPlaybackSong;
+  const btn = currentPlaybackStartBtn;
+  const remainingSeconds = Math.max(0, currentPlaybackCellEndTime - Tone.now());
+  const myGeneration = playbackGeneration; // captured BEFORE cancelling — if a real Stop (or another tempo
+                                            // change) happens during the wait below, this will no longer match
+
+  if(playbackPart){ playbackPart.stop(); playbackPart.dispose(); playbackPart = null; }
+  Tone.Transport.stop();
+  Tone.Transport.cancel();
+  // Deliberately NOT calling releaseAll() here, and deliberately NOT
+  // touching playbackActive — the current note is SUPPOSED to keep
+  // sounding until its original duration is up, and playback is still
+  // genuinely ongoing from the user's perspective throughout this gap.
+
+  setTimeout(()=>{
+    if(playbackGeneration !== myGeneration) return; // superseded by a real Stop or another tempo change meanwhile
+    playCellSequence(remaining, song, btn, true);
+  }, remainingSeconds * 1000);
+}
+function setFloatingStopVisible(visible){
+  const bar = document.getElementById('floatingPlaybackBar');
+  if(!bar) return;
+  bar.style.display = visible ? 'flex' : 'none';
+  if(visible){
+    // Sync the floating tempo slider to whatever the main one currently
+    // shows — it can otherwise start from a stale default if the main
+    // slider was adjusted earlier in the session.
+    const mainSlider = document.getElementById('tempoSlider');
+    const floatSlider = document.getElementById('floatingTempoSlider');
+    const floatLabel = document.getElementById('floatingTempoLabel');
+    if(mainSlider && floatSlider){ floatSlider.value = mainSlider.value; floatLabel.textContent = mainSlider.value; }
+  }
+}
+function stopPlayback(){
+  if(!playbackActive) return;
+  playbackGeneration++; // invalidates any pending delayed resume from a mid-playback tempo change
+  if(playbackPart){ playbackPart.stop(); playbackPart.dispose(); playbackPart = null; }
+  Tone.Transport.stop();
+  Tone.Transport.cancel(); // drops any other pending scheduled callbacks (e.g. the end-of-line cleanup above)
+  if(playbackInstrument && playbackInstrument.releaseAll) playbackInstrument.releaseAll();
+  if(playbackSynth) playbackSynth.releaseAll ? playbackSynth.releaseAll() : playbackSynth.triggerRelease();
+  clearPlaybackHighlight();
+  playbackActive = false;
+  document.querySelectorAll('.playing-active').forEach(btn => setPlayButtonState(btn, false));
+  setFloatingStopVisible(false);
+}
 
 /* ===================== Import pipeline — Step 1 =====================
    Classifies every character of a source line into a speed (1/2/3) and an
@@ -3341,7 +3901,45 @@ const IMPORT_TALA_NAME_MAP = {
 
 function importLineText(runsOrLine){
   const runs = runsOrLine.runs || runsOrLine;
-  return runs.map(r=>r.text).join('');
+  // A space between EVERY separate run, not none — separate PDF text items
+  // (e.g. a section heading split into "Mukthayi" + "Swaram:" by however the
+  // source PDF happened to batch its text-showing operations) need a space
+  // reinserted between them, or "mukthayi\s+swaram" can never match against
+  // the resulting "MukthayiSwaram:". This is safe for every other caller of
+  // this function too: classifyImportLineKind immediately collapses ANY
+  // run of whitespace (single or multiple) down to one space, so an extra
+  // space here is never visible downstream — only a genuinely-missing one
+  // was ever a real problem.
+  return runs.map(r=>r.text).join(' ');
+}
+
+/* Undoes a specific, confirmed PDF-export artifact: this app's own DOCX
+   generator uses Word's character-spacing property to stretch sahitya text
+   so it visually aligns under its swara — and Word/LibreOffice's DOCX->PDF
+   conversion can flatten that spacing into literal space characters
+   embedded WITHIN a single PDF text item's own string (e.g. one item whose
+   raw content is literally "c h a", not three separate items) — different
+   from, and not fixed by, the between-ITEMS spacing handled by
+   importLineText above. Detects a run of 2+ consecutive single-letter
+   "words" and rejoins them into one — a genuinely rare real syllable
+   sequence (two standalone one-letter syllables in a row, uncommon in
+   practice) could theoretically be merged incorrectly, but leaving this
+   unhandled left EVERY multi-letter sahitya word broken, which is by far
+   the more common and more damaging failure. */
+function collapseLetterSpacedWords(text){
+  const tokens = text.split(/\s+/);
+  const out = [];
+  let buffer = '';
+  tokens.forEach(tok=>{
+    if(/^[A-Za-z]$/.test(tok)){
+      buffer += tok;
+    } else {
+      if(buffer){ out.push(buffer); buffer = ''; }
+      out.push(tok);
+    }
+  });
+  if(buffer) out.push(buffer);
+  return out.join(' ');
 }
 
 /* Pulls every recognized "Label: value" (or "LABEL value") field out of a
@@ -3654,6 +4252,25 @@ function assembleImportedSong(fileResult, opts){
     return sec;
   }
   function finalizeNotationLine(swaraRuns, sahityaText){
+    // A section created early from a plain preview-summary mention (see
+    // ensureSection above) has 0 lines until real notation actually
+    // arrives for it — if THIS is that first real content, move it to the
+    // end of the section order now, so sections end up ordered by where
+    // their real notated content actually falls in the source, not by
+    // wherever their name happened to be first mentioned in a summary.
+    // Confirmed necessary against the real Jalajaksha Varnam PDF: its
+    // preview only lists Pallavi/Anupallavi/Charanam (a Varnam's preview
+    // skips swara-only passages), so without this, "Mukthayi Swaram" —
+    // never mentioned in the preview, only encountered once, in its real,
+    // correct position before Charanam — still ended up sorted AFTER
+    // Charanam, which got an early placeholder from the preview alone.
+    if(currentSection.lines.length === 0){
+      const idx = song.sections.indexOf(currentSection);
+      if(idx !== -1 && idx !== song.sections.length - 1){
+        song.sections.splice(idx, 1);
+        song.sections.push(currentSection);
+      }
+    }
     const lines = buildImportedNotationLineFromRuns(cfg, swaraRuns, currentSection.noSahitya ? '' : sahityaText, caseSensitive, warnings, opts);
     lines.forEach(line => currentSection.lines.push(line));
   }
@@ -3713,7 +4330,7 @@ function assembleImportedSong(fileResult, opts){
       return;
     }
     if(mode === 'awaiting-sahitya' && pendingSwara){
-      const lyricPiece = c.text.replace(/\|+/g, ' ').replace(/\s+/g, ' ').trim();
+      const lyricPiece = collapseLetterSpacedWords(c.text.replace(/\|+/g, ' ').replace(/\s+/g, ' ').trim());
       pendingLyricText = pendingLyricText ? pendingLyricText + ' ' + lyricPiece : lyricPiece;
       if(awaitingContinuation) return; // swara side isn't finished yet — keep accumulating, don't finalize
       finalizeNotationLine(pendingSwara.runs, pendingLyricText);
@@ -4038,6 +4655,54 @@ function updateRagaScaleFlag(cellDiv, raw, scale){
     cellDiv.removeAttribute('title');
   }
 }
+/* Shows a small clickable badge — one per ambiguous letter actually
+   present in this cell's swara text (e.g. a cell containing "DN" in a raga
+   where both D and N have two stated variants gets two badges) — showing
+   the variant currently in effect for THIS cell (its own override if set,
+   otherwise the song-level default from Song Details, otherwise whatever
+   getRagaVariantMap already falls back to). Clicking cycles to the next
+   variant and sets an explicit per-cell override; this is purely playback
+   metadata and never touches the swara text itself. A raga with no
+   ambiguous letters at all (the overwhelming majority) never shows any of
+   this — ambiguousLetters is empty, so the loop below does nothing. */
+function updateVariantBadges(cellDiv, rawSwara, row, cellIdx, ambiguousLetters, variantMap){
+  const badgeRow = cellDiv.querySelector('.variant-badge-row');
+  if(!badgeRow) return; // older-rendered cells from before this row existed — nothing to do, rare/harmless
+  badgeRow.innerHTML = '';
+  // Exposed on the DOM element itself (not just held in the song data)
+  // because playback works purely off the rendered .beat-cell elements —
+  // it has no direct index back into which section/line/row this cell
+  // belongs to, so this is the one place override data needs to be
+  // readable from. Kept in sync unconditionally, regardless of whether a
+  // badge is currently shown for this cell.
+  const override = row.variantOverride[cellIdx];
+  if(override && Object.keys(override).length) cellDiv.dataset.variantOverride = JSON.stringify(override);
+  else delete cellDiv.dataset.variantOverride;
+  if(!rawSwara || !Object.keys(ambiguousLetters).length) return;
+  const lettersPresent = Array.from(new Set((rawSwara.match(/[A-Za-z]/g) || []).map(c=>c.toUpperCase())))
+    .filter(letter => ambiguousLetters[letter]);
+  if(!lettersPresent.length) return;
+  lettersPresent.forEach(letter=>{
+    const options = ambiguousLetters[letter];
+    const override = row.variantOverride[cellIdx] && row.variantOverride[cellIdx][letter];
+    const effective = override || variantMap[letter];
+    const badge = document.createElement('button');
+    badge.type = 'button';
+    badge.className = 'variant-badge';
+    badge.textContent = letter + effective;
+    badge.title = `Playing as ${letter}${effective} — click to try ${letter}${options.find(v=>v!==effective) ?? options[0]} instead (this only affects playback, never the printed notation)`;
+    badge.onclick = (e)=>{
+      e.stopPropagation();
+      const currentIdx = options.indexOf(effective);
+      const next = options[(currentIdx + 1) % options.length];
+      if(!row.variantOverride[cellIdx]) row.variantOverride[cellIdx] = {};
+      row.variantOverride[cellIdx][letter] = next;
+      queueSave();
+      updateVariantBadges(cellDiv, rawSwara, row, cellIdx, ambiguousLetters, variantMap);
+    };
+    badgeRow.appendChild(badge);
+  });
+}
 /* Re-checks every already-rendered swara cell against the current raga
    scale — called once whenever arohanam/avarohanam text itself changes,
    since the scale everything is being checked against just changed. */
@@ -4047,6 +4712,63 @@ function rescanRagaScale(){
   const scale = getRagaScale(song);
   document.querySelectorAll('.beat-cell input.swara').forEach(inp=>{
     updateRagaScaleFlag(inp.closest('.beat-cell'), inp.value, scale);
+  });
+}
+/* Re-applies every cell's variant badge against the current ambiguity/
+   default state — needed whenever that state itself changes (arohanam/
+   avarohanam edited, or the song-level default picker in Song Details
+   changed), since a cell with no override of its own needs to immediately
+   reflect a new default rather than showing a stale variant. */
+function rescanVariantBadges(){
+  const song = getSong();
+  if(!song) return;
+  const ambiguous = getAmbiguousVariantLetters(song);
+  const variantMap = getRagaVariantMap(song);
+  document.querySelectorAll('.beat-cell input.swara').forEach(inp=>{
+    const cellDiv = inp.closest('.beat-cell');
+    const rowData = inp.__rowRef;
+    const cellIdx = inp.__cellIdx;
+    if(rowData && cellIdx !== undefined){
+      updateVariantBadges(cellDiv, inp.value, rowData, cellIdx, ambiguous, variantMap);
+    }
+  });
+}
+/* Renders (or clears) the "which variant should play by default" picker in
+   Song Details — only appears at all when the raga's own arohanam/
+   avarohanam genuinely states more than one variant for some letter (see
+   getAmbiguousVariantLetters). Ordinary, unambiguous ragas never show
+   this. Choosing here sets song.variantDefaults, which every cell falls
+   back to unless it has its own individual override (the small badge on
+   the cell itself). */
+function renderVariantDefaultsUI(){
+  const wrap = document.getElementById('variantDefaultsWrap');
+  if(!wrap) return;
+  const song = getSong();
+  const ambiguous = getAmbiguousVariantLetters(song);
+  const letters = Object.keys(ambiguous);
+  if(!letters.length){ wrap.innerHTML = ''; return; }
+  if(!song.variantDefaults) song.variantDefaults = {};
+  const currentMap = getRagaVariantMap(song);
+  wrap.innerHTML = `
+    <div class="variant-defaults">
+      <div class="variant-defaults-title">This raga states more than one form of ${letters.join(', ')} — which should play by default?</div>
+      <div class="variant-defaults-row">
+        ${letters.map(letter => `
+          <div class="variant-defaults-group">
+            <span>${letter}:</span>
+            ${ambiguous[letter].map(v => `<button type="button" class="variant-default-btn ${currentMap[letter]===v?'active':''}" data-letter="${letter}" data-variant="${v}">${letter}${v}</button>`).join('')}
+          </div>
+        `).join('')}
+      </div>
+      <div class="variant-defaults-hint">Individual cells can still be flipped one at a time with their own small badge — this just sets what everything else falls back to.</div>
+    </div>`;
+  wrap.querySelectorAll('.variant-default-btn').forEach(btn=>{
+    btn.onclick = ()=>{
+      song.variantDefaults[btn.dataset.letter] = parseInt(btn.dataset.variant, 10);
+      queueSave();
+      renderVariantDefaultsUI();
+      rescanVariantBadges(); // cells without their own override need to reflect the new default immediately
+    };
   });
 }
 function setHeatmapMode(on){
@@ -4301,6 +5023,44 @@ function getSong(){ return library.find(s=>s.id===currentId); }
 let dashboardSubView = 'list'; // 'list' (kriti browser) or 'rules' (notation rules reference) —
                                 // which content shows in the dashboard's main area.
 
+/* Back-button handling — pressing the device/browser back button (Android's
+   hardware back, iOS's edge-swipe, a desktop browser's back button all
+   trigger the same 'popstate' event in a web app) should take you to the
+   dashboard first rather than exiting straight out of the app, and only
+   exit if you press back again shortly after, from the dashboard itself.
+   We push one throwaway history entry every time we go "deeper" (opening a
+   kriti, or the rules page) so there's always something for the browser to
+   go "back" from; the popstate handler below decides what that actually
+   means for the app depending on where we were AND records what to do. */
+let backPressArmed = false;
+let backPressArmedTimer = null;
+function pushAppHistoryState(){
+  try{ history.pushState({t: Date.now()}, '', location.href); }catch(e){}
+}
+window.addEventListener('popstate', ()=>{
+  const isDeep = (currentView === 'editor') || (currentView === 'dashboard' && dashboardSubView === 'rules');
+  if(isDeep){
+    currentView = 'dashboard';
+    dashboardSubView = 'list';
+    renderAll();
+    pushAppHistoryState(); // stay anchored so the NEXT back press is caught too, not lost to a stale history position
+    return;
+  }
+  // Already at the dashboard's kriti list — this is the "home" level.
+  if(!backPressArmed){
+    backPressArmed = true;
+    showToast('Press back again to exit');
+    pushAppHistoryState(); // consume this back press by re-inserting ourselves
+    clearTimeout(backPressArmedTimer);
+    backPressArmedTimer = setTimeout(()=>{ backPressArmed = false; }, 2000);
+  } else {
+    // Second press within the window — don't re-push, so this back
+    // navigation actually goes through (exits/backgrounds the app).
+    backPressArmed = false;
+    clearTimeout(backPressArmedTimer);
+  }
+});
+
 function goToDashboard(){
   currentView = 'dashboard';
   dashboardSubView = 'list';
@@ -4312,6 +5072,7 @@ function showKritiList(){
 }
 function showRulesPage(){
   dashboardSubView = 'rules';
+  pushAppHistoryState();
   renderAll();
 }
 
@@ -4533,21 +5294,31 @@ function renderMain(){
         <button class="btn primary" id="saveBtn"><span class="icon-chip" style="background:var(--paper); color:var(--indigo-deep);"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h9l3 3v9a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1z"/><path d="M7 4v4h6V4M6 17v-5h8v5"/></svg></span> Save now</button>
         <span class="save-confirm" id="saveConfirm"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.5l4 4 8-9"/></svg> Saved</span>
       </div>
-      <button class="btn" id="duplicateSongBtn"><span class="icon-chip" style="background:var(--paper); color:var(--indigo-deep);"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="10" height="10" rx="1.2"/><path d="M7 6V4a1 1 0 011-1h8a1 1 0 011 1v8a1 1 0 01-1 1h-2"/></svg></span> Duplicate kriti</button>
-      <button class="btn" id="copyDataBtn" title="Copies this kriti's data for pasting into a Claude chat, formatted so Claude can turn it into a .docx"><span class="icon-chip" style="background:var(--paper); color:var(--indigo-deep);"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="8" height="13" rx="1.2"/><path d="M8 4V3a1 1 0 011-1h2a1 1 0 011 1v1"/></svg></span> Copy for Claude</button>
       <button class="btn" id="checkKritiBtn"><span class="icon-chip" style="background:var(--paper); color:var(--indigo-deep);"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7.5"/><path d="M6.5 10.3l2.3 2.3 4.7-5"/></svg></span> Check Kriti</button>
       <button class="btn" id="previewBtn"><span class="icon-chip" style="background:var(--paper); color:var(--indigo-deep);"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 10s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6z"/><circle cx="10" cy="10" r="2.3"/></svg></span> Preview</button>
-      <button class="btn" id="findReplaceBtn"><span class="icon-chip" style="background:var(--paper); color:var(--indigo-deep);"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="8.5" cy="8.5" r="5.5"/><path d="M17 17l-4.3-4.3"/></svg></span> Find & Replace</button>
       <button class="btn" id="downloadDocxBtn"><span class="icon-chip" style="background:var(--paper); color:var(--indigo-deep);"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3v10M6 9l4 4 4-4M4 17h12"/></svg></span> Download/Export (.docx)</button>
-      <button class="heatmap-toggle" id="heatmapToggleBtn" type="button"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="6" height="6" rx="1"/><rect x="11" y="3" width="6" height="6" rx="1"/><rect x="3" y="11" width="6" height="6" rx="1"/><rect x="11" y="11" width="6" height="6" rx="1"/></svg> Akshara heatmap</button>
+      <button class="btn" id="playKritiBtn" title="Play the whole kriti (prototype)" data-play-title="Play the whole kriti (prototype)"><span class="icon-chip" style="background:var(--paper); color:var(--indigo-deep);"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4.5v11l9-5.5-9-5.5z"/></svg></span> Play kriti</button>
+      <div class="actions-dd" id="toolbarMoreDd">
+        <button class="btn actions-dd-btn" type="button">Other actions <svg class="chev" width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7.5l5 5 5-5"/></svg></button>
+        <div class="actions-dd-menu">
+          <button class="btn" id="duplicateSongBtn"><span class="icon-chip" style="background:var(--paper); color:var(--indigo-deep);"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="10" height="10" rx="1.2"/><path d="M7 6V4a1 1 0 011-1h8a1 1 0 011 1v8a1 1 0 01-1 1h-2"/></svg></span> Duplicate kriti</button>
+          <button class="btn" id="copyDataBtn" title="Copies this kriti's data for pasting into a Claude chat, formatted so Claude can turn it into a .docx"><span class="icon-chip" style="background:var(--paper); color:var(--indigo-deep);"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="8" height="13" rx="1.2"/><path d="M8 4V3a1 1 0 011-1h2a1 1 0 011 1v1"/></svg></span> Copy for Claude</button>
+          <button class="btn" id="findReplaceBtn"><span class="icon-chip" style="background:var(--paper); color:var(--indigo-deep);"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="8.5" cy="8.5" r="5.5"/><path d="M17 17l-4.3-4.3"/></svg></span> Find & Replace</button>
+          <button class="heatmap-toggle" id="heatmapToggleBtn" type="button" style="margin-left:0;"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="6" height="6" rx="1"/><rect x="11" y="3" width="6" height="6" rx="1"/><rect x="3" y="11" width="6" height="6" rx="1"/><rect x="11" y="11" width="6" height="6" rx="1"/></svg> Akshara heatmap</button>
+        </div>
+      </div>
+      <div class="toolbar-divider"></div>
+      <button class="btn danger" id="deleteBtn"><span class="icon-chip" style="background:var(--paper); color:var(--warn-deep);"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h12M8 6V4a1 1 0 011-1h2a1 1 0 011 1v2M6 6l.6 10a1 1 0 001 .9h4.8a1 1 0 001-.9L14 6"/></svg></span> Delete kriti</button>
+    </div>
+    <div class="tempo-control-bar">
+      <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4.5v11l9-5.5-9-5.5z"/></svg>
+      <label for="tempoSlider">Playback tempo: <span id="tempoValueLabel">120</span> aksharas/min</label>
+      <input type="range" id="tempoSlider" min="120" max="450" step="10" value="120">
     </div>
     <div class="heatmap-legend" id="heatmapLegend" style="display:none;">
       <span><i style="background:#4caf6e;"></i> matches capacity</span>
       <span><i style="background:#facc15;"></i> off by ≤1</span>
       <span><i style="background:#d64545;"></i> off by more than 1</span>
-    </div>
-    <div class="toolbar-danger-row">
-      <button class="btn danger" id="deleteBtn"><span class="icon-chip" style="background:var(--paper); color:var(--warn-deep);"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h12M8 6V4a1 1 0 011-1h2a1 1 0 011 1v2M6 6l.6 10a1 1 0 001 .9h4.8a1 1 0 001-.9L14 6"/></svg></span> Delete kriti</button>
     </div>
 
     <div class="card">
@@ -4572,6 +5343,7 @@ function renderMain(){
           </select>
         </div>
       </div>
+      <div id="variantDefaultsWrap"></div>
     </div>
 
     <div class="section-jumpnav" id="sectionJumpNav"></div>
@@ -4587,6 +5359,20 @@ function renderMain(){
     setHeatmapMode(!heatmapMode);
     document.getElementById('heatmapLegend').style.display = heatmapMode ? 'flex' : 'none';
   };
+  // Tempo is a persistent, session-level setting (like heatmapMode) — sync
+  // this freshly-rendered slider to whatever value is currently in effect,
+  // rather than always resetting the display to the default 120.
+  const tempoSlider = document.getElementById('tempoSlider');
+  const tempoLabel = document.getElementById('tempoValueLabel');
+  const currentAksharasPerMin = Math.round(60 / PLAYBACK_SECONDS_PER_AKSHARA);
+  tempoSlider.value = currentAksharasPerMin;
+  tempoLabel.textContent = currentAksharasPerMin;
+  tempoSlider.oninput = (e)=>{
+    const aksharasPerMin = parseInt(e.target.value, 10);
+    PLAYBACK_SECONDS_PER_AKSHARA = 60 / aksharasPerMin;
+    tempoLabel.textContent = aksharasPerMin;
+  };
+  tempoSlider.onchange = applyTempoChangeDuringPlayback; // fires once, on release — not on every drag tick
   // heatmapMode can persist from a previously-viewed kriti (module-level
   // state) — sync this freshly-rendered toggle button/legend to match; the
   // cells themselves get colored naturally when renderSections() below
@@ -4602,8 +5388,9 @@ function renderMain(){
   document.getElementById('f_raga').oninput = e=>{ song.raga=e.target.value; renderSongList(); queueSave(); };
   document.getElementById('f_mela').oninput = e=>{ song.melakarta=e.target.value; renderSongList(); queueSave(); };
   document.getElementById('f_composer').oninput = e=>{ song.composer=e.target.value; queueSave(); };
-  document.getElementById('f_aro').oninput = e=>{ song.arohanam=e.target.value; queueSave(); rescanRagaScale(); };
-  document.getElementById('f_ava').oninput = e=>{ song.avarohanam=e.target.value; queueSave(); rescanRagaScale(); };
+  document.getElementById('f_aro').oninput = e=>{ song.arohanam=e.target.value; queueSave(); rescanRagaScale(); renderVariantDefaultsUI(); rescanVariantBadges(); };
+  document.getElementById('f_ava').oninput = e=>{ song.avarohanam=e.target.value; queueSave(); rescanRagaScale(); renderVariantDefaultsUI(); rescanVariantBadges(); };
+  renderVariantDefaultsUI();
   document.getElementById('f_tala').onchange = e=>{
     song.tala = e.target.value;
     document.getElementById('kalaiWrap').style.display = TALAS[song.tala].kalaiAware ? '' : 'none';
@@ -4616,6 +5403,10 @@ function renderMain(){
   document.getElementById('previewBtn').onclick = openPreview;
   document.getElementById('findReplaceBtn').onclick = openFindReplace;
   document.getElementById('downloadDocxBtn').onclick = ()=>openDocxDownloadExportChoice(song);
+  document.getElementById('playKritiBtn').onclick = ()=>{
+    if(playbackActive){ stopPlayback(); return; }
+    playKriti(song);
+  };
   document.getElementById('copyDataBtn').onclick = ()=>copyForClaude(song);
   document.getElementById('deleteBtn').onclick = ()=>deleteSong(song.id);
   document.getElementById('duplicateSongBtn').onclick = ()=>duplicateSong(song.id);
@@ -4650,10 +5441,21 @@ function renderSections(){
     card.innerHTML = `
       <div class="section-head">
         <input value="${escapeHtml(sec.name)}" data-si="${si}" class="secName" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off">
-        <button class="btn small icon-only" data-si="${si}" data-act="secUp" title="Move section up"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15V5M5 9l5-5 5 5"/></svg></button>
-        <button class="btn small icon-only" data-si="${si}" data-act="secDown" title="Move section down"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 5v10M5 11l5 5 5-5"/></svg></button>
-        <button class="btn small" data-si="${si}" data-act="spreadPattern" title="Copy this section's swara (not sahitya) into other sections"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10h8m0 0l-3-3m3 3l-3 3M16 5v10"/></svg> Spread pattern</button>
-        <button class="btn small danger" data-si="${si}" data-act="delSec">Remove section</button>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <button class="btn small icon-only" data-act="playSection" title="Play this whole section (prototype)" data-play-title="Play this whole section (prototype)"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4.5v11l9-5.5-9-5.5z"/></svg></button>
+          <div class="actions-dd">
+            <button class="btn small actions-dd-btn" type="button">Other actions <svg class="chev" width="11" height="11" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7.5l5 5 5-5"/></svg></button>
+            <div class="actions-dd-menu">
+              <div class="icon-only-row">
+                <button class="btn small icon-only" data-si="${si}" data-act="secUp" title="Move section up"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15V5M5 9l5-5 5 5"/></svg></button>
+                <button class="btn small icon-only" data-si="${si}" data-act="secDown" title="Move section down"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 5v10M5 11l5 5 5-5"/></svg></button>
+              </div>
+              <button class="btn small" data-si="${si}" data-act="spreadPattern" title="Copy this section's swara (not sahitya) into other sections"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10h8m0 0l-3-3m3 3l-3 3M16 5v10"/></svg> Spread pattern</button>
+            </div>
+          </div>
+          <div class="toolbar-divider"></div>
+          <button class="btn small danger" data-si="${si}" data-act="delSec">Remove section</button>
+        </div>
       </div>
       <div class="fieldwrap">
         <label style="display:flex; align-items:center; gap:8px; cursor:pointer; text-transform:none; letter-spacing:0; font-weight:600; font-size:12.5px;">
@@ -4699,6 +5501,10 @@ function renderSections(){
     }
     const refOverride = card.querySelector('.secPallaviOverride');
     if(refOverride){ refOverride.oninput = e=>{ sec.pallaviOverride = e.target.value; queueSave(); }; }
+    card.querySelector('[data-act="playSection"]').onclick = ()=>{
+      if(playbackActive){ stopPlayback(); return; }
+      playSection(card, song);
+    };
     const secUpBtn = card.querySelector('[data-act="secUp"]');
     const secDownBtn = card.querySelector('[data-act="secDown"]');
     if(si === 0) secUpBtn.disabled = true;
@@ -4764,6 +5570,7 @@ function buildRowGrid(cfg, noSahitya){
     cols.push(cellWidthPx(cap) + 'px');
     cellsHtml += `
       <div class="beat-cell" data-cap="${cap}" title="${cap} aksharas — wrap text in *single* or **double** for speed underline">
+        <div class="variant-badge-row"></div>
         <input class="swara" placeholder="swara" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off">
         <div class="aksh-badge"></div>
         ${noSahitya ? '' : `
@@ -4785,8 +5592,10 @@ function ensureLineShape(line, cfg, kalai){
   while(line.rows.length < n) line.rows.push(blankRow(cellCount));
   line.rows.length = n;
   line.rows.forEach(r=>{
-    while(r.swara.length < cellCount){ r.swara.push(''); r.lyric.push(''); }
-    r.swara.length = cellCount; r.lyric.length = cellCount;
+    if(!r.variantOverride) r.variantOverride = []; // songs saved before this field existed
+    while(r.swara.length < cellCount){ r.swara.push(''); r.lyric.push(''); r.variantOverride.push(null); }
+    r.swara.length = cellCount; r.lyric.length = cellCount; r.variantOverride.length = cellCount;
+    for(let i=0;i<cellCount;i++){ if(r.variantOverride[i] === undefined) r.variantOverride[i] = null; }
   });
 }
 
@@ -4840,14 +5649,20 @@ function renderLines(host, sec, cfg, kalai){
     row.innerHTML = `
       <div class="line-top">
         <input class="label" placeholder="1)" value="${escapeHtml(line.label)}" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off">
+        <button class="btn small icon-only" data-act="play" title="Play this line (prototype — synthesized/sampled tone, not a real instrument)" data-play-title="Play this line (prototype — synthesized/sampled tone, not a real instrument)"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4.5v11l9-5.5-9-5.5z"/></svg></button>
         <div class="spacer"></div>
         <button class="btn small icon-only" data-act="undo" title="Undo (Ctrl+Z)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg></button>
         <button class="btn small icon-only" data-act="redo" title="Redo (Ctrl+Y)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg></button>
         <button class="btn small icon-only" data-act="moveup" title="Move line up"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15V5M5 9l5-5 5 5"/></svg></button>
         <button class="btn small icon-only" data-act="movedown" title="Move line down"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 5v10M5 11l5 5 5-5"/></svg></button>
-        <button class="btn small" data-act="dup"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="10" height="10" rx="1.2"/><path d="M7 6V4a1 1 0 011-1h8a1 1 0 011 1v8a1 1 0 01-1 1h-2"/></svg> Duplicate</button>
-        <button class="btn small" data-act="clear"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3l4 4-8.5 8.5H4v-4.5z"/><path d="M9 17H4"/></svg> Clear</button>
-        <button class="btn small danger" data-act="del"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 5l10 10M15 5L5 15"/></svg> Remove line</button>
+        <div class="actions-dd">
+          <button class="btn small actions-dd-btn" type="button">Other actions <svg class="chev" width="11" height="11" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7.5l5 5 5-5"/></svg></button>
+          <div class="actions-dd-menu">
+            <button class="btn small" data-act="dup"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="10" height="10" rx="1.2"/><path d="M7 6V4a1 1 0 011-1h8a1 1 0 011 1v8a1 1 0 01-1 1h-2"/></svg> Duplicate</button>
+            <button class="btn small" data-act="clear"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3l4 4-8.5 8.5H4v-4.5z"/><path d="M9 17H4"/></svg> Clear</button>
+            <button class="btn small danger" data-act="del"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 5l10 10M15 5L5 15"/></svg> Remove line</button>
+          </div>
+        </div>
       </div>
       ${rowsHtml}
       <div class="preview"></div>
@@ -4858,6 +5673,10 @@ function renderLines(host, sec, cfg, kalai){
     labelInput.oninput = e=>{ line.label = e.target.value; queueSave(); updatePreview(row, line, noSahitya, cfg, kalai); };
     row.querySelector('[data-act="undo"]').onclick = performUndo;
     row.querySelector('[data-act="redo"]').onclick = performRedo;
+    row.querySelector('[data-act="play"]').onclick = ()=>{
+      if(playbackActive){ stopPlayback(); return; }
+      playLine(row, line, getSong());
+    };
     const moveUpBtn = row.querySelector('[data-act="moveup"]');
     const moveDownBtn = row.querySelector('[data-act="movedown"]');
     if(li === 0) moveUpBtn.disabled = true;
@@ -4897,14 +5716,17 @@ function renderLines(host, sec, cfg, kalai){
         inp.value = r.swara[i];
         const cap = cfg.rowCells[i];
         const cellDiv = inp.closest('.beat-cell');
+        inp.__rowRef = r; inp.__cellIdx = i; // lets rescanVariantBadges() find its way back here without a full re-render
         updateAksharaBadge(cellDiv, r.swara[i], cap);
         if(!noSahitya) updateAlignBadge(cellDiv, r.swara[i], r.lyric[i]);
         updateRagaScaleFlag(cellDiv, r.swara[i], getRagaScale(getSong()));
+        updateVariantBadges(cellDiv, r.swara[i], r, i, getAmbiguousVariantLetters(getSong()), getRagaVariantMap(getSong()));
         inp.oninput = e=>{
           r.swara[i] = sanitizeSwaraLive(inp);
           updateAksharaBadge(cellDiv, r.swara[i], cap);
           if(!noSahitya) updateAlignBadge(cellDiv, r.swara[i], r.lyric[i]);
           updateRagaScaleFlag(cellDiv, r.swara[i], getRagaScale(getSong()));
+          updateVariantBadges(cellDiv, r.swara[i], r, i, getAmbiguousVariantLetters(getSong()), getRagaVariantMap(getSong()));
           queueSave(); updatePreview(row, line, noSahitya, cfg, kalai);
         };
         inp.onfocus = ()=> focusModeEnter(row);
@@ -5508,6 +6330,47 @@ function copyForClaude(song){
 }
 
 /* ===================== Boot ===================== */
+document.getElementById('floatingStopBtn').onclick = stopPlayback;
+document.getElementById('floatingTempoSlider').oninput = (e)=>{
+  const aksharasPerMin = parseInt(e.target.value, 10);
+  PLAYBACK_SECONDS_PER_AKSHARA = 60 / aksharasPerMin;
+  document.getElementById('floatingTempoLabel').textContent = aksharasPerMin;
+  // Keep the main tempo slider in sync too, so it doesn't show a stale
+  // value once it scrolls back into view after playback ends.
+  const mainSlider = document.getElementById('tempoSlider');
+  const mainLabel = document.getElementById('tempoValueLabel');
+  if(mainSlider){ mainSlider.value = aksharasPerMin; mainLabel.textContent = aksharasPerMin; }
+};
+document.getElementById('floatingTempoSlider').onchange = applyTempoChangeDuringPlayback;
+document.addEventListener('keydown', e=>{
+  if(e.key === 'Escape' && playbackActive) stopPlayback();
+});
+
+/* Generic "Other actions" dropdown behavior — one delegated listener handles
+   every instance (top toolbar, section header, line toolbar) rather than
+   wiring each one individually, so it keeps working through re-renders
+   without needing to re-attach anything. Clicking a trigger toggles its own
+   menu and closes any other open one; clicking anywhere else, or clicking
+   an actual action inside the menu, closes it. */
+document.addEventListener('click', e=>{
+  const trigger = e.target.closest('.actions-dd-btn');
+  if(trigger){
+    const dd = trigger.closest('.actions-dd');
+    const wasOpen = dd.classList.contains('open');
+    document.querySelectorAll('.actions-dd.open').forEach(el=>el.classList.remove('open'));
+    if(!wasOpen) dd.classList.add('open');
+    return;
+  }
+  if(e.target.closest('.actions-dd-menu')){
+    if(e.target.closest('.dd-keep-open')) return; // e.g. the tempo slider — interacting with it shouldn't close the menu mid-drag
+    // an actual action was clicked inside an open menu — let it run, then close
+    const dd = e.target.closest('.actions-dd');
+    if(dd) requestAnimationFrame(()=> dd.classList.remove('open'));
+    return;
+  }
+  document.querySelectorAll('.actions-dd.open').forEach(el=>el.classList.remove('open'));
+});
+
 async function renderAll(){
   renderMain(); // handles both the dashboard (incl. its own song list refresh) and the editor view
 }
@@ -5518,6 +6381,7 @@ function createNewSong(tala, kalai){
   library.unshift(s);
   currentId = s.id;
   currentView = 'editor';
+  pushAppHistoryState();
   persist();
   renderAll();
 }
@@ -5674,6 +6538,7 @@ function commitImportedSong(){
   library.unshift(song);
   currentId = song.id;
   currentView = 'editor';
+  pushAppHistoryState();
   const warningCount = importPendingResult.warnings.length;
   closeImportPreview();
   persist();
@@ -5835,6 +6700,11 @@ function attemptAutoConnectDrive(retriesLeft){
   if(library.length) currentId = library[0].id;
   renderAll();
   updateSyncButton();
+  // Baseline history entry — establishes "home" as a real position in the
+  // browser's history stack, so the very first back-button press on a
+  // freshly-loaded dashboard is caught by the popstate handler (armed →
+  // "press again to exit") instead of navigating straight out of the app.
+  pushAppHistoryState();
   // Automatically prompt to connect to Google Drive on every fresh app open
   // (the access token is memory-only, so this is always needed after a
   // reload). NOTE: this opens the Google account-chooser as a popup, and
