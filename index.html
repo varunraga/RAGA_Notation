@@ -1889,6 +1889,8 @@ async function syncLibraryToDrive(auto){
       try{ localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(library)); }catch(e){}
       setDriveDirtyCount(0);
       setDriveLibraryChecksum(conflict.checksum);
+      driveConflictPending = false; // same reasoning as the normal-upload path below
+      driveConflictRemote = null;
       driveLastSyncedAt = Date.now();
       try{ localStorage.setItem(DRIVE_LAST_SYNCED_KEY, String(driveLastSyncedAt)); }catch(e){}
       renderAll();
@@ -1918,6 +1920,17 @@ async function syncLibraryToDrive(auto){
     driveLastSyncedAt = Date.now();
     try{ localStorage.setItem(DRIVE_LAST_SYNCED_KEY, String(driveLastSyncedAt)); }catch(e){}
     setDriveDirtyCount(0);
+    // A successful sync reaching this point means checkDriveConflict() found
+    // no mismatch THIS time — even if an earlier auto-triggered check had
+    // set driveConflictPending from a since-resolved/transient mismatch, a
+    // clean upload here means there's nothing left to warn about. Without
+    // this, the only way to ever clear the flag was clicking through the
+    // conflict modal's own buttons — so once set, a sync that later found no
+    // conflict would still succeed silently while the stale "Drive changed
+    // elsewhere" warning stayed on screen forever, looking like syncing
+    // was never actually working no matter how many times it ran.
+    driveConflictPending = false;
+    driveConflictRemote = null;
     updateSyncStatusText();
     if(!auto) showToast('Synced to Google Drive ✓');
   }catch(e){
