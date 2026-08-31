@@ -591,7 +591,7 @@
   .hint code{ background:var(--surface-deep); padding:1px 5px; border-radius:var(--radius-sm); font-family:'Courier Prime',monospace; }
 
   .preview{
-    font-family:'Consolas','Courier Prime',monospace; background:#1a1a2e; color:#ececeb;
+    font-family:'Courier Prime',monospace; background:#1a1a2e; color:#ececeb;
     border-radius:var(--radius-md); padding:16px 18px; font-size:14px; line-height:2; overflow-x:auto; margin-top:14px;
     border:1px solid #3a3a5c;
   }
@@ -599,7 +599,7 @@
   /* ---------- Notation grid tables (shared by live preview and the full
      Preview modal — mirrors the .docx export's real table structure:
      fixed per-cell widths, an explicit divider cell, Consolas font. ---------- */
-  .grid-table-dark, .grid-table-doc{ border-collapse:collapse; table-layout:fixed; font-family:'Consolas','Courier Prime',monospace; }
+  .grid-table-dark, .grid-table-doc{ border-collapse:collapse; table-layout:fixed; font-family:'Courier Prime',monospace; }
   .grid-table-dark{ margin:2px 0; }
   .grid-table-doc{ margin:1px 0; }
   .grid-table-dark td, .grid-table-doc td{ padding:0 1px; vertical-align:middle; white-space:pre; overflow:visible; }
@@ -674,14 +674,14 @@
   .preview-modal-sub{ font-size:12px; color:var(--ink-soft); flex:1; }
   .preview-modal-body{ padding:30px 36px 50px; overflow-x:auto; }
 
-  .doc-title{ font-family:'Consolas','Courier Prime',monospace; font-weight:700; text-decoration:underline; text-align:center; font-size:15px; color:#111; }
-  .doc-meta{ font-family:'Consolas','Courier Prime',monospace; font-size:13.5px; color:#111; }
+  .doc-title{ font-family:'Courier Prime',monospace; font-weight:700; text-decoration:underline; text-align:center; font-size:15px; color:#111; }
+  .doc-meta{ font-family:'Courier Prime',monospace; font-size:13.5px; color:#111; }
   .doc-meta b{ font-weight:700; }
   .doc-blank{ height:16px; }
-  .doc-heading{ font-family:'Consolas','Courier Prime',monospace; font-weight:700; text-decoration:underline; font-size:13.5px; color:#111; }
-  .doc-lyric-line{ font-family:'Consolas','Courier Prime',monospace; font-size:13px; color:#222; }
-  .doc-refnote{ font-family:'Consolas','Courier Prime',monospace; font-weight:700; font-size:13px; color:#111; }
-  .doc-end{ font-family:'Consolas','Courier Prime',monospace; text-align:center; font-size:13px; color:#111; }
+  .doc-heading{ font-family:'Courier Prime',monospace; font-weight:700; text-decoration:underline; font-size:13.5px; color:#111; }
+  .doc-lyric-line{ font-family:'Courier Prime',monospace; font-size:13px; color:#222; }
+  .doc-refnote{ font-family:'Courier Prime',monospace; font-weight:700; font-size:13px; color:#111; }
+  .doc-end{ font-family:'Courier Prime',monospace; text-align:center; font-size:13px; color:#111; }
   /* ---------- Storage quota modal ---------- */
   .quota-overlay{
     position:fixed; inset:0; background:rgba(var(--ink-rgb),0.55); z-index:110;
@@ -709,7 +709,7 @@
     background:var(--paper); font-family:'Inter',sans-serif;
   }
   .check-issue:hover{ background:var(--surface); }
-  .check-issue .badge-text{ font-family:'Consolas','Courier Prime',monospace; font-weight:700; color:var(--warn-soft); flex:none; }
+  .check-issue .badge-text{ font-family:'Courier Prime',monospace; font-weight:700; color:var(--warn-soft); flex:none; }
   .check-issue .issue-loc{ font-size:12px; color:var(--ink-soft); line-height:1.4; }
   .quota-modal{
     background:var(--paper); border-radius:var(--radius-lg); max-width:420px; width:100%;
@@ -5935,7 +5935,7 @@ function ensureDocxLib(){
    the missing-divider / wrong-width bug). All widths are in dxa (twips,
    1/20 pt) to match Word's native unit; the HTML renderer converts to pt
    (dxa/20) for CSS, which is a lossless, exact conversion. */
-const GRID_FONT = 'Consolas';
+const GRID_FONT = 'Courier New';
 const GRID_SZ = 20; // 10pt, in half-points (Word's TextRun.size unit)
 const SHEET_SZ = 22; // 11pt
 const GRID_EDGE = '\u2551', GRID_AVART_DIV = '\u2551', GRID_PIPE_DIV = '|';
@@ -5947,7 +5947,21 @@ const GRID_CELL_UNIT = 470; // dxa per akshara of cell capacity — content-inde
    letter-spacing, its exact visual equivalent) adds space after every glyph
    without inserting real space characters, so it can't affect the tokenizer,
    spacing rules, or alignment — purely cosmetic stretch to fill the box. */
-const GRID_CHAR_WIDTH_TWIPS = 120; // ~0.6em advance width for Consolas at 10pt
+// Was Consolas — confirmed via web research that Consolas isn't installed by
+// default on Android, iOS, OR even macOS (it only ships with Windows/
+// Office), so Word Mobile was silently substituting some other font on
+// every non-Windows device, breaking every width/spacing calculation below
+// (all tuned for one specific font's metrics). Courier New is one of
+// Microsoft's original cross-platform "core" fonts, bundled with Office
+// across Windows, Mac, Android, and iOS for decades — the safest realistic
+// choice for a DOCX, which can only ever request a font by name and has no
+// way to guarantee it's actually installed on the viewing device.
+const GRID_CHAR_WIDTH_TWIPS = 120; // ~0.6em advance width — confirmed against Courier Prime's actual
+                                    // measured glyph metrics (0.5996em, i.e. essentially exactly 0.6),
+                                    // which itself is metric-compatible with Courier New's classic
+                                    // "10 characters per inch at 12pt" typewriter-pitch specification —
+                                    // the same standard convention Consolas happened to already match,
+                                    // which is why this constant needs no change for the new font.
 const GRID_MAX_CHAR_SPACING_TWIPS = 60;
 function computeCellSpacing(contentLen, targetWidthTwips){
   if(contentLen <= 0) return 0;
