@@ -6027,6 +6027,7 @@ async function buildDocxBlob(song){
     return new Paragraph({
       alignment: opts.center ? AlignmentType.CENTER : undefined,
       spacing: { after: opts.after !== undefined ? opts.after : 0 },
+      keepNext: !!opts.keepNext,
       // Always carry a real run, even when text is '' — an empty Paragraph with
       // no children falls back to Word's default line-height instead of the
       // sheet's font/size, so blank spacer rows can render visibly thinner than
@@ -6036,9 +6037,10 @@ async function buildDocxBlob(song){
   }
   /* Half-height blank spacer, used to build a "1.5 row" gap: a full dPlainPara('')
      row plus one of these gives ~1.5 rows without guessing exact twip values. */
-  function dHalfRowSpacer(size){
+  function dHalfRowSpacer(size, keepNext){
     return new Paragraph({
       spacing: { after: 0 },
+      keepNext: !!keepNext,
       children: [drun('', { size: Math.round((size || SZ_D) / 2) })],
     });
   }
@@ -6142,8 +6144,13 @@ async function buildDocxBlob(song){
       // noticeably tighter than the full blank row used between different lines,
       // so the two halves still read as one continuous line rather than two
       // separate ones, while no longer sitting flush against each other.
+      // For a no-sahitya line specifically, this spacer ALSO needs keepNext —
+      // without it, the swara row's own keepNext only glues it to this
+      // spacer, but the spacer itself was free to be followed by a page
+      // break, meaning the two physical rows of a single avartanam could
+      // genuinely end up split across two pages.
       if(ri < numRows - 1){
-        rowsOut.push(dHalfRowSpacer());
+        rowsOut.push(dHalfRowSpacer(undefined, noSahitya));
       }
     }
     return rowsOut;
@@ -6179,9 +6186,20 @@ async function buildDocxBlob(song){
     song.sections.forEach((sec, si)=>{
       body.push(dSectionHeading(sec.name, true));
       body.push(dPlainPara(''));
-      sec.lines.forEach(line=>{
+      sec.lines.forEach((line, li)=>{
         dBuildLineTable(cfg, line, kalai, sec.noSahitya).forEach(t=>body.push(t));
-        body.push(dPlainPara(''));
+        // For a no-sahitya section at 1 kalai (one avartanam per line — a
+        // 2-kalai line already IS one full avartanam on its own, handled by
+        // dHalfRowSpacer's own keepNext above, so it doesn't need pairing
+        // across lines too), pair up consecutive avartanam-lines so a page
+        // break can only ever fall BETWEEN pairs, never inside one — a lone
+        // avartanam stranded at the top or bottom of a page on its own reads
+        // too thin. The last line of an odd-numbered section is deliberately
+        // left unpaired (li < sec.lines.length-1 guards this) — gluing it
+        // forward would reach into whatever comes after this section
+        // entirely, which was never the intent.
+        const pairWithNext = sec.noSahitya && kalai !== 2 && li % 2 === 0 && li < sec.lines.length - 1;
+        body.push(dPlainPara('', { keepNext: pairWithNext }));
       });
       if(si !== 0 && sec.showPallaviRef){
         const text = sec.pallaviOverride && sec.pallaviOverride.trim() ? sec.pallaviOverride.trim() : derivedOpening;
