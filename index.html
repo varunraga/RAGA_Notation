@@ -21,6 +21,7 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
 <style>
   :root{
@@ -125,6 +126,47 @@
     #printContainer .grid-table-doc{ page-break-inside:avoid; break-inside:avoid; }
     #printContainer .doc-heading{ page-break-after:avoid; break-after:avoid; }
     @page{ size:landscape; margin:12mm; }
+  }
+  /* Print-to-PDF for a whole kriti — a genuine replica of the exported
+     .docx, not the approximate on-screen Preview: same page size/margins
+     (14in x 8.5in landscape, 18in for Tishra Nadai Adi's wider grid — both
+     copied exactly from the docx exporter's own page setup), same
+     break-avoidance rules as its keepNext/cantSplit properties.
+     Deliberately NOT the same visibility:hidden + position:absolute
+     technique #printContainer above uses — confirmed by actually
+     generating a real multi-page PDF and inspecting it page by page that
+     position:absolute clips print content to a single page's visible
+     height instead of letting it paginate (only 13 of 24 test lines made
+     it into the PDF; #printContainer never surfaced this because its own
+     content always happens to fit on one page). display:none instead —
+     removed elements take no layout space at all, so the print container
+     can sit in normal flow and paginate properly across as many pages as
+     it needs. */
+  @media print{
+    body > *:not(#printReadyOverlay){ display:none !important; }
+    #printReadyOverlay{
+      display:block !important; position:static; width:100%; background:#fffef9;
+    }
+    /* #printContainer's own print block above sets body *{visibility:hidden}
+       — that rule is still globally active during any print, including one
+       triggered from here, and without this it silently makes every one of
+       these elements invisible even though display/position are correct
+       (confirmed directly: innerHTML had real content, innerText reported
+       zero — display was right, visibility wasn't). */
+    #printReadyOverlay, #printReadyOverlay *{ visibility:visible !important; }
+    /* Ancestors between #printReadyOverlay and the actual content also
+       constrain layout for their normal on-screen modal use (overflow:hidden,
+       a max-width cap, internal scroll) — any of these would ALSO clip or
+       cut off print content the same way position:absolute did above, so
+       every one needs an explicit override here, scoped to print-ready
+       specifically so the regular on-screen preview modal is untouched. */
+    #printReadyOverlay .preview-modal{ max-width:none; overflow:visible; box-shadow:none; }
+    #printReadyOverlay .preview-modal-body{ overflow:visible; padding:0; }
+    .no-print{ display:none !important; }
+    .print-ready-page{ padding:0; }
+    .print-ready-page .grid-table-doc{ page-break-inside:avoid; break-inside:avoid; }
+    .print-ready-page .keep-together{ page-break-inside:avoid; break-inside:avoid; }
+    .print-ready-page .doc-heading{ page-break-after:avoid; break-after:avoid; }
   }
   body{
     margin:0;
@@ -304,6 +346,18 @@
   }
   .field-grid{ display:grid; grid-template-columns:1fr 1fr; gap:14px; }
   @media (max-width:700px){ .field-grid{ grid-template-columns:1fr; } }
+  .raga-autocomplete-list{
+    position:absolute; top:100%; left:0; right:0; z-index:10; margin-top:2px;
+    background:var(--paper); border:1px solid var(--line); border-radius:var(--radius-sm);
+    box-shadow:0 8px 24px rgba(0,0,0,0.15); max-height:220px; overflow-y:auto;
+  }
+  .raga-autocomplete-item{
+    padding:8px 12px; cursor:pointer; font-size:13px; color:var(--ink); border-bottom:1px solid var(--line);
+  }
+  .raga-autocomplete-item:last-child{ border-bottom:none; }
+  .raga-autocomplete-item:hover{ background:var(--panel); }
+  .raga-autocomplete-item .raga-ac-name{ font-weight:600; }
+  .raga-autocomplete-item .raga-ac-mela{ color:var(--ink-soft); font-size:11.5px; margin-left:6px; }
   label{ font-size:11.5px; text-transform:uppercase; letter-spacing:1px; color:var(--ink-soft); font-weight:600; display:block; margin-bottom:5px; }
   input[type=text], select, textarea{
     width:100%; padding:9px 10px; border-radius:var(--radius-sm); border:1px solid var(--line);
@@ -571,6 +625,28 @@
   .rule-table th, .rule-table td{ text-align:left; padding:7px 10px; border-bottom:1px solid var(--line); }
   .rule-table th{ font-size:10.5px; text-transform:uppercase; letter-spacing:.5px; color:var(--ink-soft); font-weight:700; }
   .rule-table td b{ color:var(--ink); }
+
+  /* ---------- Raga Directory ---------- */
+  .raga-dir-table{
+    width:100%; border-collapse:separate; border-spacing:0; margin:18px 0 8px; font-size:13.5px;
+    border:1px solid var(--line); border-radius:var(--radius-md); overflow:hidden;
+    box-shadow:0 1px 3px rgba(0,0,0,0.04);
+  }
+  .raga-dir-table thead th{
+    text-align:left; padding:11px 14px; font-size:10.5px; text-transform:uppercase; letter-spacing:.6px;
+    font-weight:700; color:var(--ink-soft); background:var(--panel); border-bottom:1px solid var(--line);
+  }
+  .raga-dir-table tbody td{ padding:11px 14px; border-bottom:1px solid var(--line); vertical-align:top; }
+  .raga-dir-table tbody tr:last-child td{ border-bottom:none; }
+  .raga-dir-table tbody tr:nth-child(even){ background:rgba(74,74,239,0.02); }
+  .raga-dir-table tbody tr:hover{ background:rgba(74,74,239,0.05); }
+  .raga-dir-name{ font-family:'Fraunces',serif; font-weight:600; font-size:14.5px; color:var(--heading); white-space:nowrap; }
+  .raga-dir-mela-name{ font-style:italic; color:var(--indigo-deep); font-size:13px; }
+  .raga-dir-dim{ color:var(--ink-soft); opacity:.5; }
+  .raga-dir-mono{ font-family:'Inter',sans-serif; font-size:13.5px; color:var(--ink); }
+  .raga-dir-actions{ white-space:nowrap; text-align:right; }
+  .raga-dir-mela-preview{ font-size:11.5px; color:var(--indigo-deep); font-weight:600; margin-top:4px; min-height:14px; }
+
   .rules-print-btn{
     display:inline-flex; align-items:center; gap:8px; padding:11px 20px; border-radius:var(--radius-md);
     border:1px solid var(--brand-blue); background:linear-gradient(135deg, var(--indigo), var(--brand-blue));
@@ -607,21 +683,35 @@
   .grid-table-dark .grid-div-cell, .grid-table-doc .grid-div-cell{ text-align:center; font-weight:700; }
   .grid-table-dark .swara-row td{ color:#ececeb; font-weight:700; font-size:14px; }
   .grid-table-dark .lyric-row td{ color:#a8acbf; font-size:12.5px; font-weight:400; }
-  .grid-table-doc .swara-row td{ color:#111; font-weight:700; font-size:12.5px; }
-  .grid-table-doc .lyric-row td{ color:#444; font-size:11px; font-weight:400; }
-  /* Warm, more calligraphic underline treatment for speed markup — thicker,
-     with a small gap from the letters (offset) so it reads as a deliberate
-     notation mark rather than a plain web-underline, and each speed gets
-     its own ink color so 2nd vs 3rd speed is recognizable by color at a
-     glance, not just by counting how many lines are under the text. */
-  .grid-table-dark .swara-row .ul-sgl, .grid-table-doc .swara-row .ul-sgl{
+  /* Checked directly against the docx exporter's own swara/lyric drun()
+     calls: neither passes a `bold` option (so both default to false —
+     swara text is NOT actually bold in the real document, despite how
+     it might read visually in the grid), both use the exact same size
+     (GRID_SZ_D — there's no separate, smaller size for lyric text), and
+     drun() hardcodes color:'000000' for every run with no exception. */
+  .grid-table-doc .swara-row td{ color:#000; font-weight:400; font-size:10pt; }
+  .grid-table-doc .lyric-row td{ color:#000; font-size:10pt; font-weight:400; }
+  /* Warm, more calligraphic underline treatment — thicker, with a small gap
+     from the letters (offset) so it reads as a deliberate notation mark
+     rather than a plain web-underline, with each speed getting its own ink
+     color so 2nd vs 3rd speed is recognizable at a glance. Deliberately
+     scoped to .grid-table-dark ONLY — the small live preview strip shown
+     while editing a line. .grid-table-doc (the Document Preview modal AND
+     the Print/PDF replica) must match the actual exported .docx exactly,
+     and the docx's own underlineProp() never sets a color at all — Word
+     defaults an unset underline color to the run's own text color (plain
+     black), so colored underlines here would be a real, visible mismatch
+     from the real exported document, not a stylistic choice. */
+  .grid-table-dark .swara-row .ul-sgl{
     text-decoration:underline; text-decoration-color:#d99a44; text-decoration-thickness:2.5px;
     text-underline-offset:3px;
   }
-  .grid-table-dark .swara-row .ul-dbl, .grid-table-doc .swara-row .ul-dbl{
+  .grid-table-dark .swara-row .ul-dbl{
     text-decoration:underline; text-decoration-style:double; text-decoration-color:#b8503f;
     text-decoration-thickness:2px; text-underline-offset:3px;
   }
+  .grid-table-doc .swara-row .ul-sgl{ text-decoration:underline; }
+  .grid-table-doc .swara-row .ul-dbl{ text-decoration:underline; text-decoration-style:double; }
   .grid-half-gap{ height:6px; }
 
   .toast{
@@ -674,14 +764,22 @@
   .preview-modal-sub{ font-size:12px; color:var(--ink-soft); flex:1; }
   .preview-modal-body{ padding:30px 36px 50px; overflow-x:auto; }
 
-  .doc-title{ font-family:'Courier Prime',monospace; font-weight:700; text-decoration:underline; text-align:center; font-size:15px; color:#111; }
-  .doc-meta{ font-family:'Courier Prime',monospace; font-size:13.5px; color:#111; }
+  /* All sizes/colors here now match the actual .docx exactly, not
+     approximated — checked directly against every corresponding drun()
+     call in the docx exporter: title/meta/heading/lyric-line/refnote/end
+     all default to SZ_D (SHEET_SZ = 22 half-points = 11pt exactly, so
+     "11pt" here rather than a pre-converted, rounding-prone px value),
+     and drun() hardcodes color:'000000' for every single run with no
+     exception — so every one of these is plain #000, never a softened
+     gray, regardless of which of these classes it is. */
+  .doc-title{ font-family:'Courier Prime',monospace; font-weight:700; text-decoration:underline; text-align:center; font-size:11pt; color:#000; }
+  .doc-meta{ font-family:'Courier Prime',monospace; font-size:11pt; color:#000; }
   .doc-meta b{ font-weight:700; }
   .doc-blank{ height:16px; }
-  .doc-heading{ font-family:'Courier Prime',monospace; font-weight:700; text-decoration:underline; font-size:13.5px; color:#111; }
-  .doc-lyric-line{ font-family:'Courier Prime',monospace; font-size:13px; color:#222; }
-  .doc-refnote{ font-family:'Courier Prime',monospace; font-weight:700; font-size:13px; color:#111; }
-  .doc-end{ font-family:'Courier Prime',monospace; text-align:center; font-size:13px; color:#111; }
+  .doc-heading{ font-family:'Courier Prime',monospace; font-weight:700; text-decoration:underline; font-size:11pt; color:#000; }
+  .doc-lyric-line{ font-family:'Courier Prime',monospace; font-size:11pt; color:#000; }
+  .doc-refnote{ font-family:'Courier Prime',monospace; font-weight:700; font-size:11pt; color:#000; }
+  .doc-end{ font-family:'Courier Prime',monospace; text-align:center; font-size:11pt; color:#000; }
   /* ---------- Storage quota modal ---------- */
   .quota-overlay{
     position:fixed; inset:0; background:rgba(var(--ink-rgb),0.55); z-index:110;
@@ -829,6 +927,11 @@
       <span>Notation Rules</span>
     </button>
     <div class="nav-divider"></div>
+    <button class="nav-item" id="ragaDirectoryNavBtn">
+      <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h9a1 1 0 011 1v13l-3-2-2 2-2-2-3 2V4a1 1 0 011-1z"/><path d="M7.5 7h5M7.5 10h5"/></svg>
+      <span>Raga Directory</span>
+    </button>
+    <div class="nav-divider"></div>
     <input type="file" id="importFileInput" accept=".pdf,.docx" style="display:none;">
     <div class="side-foot">Your kritis are stored in this browser, with Google Drive as optional backup.</div>
   </aside>
@@ -974,6 +1077,18 @@
       <button class="btn small" id="closePreviewBtn"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 5l10 10M15 5L5 15"/></svg> Close</button>
     </div>
     <div class="preview-modal-body" id="previewBody"></div>
+  </div>
+</div>
+
+<div class="preview-overlay" id="printReadyOverlay">
+  <div class="preview-modal print-ready-modal">
+    <div class="preview-modal-head no-print">
+      <div class="preview-modal-title">Print / Save as PDF</div>
+      <div class="preview-modal-sub">An exact match of the exported .docx — same fonts, spacing, page size, and page-break rules. Use your browser's Print dialog to save as PDF.</div>
+      <button class="btn small" id="printReadyPrintBtn"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8V3h8v5M4 8h12v6H4V8zM6 12h8v5H6v-5z"/></svg> Print</button>
+      <button class="btn small" id="closePrintReadyBtn"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 5l10 10M15 5L5 15"/></svg> Close</button>
+    </div>
+    <div class="preview-modal-body" id="printReadyRoot"><div id="printReadyBody" class="print-ready-page"></div></div>
   </div>
 </div>
 
@@ -2169,12 +2284,161 @@ async function loadLibrary(){
     });
   });
 }
+/* Extracts the leading number from whatever was typed (correctly handles
+   "28", "28th", or anything with trailing text) and re-applies the
+   grammatically correct English ordinal suffix — 1st/2nd/3rd/4th...11th/
+   12th/13th (the teens exception)/21st/22nd/23rd/24th... — so typing a
+   bare number always displays correctly, regardless of whether a suffix
+   was typed along with it. */
+function ordinalSuffix(raw){
+  const s = String(raw || '').trim();
+  const m = s.match(/^(\d+)/);
+  if(!m) return s; // not a number at all (blank, or free text) — leave as-is
+  const num = parseInt(m[1], 10);
+  const rem100 = num % 100;
+  let suf = 'th';
+  if(!(rem100 >= 11 && rem100 <= 13)){
+    const rem10 = num % 10;
+    if(rem10 === 1) suf = 'st';
+    else if(rem10 === 2) suf = 'nd';
+    else if(rem10 === 3) suf = 'rd';
+  }
+  return num + suf;
+}
 /* combines raga + melakarta into the display/export string, e.g. "Mohanam (28th Melakarta Janya)" */
 function ragaDisplay(song){
   const m = (song.melakarta||'').trim();
   if(!m) return song.raga || '';
-  return `${song.raga || ''} (${m} Melakarta Janya)`;
+  return `${song.raga || ''} (${ordinalSuffix(m)} Melakarta Janya)`;
 }
+
+/* ===================== Raga database (Excel import + autofill) =====================
+   A separate, standalone lookup — not tied to any one kriti — of raga name
+   to melakarta/arohanam/avarohanam, so those fields can be auto-filled by
+   name instead of hand-typed for every new kriti. Imported from a
+   spreadsheet with a fixed column layout: Raga Name | Melakarta # |
+   Arohanam | Avarohanam, read positionally (not by matching header text)
+   so header wording/casing variations don't break the import. Persisted
+   separately from the song library, since it's reference data shared
+   across every kriti, not something that belongs to one. */
+/* The standard 72 melakarta names, in order (index 0 = melakarta 1). Cross-
+   checked against multiple independent sources before entering — a
+   reference tool getting even one of these wrong would be a real problem.
+   Used purely as a lookup (Melakarta # -> its name) for the Raga
+   Directory's auto-filled "Melakarta Raga" column — never stored
+   per-entry, since it's entirely a function of the number itself. */
+const MELAKARTA_NAMES = [
+  'Kanakangi','Ratnangi','Ganamurti','Vanaspati','Manavati','Tanarupi',
+  'Senavati','Hanumatodi','Dhenuka','Natakapriya','Kokilapriya','Rupavati',
+  'Gayakapriya','Vakulabharanam','Mayamalavagowla','Chakravakam','Suryakantam','Hatakambari',
+  'Jhankaradhwani','Natabhairavi','Keeravani','Kharaharapriya','Gourimanohari','Varunapriya',
+  'Mararanjani','Charukesi','Sarasangi','Harikambhoji','Dheerashankarabharanam','Naganandini',
+  'Yagapriya','Ragavardhini','Gangeyabhushani','Vagadheeswari','Shulini','Chalanata',
+  'Salagam','Jalarnavam','Jhalavarali','Navaneetam','Pavani','Raghupriya',
+  'Gavambodhi','Bhavapriya','Subhapantuvarali','Shadvidhamargini','Suvarnangi','Divyamani',
+  'Dhavalambari','Namanarayani','Kamavardhini','Ramapriya','Gamanashrama','Vishwambhari',
+  'Shamalangi','Shanmukhapriya','Simhendramadhyamam','Hemavati','Dharmavati','Neetimati',
+  'Kantamani','Rishabhapriya','Latangi','Vachaspati','Mechakalyani','Chitrambari',
+  'Sucharitra','Jyotiswarupini','Dhatuvardhani','Nasikabhushani','Kosalam','Rasikapriya',
+];
+function melakartaNameForNumber(raw){
+  const s = String(raw || '').trim();
+  const m = s.match(/^(\d+)/);
+  if(!m) return '';
+  const num = parseInt(m[1], 10);
+  if(num < 1 || num > 72) return '';
+  return MELAKARTA_NAMES[num-1];
+}
+
+const RAGA_DB_KEY = 'kriti-notation-studio.ragaDatabase';
+let ragaDatabase = []; // [{name, melakarta, arohanam, avarohanam}, ...]
+function loadRagaDatabase(){
+  try{
+    const raw = localStorage.getItem(RAGA_DB_KEY);
+    ragaDatabase = raw ? JSON.parse(raw) : [];
+  }catch(e){ ragaDatabase = []; }
+}
+function saveRagaDatabase(){
+  try{ localStorage.setItem(RAGA_DB_KEY, JSON.stringify(ragaDatabase)); }catch(e){}
+}
+/* Reads File -> parsed rows via SheetJS, positionally (column A/B/C/D),
+   skipping a header row if the first row's first cell doesn't look like a
+   real raga name (i.e. it reads as a label like "Raga Name"/"Raga" rather
+   than data) — handles both a file that has a header row and one that
+   doesn't, without needing the user to tell us which. Throws with a
+   specific, actionable message on anything malformed, rather than
+   silently importing garbage. */
+/* Merges (upserts by name, case-insensitive) rather than replacing —
+   now that this is a persistent, visibly-managed directory you build up
+   over time (add one-by-one, import in bulk, repeat), a wholesale replace
+   on every import would silently wipe out anything added by hand or from
+   an earlier import since. Returns counts of how many were newly added
+   vs. updated, so the caller can report both. */
+async function importRagaDatabaseFromXLSX(file){
+  if(!window.XLSX) throw new Error('Excel-reading library failed to load — check your connection and reload the page.');
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type: 'array' });
+  const firstSheetName = wb.SheetNames[0];
+  if(!firstSheetName) throw new Error('That file has no sheets in it.');
+  const sheet = wb.Sheets[firstSheetName];
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+  if(!rows.length) throw new Error('That sheet is empty.');
+
+  let startIdx = 0;
+  const firstCellLower = String(rows[0][0] || '').trim().toLowerCase();
+  if(firstCellLower === 'raga name' || firstCellLower === 'raga' || firstCellLower === '') startIdx = 1;
+
+  const parsed = [];
+  for(let i = startIdx; i < rows.length; i++){
+    const row = rows[i];
+    const name = String(row[0] || '').trim();
+    if(!name) continue; // skip blank rows rather than failing the whole import over one gap
+    parsed.push({
+      name,
+      melakarta: String(row[1] || '').trim(),
+      arohanam: String(row[2] || '').trim(),
+      avarohanam: String(row[3] || '').trim(),
+    });
+  }
+  if(!parsed.length) throw new Error('No raga rows found — expected columns are Raga Name | Melakarta # | Arohanam | Avarohanam.');
+
+  let added = 0, updated = 0;
+  parsed.forEach(entry=>{
+    const idx = ragaDatabase.findIndex(r => r.name.toLowerCase() === entry.name.toLowerCase());
+    if(idx === -1){ ragaDatabase.push(entry); added++; }
+    else { ragaDatabase[idx] = entry; updated++; }
+  });
+  saveRagaDatabase();
+  return { added, updated };
+}
+function searchRagaDatabase(query){
+  const q = (query || '').trim().toLowerCase();
+  if(!q) return [];
+  return ragaDatabase.filter(r => r.name.toLowerCase().includes(q)).slice(0, 8);
+}
+/* Manual one-at-a-time CRUD, backing the Raga Directory page. Add/update
+   both reject a blank name (nothing else is required — melakarta/aro/ava
+   can be filled in later) and both upsert-by-name the same way the bulk
+   Excel import does, so the two paths can never silently create
+   duplicates of the same raga under slightly different circumstances. */
+function upsertRagaEntry(entry, editingIndex){
+  const name = (entry.name || '').trim();
+  if(!name) throw new Error('Raga name is required.');
+  const clean = { name, melakarta: (entry.melakarta||'').trim(), arohanam: (entry.arohanam||'').trim(), avarohanam: (entry.avarohanam||'').trim() };
+  if(editingIndex !== null && editingIndex !== undefined && ragaDatabase[editingIndex]){
+    ragaDatabase[editingIndex] = clean;
+  } else {
+    const dupIdx = ragaDatabase.findIndex(r => r.name.toLowerCase() === name.toLowerCase());
+    if(dupIdx !== -1) ragaDatabase[dupIdx] = clean;
+    else ragaDatabase.push(clean);
+  }
+  saveRagaDatabase();
+}
+function deleteRagaEntry(index){
+  ragaDatabase.splice(index, 1);
+  saveRagaDatabase();
+}
+
 let saveInFlight = false;
 let saveQueued = false;
 async function persist(){
@@ -5033,8 +5297,9 @@ function updateAlignBadge(cellDiv, rawSwara, rawLyric){
 
 function getSong(){ return library.find(s=>s.id===currentId); }
 
-let dashboardSubView = 'list'; // 'list' (kriti browser) or 'rules' (notation rules reference) —
-                                // which content shows in the dashboard's main area.
+let dashboardSubView = 'list'; // 'list' (kriti browser), 'rules' (notation rules reference),
+                                // or 'ragaDirectory' (the raga database) — which content shows
+                                // in the dashboard's main area.
 
 /* Back-button handling — pressing the device/browser back button (Android's
    hardware back, iOS's edge-swipe, a desktop browser's back button all
@@ -5051,7 +5316,7 @@ function pushAppHistoryState(){
   try{ history.pushState({t: Date.now()}, '', location.href); }catch(e){}
 }
 window.addEventListener('popstate', ()=>{
-  const isDeep = (currentView === 'editor') || (currentView === 'dashboard' && dashboardSubView === 'rules');
+  const isDeep = (currentView === 'editor') || (currentView === 'dashboard' && dashboardSubView !== 'list');
   if(isDeep){
     currentView = 'dashboard';
     dashboardSubView = 'list';
@@ -5088,6 +5353,11 @@ function showRulesPage(){
   pushAppHistoryState();
   renderAll();
 }
+function showRagaDirectory(){
+  dashboardSubView = 'ragaDirectory';
+  pushAppHistoryState();
+  renderAll();
+}
 
 /* Builds the dashboard shell fresh only when the sub-view actually changes
    (tracked via which root id is present) — repeated renderAll() calls while
@@ -5100,12 +5370,18 @@ function renderDashboard(){
   const app = document.querySelector('.app');
   app.classList.remove('view-editor');
   app.classList.add('view-dashboard');
-  const expectedRootId = dashboardSubView === 'rules' ? 'rulesPageRoot' : 'dashboardRoot';
+  const rootIdForView = { rules: 'rulesPageRoot', ragaDirectory: 'ragaDirectoryRoot', list: 'dashboardRoot' };
+  const expectedRootId = rootIdForView[dashboardSubView] || 'dashboardRoot';
   if(!document.getElementById(expectedRootId)){
     if(dashboardSubView === 'rules'){
       main.innerHTML = buildRulesPageHTML();
       document.getElementById('rulesBackBtn').onclick = showKritiList;
       document.getElementById('rulesPrintBtn').onclick = () => window.print();
+      return;
+    }
+    if(dashboardSubView === 'ragaDirectory'){
+      main.innerHTML = buildRagaDirectoryHTML();
+      wireRagaDirectory();
       return;
     }
     main.innerHTML = `
@@ -5129,6 +5405,153 @@ function renderDashboard(){
     document.getElementById('filterComposer').onchange = renderSongList;
   }
   if(dashboardSubView === 'list') renderSongList();
+}
+
+function buildRagaDirectoryHTML(){
+  return `
+  <div id="ragaDirectoryRoot" class="rules-page">
+    <div class="rules-page-head">
+      <button class="back-btn" id="ragaDirBackBtn"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15l-5-5 5-5"/></svg> Kriti List</button>
+      <div style="flex:1"></div>
+      <button class="btn small" id="ragaDirTemplateBtn" title="Download a blank CSV in the expected column format"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8V3h8v5M4 8h12v6H4V8zM6 12h8v5H6v-5z"/></svg> Download CSV Template</button>
+      <button class="btn small" id="ragaDirImportBtn"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3v10M6 9l4 4 4-4M4 17h12"/></svg> Import from Excel</button>
+      <input type="file" id="ragaDirFileInput" accept=".xlsx,.xls,.csv" style="display:none;">
+      <button class="btn small primary" id="ragaDirAddBtn"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 4v12M4 10h12"/></svg> Add Raga</button>
+    </div>
+    <h1>Raga Directory</h1>
+    <p class="intro">Ragas available for auto-fill in a kriti's Song Details — add entries one at a time, or import a spreadsheet in bulk (columns: Raga Name | Melakarta # | Arohanam | Avarohanam — download the template below to get the exact format). Importing again later updates any raga with a matching name and adds anything new, without erasing what's already here.</p>
+    <div id="ragaDirFormWrap"></div>
+    <div id="ragaDirTableWrap"></div>
+  </div>`;
+}
+function ragaDirFormHTML(entry, editingIndex){
+  const e = entry || { name:'', melakarta:'', arohanam:'', avarohanam:'' };
+  const melaName = melakartaNameForNumber(e.melakarta);
+  return `
+    <div class="card" id="ragaDirForm" style="margin-bottom:18px;">
+      <h3>${editingIndex === null ? 'Add a raga' : 'Edit raga'}</h3>
+      <div class="field-grid">
+        <div class="fieldwrap"><label>Raga Name</label><input type="text" id="ragaDirName" value="${escapeHtml(e.name)}" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off"></div>
+        <div class="fieldwrap">
+          <label>Melakarta # (optional)</label>
+          <input type="text" id="ragaDirMela" value="${escapeHtml(e.melakarta)}" placeholder="e.g. 28" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off">
+          <div id="ragaDirMelaNamePreview" class="raga-dir-mela-preview">${melaName ? 'Melakarta: ' + escapeHtml(melaName) : ''}</div>
+        </div>
+        <div class="fieldwrap"><label>Arohanam</label><input type="text" id="ragaDirAro" value="${escapeHtml(e.arohanam)}" placeholder="S R2 G3 M1 P D2 N3 S" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off"></div>
+        <div class="fieldwrap"><label>Avarohanam</label><input type="text" id="ragaDirAva" value="${escapeHtml(e.avarohanam)}" placeholder="S N3 D2 P M1 G3 R2 S" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off"></div>
+      </div>
+      <div style="display:flex; gap:8px; margin-top:14px;">
+        <button class="btn primary small" id="ragaDirSaveBtn">Save</button>
+        <button class="btn small" id="ragaDirCancelBtn">Cancel</button>
+      </div>
+    </div>`;
+}
+function ragaDirTableHTML(){
+  if(!ragaDatabase.length){
+    return `<div class="placeholder"><h2>No ragas yet</h2><p>Add one above, or import a spreadsheet to get started.</p></div>`;
+  }
+  return `
+    <table class="raga-dir-table">
+      <thead><tr><th>Raga</th><th>Melakarta #</th><th>Melakarta Raga</th><th>Arohanam</th><th>Avarohanam</th><th></th></tr></thead>
+      <tbody>
+        ${ragaDatabase.map((r,i)=>{
+          const melaName = melakartaNameForNumber(r.melakarta);
+          return `
+          <tr>
+            <td class="raga-dir-name">${escapeHtml(r.name)}</td>
+            <td>${r.melakarta ? escapeHtml(ordinalSuffix(r.melakarta)) : ''}</td>
+            <td class="raga-dir-mela-name">${melaName ? escapeHtml(melaName) : '<span class="raga-dir-dim">—</span>'}</td>
+            <td class="raga-dir-mono">${escapeHtml(r.arohanam)}</td>
+            <td class="raga-dir-mono">${escapeHtml(r.avarohanam)}</td>
+            <td class="raga-dir-actions">
+              <button class="btn small icon-only" data-act="ragaDirEdit" data-idx="${i}" title="Edit"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3l3 3-9 9-4 1 1-4 9-9z"/></svg></button>
+              <button class="btn small icon-only danger" data-act="ragaDirDelete" data-idx="${i}" title="Delete"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h12M8 6V4a1 1 0 011-1h2a1 1 0 011 1v2M6 6l.6 10a1 1 0 001 .9h4.8a1 1 0 001-.9L14 6"/></svg></button>
+            </td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`;
+}
+function renderRagaDirTable(){
+  document.getElementById('ragaDirTableWrap').innerHTML = ragaDirTableHTML();
+  document.querySelectorAll('[data-act="ragaDirEdit"]').forEach(btn=>{
+    btn.onclick = ()=> openRagaDirForm(Number(btn.dataset.idx));
+  });
+  document.querySelectorAll('[data-act="ragaDirDelete"]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const idx = Number(btn.dataset.idx);
+      if(!confirm(`Remove "${ragaDatabase[idx].name}" from the directory?`)) return;
+      deleteRagaEntry(idx);
+      renderRagaDirTable();
+    };
+  });
+}
+function openRagaDirForm(editingIndex){
+  const entry = (editingIndex !== null && editingIndex !== undefined) ? ragaDatabase[editingIndex] : null;
+  document.getElementById('ragaDirFormWrap').innerHTML = ragaDirFormHTML(entry, editingIndex === undefined ? null : editingIndex);
+  document.getElementById('ragaDirMela').oninput = (e)=>{
+    const name = melakartaNameForNumber(e.target.value);
+    document.getElementById('ragaDirMelaNamePreview').textContent = name ? 'Melakarta: ' + name : '';
+  };
+  document.getElementById('ragaDirSaveBtn').onclick = ()=>{
+    try{
+      upsertRagaEntry({
+        name: document.getElementById('ragaDirName').value,
+        melakarta: document.getElementById('ragaDirMela').value,
+        arohanam: document.getElementById('ragaDirAro').value,
+        avarohanam: document.getElementById('ragaDirAva').value,
+      }, editingIndex === undefined ? null : editingIndex);
+      document.getElementById('ragaDirFormWrap').innerHTML = '';
+      renderRagaDirTable();
+      showToast('Saved ✓');
+    }catch(err){ showToast(err.message); }
+  };
+  document.getElementById('ragaDirCancelBtn').onclick = ()=>{ document.getElementById('ragaDirFormWrap').innerHTML = ''; };
+  document.getElementById('ragaDirName').focus();
+}
+/* Simple, correct CSV field escaping — wraps in quotes and doubles any
+   internal quotes whenever a field contains a comma, quote, or newline
+   (the only cases that actually require it); otherwise left bare. */
+function csvField(v){
+  const s = String(v == null ? '' : v);
+  if(/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+  return s;
+}
+function downloadRagaTemplateCSV(){
+  const header = ['Raga Name', 'Melakarta #', 'Arohanam', 'Avarohanam'];
+  const sampleRows = [
+    ['Hamsadhwani', '29', 'S R2 G3 P N3 S', 'S N3 P G3 R2 S'],
+    ['Mohanam', '28', 'S R2 G3 P D2 S', 'S D2 P G3 R2 S'],
+  ];
+  const lines = [header, ...sampleRows].map(row => row.map(csvField).join(',')).join('\r\n');
+  const blob = new Blob([lines], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'raga-directory-template.csv';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+function wireRagaDirectory(){
+  document.getElementById('ragaDirBackBtn').onclick = showKritiList;
+  document.getElementById('ragaDirAddBtn').onclick = ()=> openRagaDirForm(null);
+  document.getElementById('ragaDirImportBtn').onclick = ()=> document.getElementById('ragaDirFileInput').click();
+  document.getElementById('ragaDirTemplateBtn').onclick = downloadRagaTemplateCSV;
+  document.getElementById('ragaDirFileInput').onchange = async (e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    try{
+      const { added, updated } = await importRagaDatabaseFromXLSX(file);
+      const parts = [];
+      if(added) parts.push(`${added} added`);
+      if(updated) parts.push(`${updated} updated`);
+      showToast((parts.join(', ') || 'Nothing new found') + ' ✓');
+      renderRagaDirTable();
+    }catch(err){
+      showToast('Import failed: ' + err.message);
+    }
+    e.target.value = '';
+  };
+  renderRagaDirTable();
 }
 
 function buildRulesPageHTML(){
@@ -5309,6 +5732,7 @@ function renderMain(){
       </div>
       <button class="btn" id="checkKritiBtn"><span class="icon-chip" style="background:var(--paper); color:var(--indigo-deep);"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7.5"/><path d="M6.5 10.3l2.3 2.3 4.7-5"/></svg></span> Check Kriti</button>
       <button class="btn" id="previewBtn"><span class="icon-chip" style="background:var(--paper); color:var(--indigo-deep);"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 10s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6z"/><circle cx="10" cy="10" r="2.3"/></svg></span> Preview</button>
+      <button class="btn" id="printReadyBtn" title="An exact replica of the exported .docx, ready to print or save as PDF"><span class="icon-chip" style="background:var(--paper); color:var(--indigo-deep);"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8V3h8v5M4 8h12v6H4V8zM6 12h8v5H6v-5z"/></svg></span> Print / PDF</button>
       <button class="btn" id="downloadDocxBtn"><span class="icon-chip" style="background:var(--paper); color:var(--indigo-deep);"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3v10M6 9l4 4 4-4M4 17h12"/></svg></span> Download/Export (.docx)</button>
       <button class="btn" id="playKritiBtn" title="Play the whole kriti (prototype)" data-play-title="Play the whole kriti (prototype)"><span class="icon-chip" style="background:var(--paper); color:var(--indigo-deep);"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4.5v11l9-5.5-9-5.5z"/></svg></span> Play kriti</button>
       <div class="actions-dd" id="toolbarMoreDd">
@@ -5337,7 +5761,11 @@ function renderMain(){
     <div class="card">
       <h3>Song details</h3>
       <div class="field-grid">
-        <div class="fieldwrap"><label>Raga</label><input type="text" id="f_raga" value="${escapeHtml(song.raga)}" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off"></div>
+        <div class="fieldwrap" style="position:relative;">
+          <label>Raga</label>
+          <input type="text" id="f_raga" value="${escapeHtml(song.raga)}" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off">
+          <div id="ragaAutocompleteList" class="raga-autocomplete-list" style="display:none;"></div>
+        </div>
         <div class="fieldwrap"><label>Melakarta # (optional)</label><input type="text" id="f_mela" value="${escapeHtml(song.melakarta)}" placeholder="e.g. 28th" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off"></div>
         <div class="fieldwrap"><label>Composer</label><input type="text" id="f_composer" value="${escapeHtml(song.composer)}" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off"></div>
         <div class="fieldwrap"><label>Arohanam</label><input type="text" id="f_aro" value="${escapeHtml(song.arohanam)}" placeholder="S R2 G3 M1 P D2 N3 S" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off"></div>
@@ -5398,7 +5826,38 @@ function renderMain(){
   // is rebuilt from scratch every time the editor view renders.
   applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light');
   document.getElementById('titleEdit').oninput = e=>{ song.title = e.target.textContent; renderSongList(); queueSave(); };
-  document.getElementById('f_raga').oninput = e=>{ song.raga=e.target.value; renderSongList(); queueSave(); };
+  document.getElementById('f_raga').oninput = e=>{
+    song.raga=e.target.value; renderSongList(); queueSave();
+    renderRagaAutocomplete(e.target.value);
+  };
+  document.getElementById('f_raga').addEventListener('blur', ()=>{
+    // Delay so a click on a suggestion (which itself blurs the input) has
+    // time to register before the list disappears out from under it.
+    setTimeout(()=>{ document.getElementById('ragaAutocompleteList').style.display = 'none'; }, 150);
+  });
+  function renderRagaAutocomplete(query){
+    const list = document.getElementById('ragaAutocompleteList');
+    const matches = searchRagaDatabase(query);
+    if(!matches.length){ list.style.display = 'none'; list.innerHTML = ''; return; }
+    list.innerHTML = matches.map((r,i)=>`
+      <div class="raga-autocomplete-item" data-idx="${i}">
+        <span class="raga-ac-name">${escapeHtml(r.name)}</span>${r.melakarta ? `<span class="raga-ac-mela">${escapeHtml(r.melakarta)} melakarta</span>` : ''}
+      </div>`).join('');
+    list.style.display = 'block';
+    list.querySelectorAll('.raga-autocomplete-item').forEach((el, i)=>{
+      el.onclick = ()=>{
+        const r = matches[i];
+        song.raga = r.name; song.melakarta = r.melakarta; song.arohanam = r.arohanam; song.avarohanam = r.avarohanam;
+        document.getElementById('f_raga').value = r.name;
+        document.getElementById('f_mela').value = r.melakarta;
+        document.getElementById('f_aro').value = r.arohanam;
+        document.getElementById('f_ava').value = r.avarohanam;
+        list.style.display = 'none';
+        renderSongList(); queueSave();
+        rescanRagaScale(); renderVariantDefaultsUI(); rescanVariantBadges();
+      };
+    });
+  }
   document.getElementById('f_mela').oninput = e=>{ song.melakarta=e.target.value; renderSongList(); queueSave(); };
   document.getElementById('f_composer').oninput = e=>{ song.composer=e.target.value; queueSave(); };
   document.getElementById('f_aro').oninput = e=>{ song.arohanam=e.target.value; queueSave(); rescanRagaScale(); renderVariantDefaultsUI(); rescanVariantBadges(); };
@@ -5414,6 +5873,7 @@ function renderMain(){
 
   document.getElementById('saveBtn').onclick = async ()=>{ await persist(); showSaveConfirm(); };
   document.getElementById('previewBtn').onclick = openPreview;
+  document.getElementById('printReadyBtn').onclick = openPrintReadyView;
   document.getElementById('findReplaceBtn').onclick = openFindReplace;
   document.getElementById('downloadDocxBtn').onclick = ()=>openDocxDownloadExportChoice(song);
   document.getElementById('playKritiBtn').onclick = ()=>{
@@ -5916,6 +6376,117 @@ function closePreview(){
   document.getElementById('previewOverlay').classList.remove('show');
 }
 
+/* ===================== Print-to-PDF (exact DOCX replica) =====================
+   A SEPARATE function from buildFullPreviewHTML, not a reuse of it — the
+   on-screen Preview modal is a continuous scroll with no real pagination,
+   while this needs actual page breaks that land in the exact same places
+   the DOCX's keepNext/cantSplit rules force them to. Keeping this as its
+   own function means the existing Preview modal is never at risk from
+   changes made here.
+   Groups each line's rendered HTML into "keep together" wrapper divs
+   mirroring the DOCX's page-break rules exactly:
+   - swara+sahitya of one physical row: already guaranteed, since they're
+     two rows of the SAME <table> (see .grid-table-doc's print CSS below).
+   - both physical rows of a 2-kalai line (one avartanam): buildGridRowsHTML
+     already returns them combined in one call, so wrapping that whole
+     output keeps them together — no cross-line pairing needed, since a
+     2-kalai line already IS one complete avartanam.
+   - a no-sahitya section at 1 kalai: pairs of 2 consecutive avartanam-lines
+     are wrapped together, exactly matching the identical li%2 pairing
+     logic already verified for the DOCX export. */
+function buildPrintReadyHTML(song){
+  const cfg = TALAS[song.tala] || TALAS.adi;
+  const kalai = song.kalai || 1;
+  const talaLabel = cfg.kalaiAware ? `${cfg.label}${kalai===2?' (2 kalai)':''}` : cfg.label;
+  const derived = derivedPallaviOpening(song);
+
+  let h = '';
+  h += `<div class="doc-title">${escapeHtml(song.title||'Untitled Kriti')}</div>`;
+  h += `<div class="doc-blank"></div>`;
+  h += `<div class="doc-meta"><b>Raga:</b> ${escapeHtml(ragaDisplay(song))}</div>`;
+  h += `<div class="doc-blank"></div>`;
+  h += `<div class="doc-meta"><b>Arohana:</b> ${escapeHtml(song.arohanam)}</div>`;
+  h += `<div class="doc-meta"><b>Avarohana:</b> ${escapeHtml(song.avarohanam)}</div>`;
+  h += `<div class="doc-blank"></div>`;
+  h += `<div class="doc-meta"><b>Tala:</b> ${escapeHtml(talaLabel)}</div>`;
+  h += `<div class="doc-meta"><b>Composer:</b> ${escapeHtml(song.composer)}</div>`;
+  h += `<div class="doc-blank"></div>`;
+
+  song.sections.forEach(sec=>{
+    if(sec.noSahitya) return;
+    h += `<div class="doc-heading">${escapeHtml(sec.name)}</div>`;
+    (sec.sahitya||'').split('\n').forEach(ln=> h += `<div class="doc-lyric-line">${escapeHtml(ln)||'&nbsp;'}</div>`);
+    h += `<div class="doc-blank"></div>`;
+  });
+
+  song.sections.forEach((sec, si)=>{
+    h += `<div class="doc-heading">${escapeHtml(sec.name)}:</div>`;
+    h += `<div class="doc-blank"></div>`;
+    if(kalai === 2){
+      // No cross-line pairing needed — each 2-kalai line is already one
+      // complete avartanam on its own.
+      sec.lines.forEach(line=>{
+        h += `<div class="keep-together">${buildGridRowsHTML(cfg, line, kalai, sec.noSahitya, 'grid-table-doc')}</div>`;
+        h += `<div class="doc-blank"></div>`;
+      });
+    } else if(sec.noSahitya){
+      // Pair consecutive avartanam-lines, 2 at a time — identical li%2
+      // logic to the DOCX export, verified there via real generated XML.
+      for(let li=0; li<sec.lines.length; li+=2){
+        const pairLines = sec.lines.slice(li, li+2);
+        h += `<div class="keep-together">`;
+        pairLines.forEach(line=>{
+          h += buildGridRowsHTML(cfg, line, kalai, sec.noSahitya, 'grid-table-doc');
+          h += `<div class="doc-blank"></div>`;
+        });
+        h += `</div>`;
+      }
+    } else {
+      sec.lines.forEach(line=>{
+        h += `<div class="keep-together">${buildGridRowsHTML(cfg, line, kalai, sec.noSahitya, 'grid-table-doc')}</div>`;
+        h += `<div class="doc-blank"></div>`;
+      });
+    }
+    h += `<div class="doc-blank"></div>`;
+    if(si !== 0 && sec.showPallaviRef){
+      const text = sec.pallaviOverride && sec.pallaviOverride.trim() ? sec.pallaviOverride.trim() : derived;
+      if(text){
+        h += `<div class="doc-refnote">(${escapeHtml(text)})</div>`;
+        h += `<div class="doc-blank"></div>`;
+      }
+    }
+  });
+
+  h += `<div class="doc-blank"></div><div class="doc-blank"></div>`;
+  h += `<div class="doc-end">**********</div>`;
+  return h;
+}
+function openPrintReadyView(){
+  const song = getSong();
+  if(!song) return;
+  document.getElementById('printReadyBody').innerHTML = buildPrintReadyHTML(song);
+  // Injected via JS rather than a CSS class + :has()/named-page selector —
+  // those have inconsistent cross-browser support for @page specifically,
+  // while a plain, single, directly-computed @page rule is universally
+  // reliable. Matches the docx exporter's own page setup exactly: 14in x
+  // 8.5in landscape for every tala except Tishra Nadai Adi, which needs
+  // 18in for its wider 48-akshara rows; margins 0.7in top/bottom/left,
+  // 0.5in right, copied directly from its Word section properties (1008
+  // and 720 twips = 0.7in and 0.5in at 1440 twips/inch).
+  const widthIn = song.tala === 'adi_tishra' ? 18 : 14;
+  let styleEl = document.getElementById('printReadyPageSize');
+  if(!styleEl){
+    styleEl = document.createElement('style');
+    styleEl.id = 'printReadyPageSize';
+    document.head.appendChild(styleEl);
+  }
+  styleEl.textContent = `@media print{ @page{ size:${widthIn}in 8.5in landscape; margin:0.7in 0.5in 0.7in 0.7in; } }`;
+  document.getElementById('printReadyOverlay').classList.add('show');
+}
+function closePrintReadyView(){
+  document.getElementById('printReadyOverlay').classList.remove('show');
+}
+
 /* ===================== In-browser .docx export ===================== */
 /* Ported 1:1 from the verified Node generator. Reuses TALAS, octaveDisplay,
    buildAlignedColumns, ragaDisplay, and derivedPallaviOpening already defined
@@ -6275,13 +6846,6 @@ async function downloadDocxToDevice(song){
    rather than the dark, spacious live-editing view. The print dialog is a
    real browser UI the app can't skip — "Save as PDF" is a destination the
    person picks there, same as printing any other page. */
-function downloadPdf(song){
-  const container = document.getElementById('printContainer');
-  container.innerHTML = buildFullPreviewHTML(song);
-  showToast('Opening print dialog — choose "Save as PDF" as the destination');
-  setTimeout(()=> window.print(), 150);
-}
-
 /* Export-to-Drive — the only thing this does. Checks the connection state
    BEFORE generating anything, so a not-connected person gets a clear,
    immediate message rather than a mid-flow OAuth popup or a silent failure
@@ -6312,17 +6876,12 @@ function openDocxDownloadExportChoice(song){
   body.innerHTML = `
     <div style="display:flex; flex-direction:column; gap:8px;">
       <button class="btn primary" id="docxChoiceDownloadBtn"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3v10M6 9l4 4 4-4M4 17h12"/></svg> Download Word (.docx)</button>
-      <button class="btn" id="docxChoicePdfBtn"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h7l3 3v11a1 1 0 01-1 1H5a1 1 0 01-1-1V4a1 1 0 011-1z"/><path d="M12 3v3h3M7 12h6M7 15h4"/></svg> Download PDF</button>
       <button class="btn" id="docxChoiceExportBtn"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15h8a3 3 0 000-6 4.5 4.5 0 00-8.6-1.5A3.5 3.5 0 006 15z"/></svg> Export to Google Drive</button>
     </div>
   `;
   document.getElementById('docxChoiceDownloadBtn').onclick = () => {
     overlay.classList.remove('show');
     downloadDocxToDevice(song);
-  };
-  document.getElementById('docxChoicePdfBtn').onclick = () => {
-    overlay.classList.remove('show');
-    downloadPdf(song);
   };
   document.getElementById('docxChoiceExportBtn').onclick = () => {
     overlay.classList.remove('show');
@@ -6434,6 +6993,11 @@ function createNewSong(tala, kalai){
 }
 document.getElementById('newSongBtn').onclick = () => createNewSong();
 document.getElementById('closePreviewBtn').onclick = closePreview;
+document.getElementById('closePrintReadyBtn').onclick = closePrintReadyView;
+document.getElementById('printReadyPrintBtn').onclick = ()=> window.print();
+document.getElementById('printReadyOverlay').addEventListener('click', e=>{
+  if(e.target.id === 'printReadyOverlay') closePrintReadyView();
+});
 document.getElementById('closeSpreadPatternBtn').onclick = closeSpreadPatternPicker;
 document.getElementById('spreadPatternApplyBtn').onclick = applySpreadPattern;
 document.getElementById('spreadPatternOverlay').addEventListener('click', e=>{
@@ -6444,6 +7008,7 @@ document.getElementById('previewOverlay').addEventListener('click', e=>{
 });
 document.getElementById('storageQuotaBtn').onclick = openStorageQuota;
 document.getElementById('rulesNavBtn').onclick = showRulesPage;
+document.getElementById('ragaDirectoryNavBtn').onclick = showRagaDirectory;
 
 /* ===================== Import pipeline — Step 5 =====================
    The entry point and review screen. Parses the file (Steps 1-4), shows a
@@ -6744,6 +7309,7 @@ function attemptAutoConnectDrive(retriesLeft){
   }
   populateTalaSelect(document.getElementById('importTalaSelect'));
   await loadLibrary();
+  loadRagaDatabase();
   if(library.length) currentId = library[0].id;
   renderAll();
   updateSyncButton();
