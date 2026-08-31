@@ -6144,13 +6144,15 @@ async function buildDocxBlob(song){
       // noticeably tighter than the full blank row used between different lines,
       // so the two halves still read as one continuous line rather than two
       // separate ones, while no longer sitting flush against each other.
-      // For a no-sahitya line specifically, this spacer ALSO needs keepNext —
-      // without it, the swara row's own keepNext only glues it to this
-      // spacer, but the spacer itself was free to be followed by a page
-      // break, meaning the two physical rows of a single avartanam could
-      // genuinely end up split across two pages.
+      // ALWAYS keepNext here, regardless of noSahitya — the two physical rows
+      // of a single avartanam must never be split across a page break, whether
+      // or not the line carries sahitya (confirmed: this must apply to a
+      // normal with-sahitya 2-kalai line too, e.g. Jalajaksha's Pallavi/
+      // Anupallavi/Charanam — scoping this to noSahitya-only, as an earlier
+      // version of this fix did, left every with-sahitya 2-kalai section
+      // completely unprotected).
       if(ri < numRows - 1){
-        rowsOut.push(dHalfRowSpacer(undefined, noSahitya));
+        rowsOut.push(dHalfRowSpacer(undefined, true));
       }
     }
     return rowsOut;
