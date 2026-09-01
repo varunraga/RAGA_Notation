@@ -646,6 +646,17 @@
   .raga-dir-mono{ font-family:'Inter',sans-serif; font-size:13.5px; color:var(--ink); }
   .raga-dir-actions{ white-space:nowrap; text-align:right; }
   .raga-dir-mela-preview{ font-size:11.5px; color:var(--indigo-deep); font-weight:600; margin-top:4px; min-height:14px; }
+  .raga-dir-sortable{ cursor:pointer; user-select:none; white-space:nowrap; }
+  .raga-dir-sortable:hover{ color:var(--brand-blue); }
+  .raga-dir-search-wrap{
+    display:flex; align-items:center; gap:9px; padding:10px 14px; margin:4px 0 6px;
+    background:var(--paper); border:1px solid var(--line); border-radius:var(--radius-sm);
+    color:var(--ink-soft); max-width:420px;
+  }
+  .raga-dir-search-wrap input{
+    border:none; outline:none; background:transparent; font-size:13.5px; color:var(--ink);
+    font-family:'Inter',sans-serif; width:100%;
+  }
 
   .rules-print-btn{
     display:inline-flex; align-items:center; gap:8px; padding:11px 20px; border-radius:var(--radius-md);
@@ -2411,10 +2422,25 @@ async function importRagaDatabaseFromXLSX(file){
   saveRagaDatabase();
   return { added, updated };
 }
+/* No hard cap on match count — the dropdown already scrolls
+   (max-height + overflow-y:auto), and a fixed slice(0,8) was silently
+   cutting off real matches whenever 9+ ragas shared a common substring
+   (confirmed directly: with 9 "sa"-containing ragas in the directory,
+   "Saaranga" — last in storage order — never appeared in the list at
+   all, despite genuinely being there). Ranks "starts with" matches
+   before "contains elsewhere" matches, then alphabetically within each
+   group, so the most likely candidates surface first regardless. */
 function searchRagaDatabase(query){
   const q = (query || '').trim().toLowerCase();
   if(!q) return [];
-  return ragaDatabase.filter(r => r.name.toLowerCase().includes(q)).slice(0, 8);
+  const starts = [], contains = [];
+  ragaDatabase.forEach(r=>{
+    const name = r.name.toLowerCase();
+    if(name.startsWith(q)) starts.push(r);
+    else if(name.includes(q)) contains.push(r);
+  });
+  const byName = (a,b)=> a.name.localeCompare(b.name);
+  return [...starts.sort(byName), ...contains.sort(byName)];
 }
 /* Manual one-at-a-time CRUD, backing the Raga Directory page. Add/update
    both reject a blank name (nothing else is required — melakarta/aro/ava
@@ -5407,6 +5433,45 @@ function renderDashboard(){
   if(dashboardSubView === 'list') renderSongList();
 }
 
+let ragaDirSortKey = 'name'; // 'name' | 'melakarta' | 'melakartaName'
+let ragaDirSortDir = 'asc';  // 'asc' | 'desc'
+let ragaDirSearchQuery = '';
+/* Returns {entry, idx} pairs, sorted/filtered for DISPLAY — idx is always
+   the entry's real position in ragaDatabase itself, never the position in
+   this sorted/filtered list, since edit/delete need the real index to
+   operate on the right raga regardless of how the table is currently
+   sorted or filtered. */
+function getSortedFilteredRagaEntries(){
+  let pairs = ragaDatabase.map((entry, idx) => ({ entry, idx }));
+  const q = ragaDirSearchQuery.trim().toLowerCase();
+  if(q){
+    pairs = pairs.filter(({entry}) =>
+      entry.name.toLowerCase().includes(q) || melakartaNameForNumber(entry.melakarta).toLowerCase().includes(q)
+    );
+  }
+  const dir = ragaDirSortDir === 'desc' ? -1 : 1;
+  const melaNum = (m)=>{ const n = parseInt(String(m||'').trim(), 10); return isNaN(n) ? null : n; };
+  pairs.sort((a, b)=>{
+    let cmp;
+    if(ragaDirSortKey === 'melakarta'){
+      const na = melaNum(a.entry.melakarta), nb = melaNum(b.entry.melakarta);
+      if(na === null && nb === null) cmp = 0;
+      else if(na === null) return 1;  // blanks always last, regardless of direction
+      else if(nb === null) return -1;
+      else cmp = na - nb;
+    } else if(ragaDirSortKey === 'melakartaName'){
+      const na = melakartaNameForNumber(a.entry.melakarta), nb = melakartaNameForNumber(b.entry.melakarta);
+      if(!na && !nb) cmp = 0;
+      else if(!na) return 1;
+      else if(!nb) return -1;
+      else cmp = na.localeCompare(nb);
+    } else {
+      cmp = a.entry.name.localeCompare(b.entry.name);
+    }
+    return cmp * dir;
+  });
+  return pairs;
+}
 function buildRagaDirectoryHTML(){
   return `
   <div id="ragaDirectoryRoot" class="rules-page">
@@ -5420,6 +5485,10 @@ function buildRagaDirectoryHTML(){
     </div>
     <h1>Raga Directory</h1>
     <p class="intro">Ragas available for auto-fill in a kriti's Song Details — add entries one at a time, or import a spreadsheet in bulk (columns: Raga Name | Melakarta # | Arohanam | Avarohanam — download the template below to get the exact format). Importing again later updates any raga with a matching name and adds anything new, without erasing what's already here.</p>
+    <div class="raga-dir-search-wrap">
+      <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8.5" cy="8.5" r="5.5"/><path d="M17 17l-4.3-4.3"/></svg>
+      <input type="text" id="ragaDirSearchInput" placeholder="Search by raga or melakarta name…" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off">
+    </div>
     <div id="ragaDirFormWrap"></div>
     <div id="ragaDirTableWrap"></div>
   </div>`;
@@ -5446,15 +5515,28 @@ function ragaDirFormHTML(entry, editingIndex){
       </div>
     </div>`;
 }
+function ragaDirSortArrow(key){
+  if(ragaDirSortKey !== key) return '';
+  return ragaDirSortDir === 'asc' ? ' ▲' : ' ▼';
+}
 function ragaDirTableHTML(){
+  const pairs = getSortedFilteredRagaEntries();
   if(!ragaDatabase.length){
     return `<div class="placeholder"><h2>No ragas yet</h2><p>Add one above, or import a spreadsheet to get started.</p></div>`;
   }
+  if(!pairs.length){
+    return `<div class="placeholder"><h2>No matches</h2><p>Nothing in the directory matches "${escapeHtml(ragaDirSearchQuery)}".</p></div>`;
+  }
   return `
     <table class="raga-dir-table">
-      <thead><tr><th>Raga</th><th>Melakarta #</th><th>Melakarta Raga</th><th>Arohanam</th><th>Avarohanam</th><th></th></tr></thead>
+      <thead><tr>
+        <th class="raga-dir-sortable" data-sort="name">Raga${ragaDirSortArrow('name')}</th>
+        <th class="raga-dir-sortable" data-sort="melakarta">Melakarta #${ragaDirSortArrow('melakarta')}</th>
+        <th class="raga-dir-sortable" data-sort="melakartaName">Melakarta Raga${ragaDirSortArrow('melakartaName')}</th>
+        <th>Arohanam</th><th>Avarohanam</th><th></th>
+      </tr></thead>
       <tbody>
-        ${ragaDatabase.map((r,i)=>{
+        ${pairs.map(({entry:r, idx:i})=>{
           const melaName = melakartaNameForNumber(r.melakarta);
           return `
           <tr>
@@ -5474,6 +5556,14 @@ function ragaDirTableHTML(){
 }
 function renderRagaDirTable(){
   document.getElementById('ragaDirTableWrap').innerHTML = ragaDirTableHTML();
+  document.querySelectorAll('.raga-dir-sortable').forEach(th=>{
+    th.onclick = ()=>{
+      const key = th.dataset.sort;
+      if(ragaDirSortKey === key) ragaDirSortDir = ragaDirSortDir === 'asc' ? 'desc' : 'asc';
+      else { ragaDirSortKey = key; ragaDirSortDir = 'asc'; }
+      renderRagaDirTable();
+    };
+  });
   document.querySelectorAll('[data-act="ragaDirEdit"]').forEach(btn=>{
     btn.onclick = ()=> openRagaDirForm(Number(btn.dataset.idx));
   });
@@ -5536,6 +5626,11 @@ function wireRagaDirectory(){
   document.getElementById('ragaDirAddBtn').onclick = ()=> openRagaDirForm(null);
   document.getElementById('ragaDirImportBtn').onclick = ()=> document.getElementById('ragaDirFileInput').click();
   document.getElementById('ragaDirTemplateBtn').onclick = downloadRagaTemplateCSV;
+  document.getElementById('ragaDirSearchInput').value = ragaDirSearchQuery;
+  document.getElementById('ragaDirSearchInput').oninput = (e)=>{
+    ragaDirSearchQuery = e.target.value;
+    renderRagaDirTable();
+  };
   document.getElementById('ragaDirFileInput').onchange = async (e)=>{
     const file = e.target.files[0];
     if(!file) return;
