@@ -2361,6 +2361,45 @@ function melakartaNameForNumber(raw){
   return MELAKARTA_NAMES[num-1];
 }
 
+/* ===================== Composer suggestions (derived live from the
+   library, not a separate managed directory) =====================
+   Unlike the raga database, this is intentionally NOT a standalone,
+   manually-maintained directory — every composer name ever typed and
+   saved across the library already IS the backing data, so a plain,
+   deduplicated scan of it is the whole implementation. No separate store
+   to keep in sync, no risk of it drifting from what your kritis actually
+   say, and it naturally grows/shrinks exactly as your library does. */
+function getUniqueComposerNames(){
+  const seen = new Map(); // lowercased -> first-seen casing, so the
+                           // suggestion shows however you originally typed it
+  library.forEach(s=>{
+    // Excludes whichever kriti is currently being edited — library holds
+    // it live, so without this, whatever you're mid-typing into ITS OWN
+    // composer field (e.g. "thya" before you've finished "Thyagaraja")
+    // would immediately suggest itself back at you as a real composer.
+    // Confirmed directly: typing "thya" produced ['thya', 'Thyagaraja']
+    // as suggestions without this guard.
+    if(s.id === currentId) return;
+    const name = (s.composer || '').trim();
+    if(!name) return;
+    const key = name.toLowerCase();
+    if(!seen.has(key)) seen.set(key, name);
+  });
+  return Array.from(seen.values());
+}
+function searchComposerDatabase(query){
+  const q = (query || '').trim().toLowerCase();
+  if(!q) return [];
+  const starts = [], contains = [];
+  getUniqueComposerNames().forEach(name=>{
+    const lower = name.toLowerCase();
+    if(lower.startsWith(q)) starts.push(name);
+    else if(lower.includes(q)) contains.push(name);
+  });
+  const byName = (a,b)=> a.localeCompare(b);
+  return [...starts.sort(byName), ...contains.sort(byName)];
+}
+
 const RAGA_DB_KEY = 'kriti-notation-studio.ragaDatabase';
 let ragaDatabase = []; // [{name, melakarta, arohanam, avarohanam}, ...]
 function loadRagaDatabase(){
@@ -2694,6 +2733,29 @@ const TALA_ACCENT_COLORS = {
 };
 function talaAccentColor(tala){ return TALA_ACCENT_COLORS[tala] || 'var(--line)'; }
 
+/* Builds one combined, lowercased search haystack per kriti — title, raga,
+   tala label, composer, and every section's lyrics (the plain sahitya
+   preview text, falling back to the notation grid's own lyric cells for
+   any section where that's empty, same source priority songPreviewSnippet
+   already uses) — so one search box can match on any of them, not just
+   title/raga via separate dropdown filters. Rebuilt per kriti on every
+   keystroke; fine at realistic library sizes, but if this ever becomes
+   the slow part for a very large library, caching this per song (invalidated
+   on edit) would be the next step rather than rethinking the search itself. */
+function songSearchHaystack(song){
+  const parts = [song.title, song.raga, song.composer, TALAS[song.tala]?.label || song.tala];
+  (song.sections || []).forEach(sec=>{
+    const plain = (sec.sahitya || '').trim();
+    if(plain){ parts.push(plain); return; }
+    (sec.lines || []).forEach(line=>{
+      (line.rows || []).forEach(row=>{
+        const cellLyrics = (row.lyric || []).filter(Boolean).join(' ');
+        if(cellLyrics) parts.push(cellLyrics);
+      });
+    });
+  });
+  return parts.filter(Boolean).join(' ').toLowerCase();
+}
 function renderSongList(){
   const list = document.getElementById('songList');
   if(!list) return; // dashboard isn't the current view — nothing to render into
@@ -2704,7 +2766,7 @@ function renderSongList(){
   populateFilterOptions();
   list.innerHTML = '';
   const filtered = library.filter(s=>{
-    if((s.title+' '+s.raga).toLowerCase().indexOf(q) === -1) return false;
+    if(q && songSearchHaystack(s).indexOf(q) === -1) return false;
     if(talaFilter && s.tala !== talaFilter) return false;
     if(ragaFilter && (s.raga||'').trim() !== ragaFilter) return false;
     if(composerFilter && (s.composer||'').trim() !== composerFilter) return false;
@@ -5324,8 +5386,8 @@ function updateAlignBadge(cellDiv, rawSwara, rawLyric){
 function getSong(){ return library.find(s=>s.id===currentId); }
 
 let dashboardSubView = 'list'; // 'list' (kriti browser), 'rules' (notation rules reference),
-                                // or 'ragaDirectory' (the raga database) — which content shows
-                                // in the dashboard's main area.
+                                // or 'ragaDirectory' — which content shows in the dashboard's
+                                // main area.
 
 /* Back-button handling — pressing the device/browser back button (Android's
    hardware back, iOS's edge-swipe, a desktop browser's back button all
@@ -5418,7 +5480,7 @@ function renderDashboard(){
           <p>Pick a kriti to open it, or start a new one from the left.</p>
         </div>
         <div class="dashboard-search-row">
-          <input class="search" id="searchBox" type="text" placeholder="Search by title or raga…" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off">
+          <input class="search" id="searchBox" type="text" placeholder="Search title, raga, tala, composer, or lyrics…" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off">
           <select class="filter-select" id="filterTala"><option value="">All talas</option></select>
           <select class="filter-select" id="filterRaga"><option value="">All ragas</option></select>
           <select class="filter-select" id="filterComposer"><option value="">All composers</option></select>
@@ -5614,7 +5676,14 @@ function downloadRagaTemplateCSV(){
     ['Mohanam', '28', 'S R2 G3 P D2 S', 'S D2 P G3 R2 S'],
   ];
   const lines = [header, ...sampleRows].map(row => row.map(csvField).join(',')).join('\r\n');
-  const blob = new Blob([lines], { type: 'text/csv;charset=utf-8;' });
+  // UTF-8 BOM (\uFEFF) prepended — this raga template doesn't happen to
+  // contain any non-ASCII characters itself, but the BOM stays here anyway
+  // so a raga name or note with one (a diacritic in a Sanskrit
+  // transliteration, an em-dash, etc.) added on a real import round-trips
+  // correctly rather than failing silently — confirmed this class of bug
+  // is real by round-tripping a downloaded template containing an en-dash
+  // and finding it came back mangled without the BOM.
+  const blob = new Blob(['\uFEFF' + lines], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = 'raga-directory-template.csv';
@@ -5862,7 +5931,11 @@ function renderMain(){
           <div id="ragaAutocompleteList" class="raga-autocomplete-list" style="display:none;"></div>
         </div>
         <div class="fieldwrap"><label>Melakarta # (optional)</label><input type="text" id="f_mela" value="${escapeHtml(song.melakarta)}" placeholder="e.g. 28th" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off"></div>
-        <div class="fieldwrap"><label>Composer</label><input type="text" id="f_composer" value="${escapeHtml(song.composer)}" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off"></div>
+        <div class="fieldwrap" style="position:relative;">
+          <label>Composer</label>
+          <input type="text" id="f_composer" value="${escapeHtml(song.composer)}" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off">
+          <div id="composerAutocompleteList" class="raga-autocomplete-list" style="display:none;"></div>
+        </div>
         <div class="fieldwrap"><label>Arohanam</label><input type="text" id="f_aro" value="${escapeHtml(song.arohanam)}" placeholder="S R2 G3 M1 P D2 N3 S" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off"></div>
         <div class="fieldwrap"><label>Avarohanam</label><input type="text" id="f_ava" value="${escapeHtml(song.avarohanam)}" placeholder="S N3 D2 P M1 G3 R2 S" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off"></div>
         <div class="fieldwrap">
@@ -5927,8 +6000,11 @@ function renderMain(){
   };
   document.getElementById('f_raga').addEventListener('blur', ()=>{
     // Delay so a click on a suggestion (which itself blurs the input) has
-    // time to register before the list disappears out from under it.
-    setTimeout(()=>{ document.getElementById('ragaAutocompleteList').style.display = 'none'; }, 150);
+    // time to register before the list disappears out from under it. Null-
+    // checked — if the editor re-rendered in the meantime (e.g. a save-
+    // triggered refresh) this element may no longer exist by the time this
+    // fires, which threw "Cannot read properties of null" before this guard.
+    setTimeout(()=>{ const el = document.getElementById('ragaAutocompleteList'); if(el) el.style.display = 'none'; }, 150);
   });
   function renderRagaAutocomplete(query){
     const list = document.getElementById('ragaAutocompleteList');
@@ -5954,7 +6030,32 @@ function renderMain(){
     });
   }
   document.getElementById('f_mela').oninput = e=>{ song.melakarta=e.target.value; renderSongList(); queueSave(); };
-  document.getElementById('f_composer').oninput = e=>{ song.composer=e.target.value; queueSave(); };
+  document.getElementById('f_composer').oninput = e=>{
+    song.composer=e.target.value; queueSave();
+    renderComposerAutocomplete(e.target.value);
+  };
+  document.getElementById('f_composer').addEventListener('blur', ()=>{
+    setTimeout(()=>{ const el = document.getElementById('composerAutocompleteList'); if(el) el.style.display = 'none'; }, 150);
+  });
+  function renderComposerAutocomplete(query){
+    const list = document.getElementById('composerAutocompleteList');
+    const matches = searchComposerDatabase(query); // plain composer name strings, derived live from the library
+    if(!matches.length){ list.style.display = 'none'; list.innerHTML = ''; return; }
+    list.innerHTML = matches.map((name,i)=>`
+      <div class="raga-autocomplete-item" data-idx="${i}">
+        <span class="raga-ac-name">${escapeHtml(name)}</span>
+      </div>`).join('');
+    list.style.display = 'block';
+    list.querySelectorAll('.raga-autocomplete-item').forEach((el, i)=>{
+      el.onclick = ()=>{
+        const name = matches[i];
+        song.composer = name;
+        document.getElementById('f_composer').value = name;
+        list.style.display = 'none';
+        queueSave();
+      };
+    });
+  }
   document.getElementById('f_aro').oninput = e=>{ song.arohanam=e.target.value; queueSave(); rescanRagaScale(); renderVariantDefaultsUI(); rescanVariantBadges(); };
   document.getElementById('f_ava').oninput = e=>{ song.avarohanam=e.target.value; queueSave(); rescanRagaScale(); renderVariantDefaultsUI(); rescanVariantBadges(); };
   renderVariantDefaultsUI();
