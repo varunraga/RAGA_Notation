@@ -3858,14 +3858,22 @@ async function playCellSequence(cellDivs, song, startBtn, isResume){
     const inp = cellDiv.querySelector('input.swara');
     const tokens = tokenizeCellForPlayback(inp ? inp.value : '');
     const cellOverride = cellDiv.dataset.variantOverride ? JSON.parse(cellDiv.dataset.variantOverride) : null;
+    const letterOccurrenceCount = {}; // reset per cell — a 2nd/3rd D within the SAME cell (e.g. "D D")
+                                       // needs its own independent occurrence count, not shared with the 1st
     tokens.forEach(tok=>{
       const duration = tok.weight * PLAYBACK_SECONDS_PER_AKSHARA;
       if(tok.kind === 'note'){
         // A per-cell variant override (set via the small badge on
         // ambiguous cells, e.g. Bhairavi's D1/D2) always wins over the
-        // song-level default for THIS specific note, letter by letter.
-        const effectiveVariantMap = (cellOverride && cellOverride[tok.letter] !== undefined)
-          ? Object.assign({}, variantMap, { [tok.letter]: cellOverride[tok.letter] })
+        // song-level default for THIS specific note occurrence. Keyed by
+        // letter+occurrence-within-the-cell (not just letter) — otherwise
+        // two D's in one cell could never be set independently, since
+        // they'd share a single "D" override applying to both at once.
+        const occIdx = letterOccurrenceCount[tok.letter] || 0;
+        letterOccurrenceCount[tok.letter] = occIdx + 1;
+        const overrideKey = tok.letter + '_' + occIdx;
+        const effectiveVariantMap = (cellOverride && cellOverride[overrideKey] !== undefined)
+          ? Object.assign({}, variantMap, { [tok.letter]: cellOverride[overrideKey] })
           : variantMap;
         lastFreq = swaraToFrequency(tok.letter, tok.octave, effectiveVariantMap, PLAYBACK_SA_FREQ);
         audioEvents.push({ freq: lastFreq, duration, startTime: clock });
@@ -5044,12 +5052,23 @@ function updateVariantBadges(cellDiv, rawSwara, row, cellIdx, ambiguousLetters, 
   if(override && Object.keys(override).length) cellDiv.dataset.variantOverride = JSON.stringify(override);
   else delete cellDiv.dataset.variantOverride;
   if(!rawSwara || !Object.keys(ambiguousLetters).length) return;
-  const lettersPresent = Array.from(new Set((rawSwara.match(/[A-Za-z]/g) || []).map(c=>c.toUpperCase())))
-    .filter(letter => ambiguousLetters[letter]);
-  if(!lettersPresent.length) return;
-  lettersPresent.forEach(letter=>{
+  // One badge per OCCURRENCE of an ambiguous letter, not one per distinct
+  // letter — a cell containing "D D" (the same ambiguous letter twice)
+  // needs two independently-clickable badges, since the two occurrences
+  // can genuinely be different pitches, not one badge controlling both.
+  const lettersInOrder = (rawSwara.match(/[A-Za-z]/g) || []).map(c=>c.toUpperCase());
+  const occurrenceCounts = {};
+  const occurrences = [];
+  lettersInOrder.forEach(letter=>{
+    if(!ambiguousLetters[letter]) return;
+    const occIdx = occurrenceCounts[letter] || 0;
+    occurrenceCounts[letter] = occIdx + 1;
+    occurrences.push({ letter, overrideKey: letter + '_' + occIdx });
+  });
+  if(!occurrences.length) return;
+  occurrences.forEach(({letter, overrideKey})=>{
     const options = ambiguousLetters[letter];
-    const override = row.variantOverride[cellIdx] && row.variantOverride[cellIdx][letter];
+    const override = row.variantOverride[cellIdx] && row.variantOverride[cellIdx][overrideKey];
     const effective = override || variantMap[letter];
     const badge = document.createElement('button');
     badge.type = 'button';
@@ -5061,7 +5080,7 @@ function updateVariantBadges(cellDiv, rawSwara, row, cellIdx, ambiguousLetters, 
       const currentIdx = options.indexOf(effective);
       const next = options[(currentIdx + 1) % options.length];
       if(!row.variantOverride[cellIdx]) row.variantOverride[cellIdx] = {};
-      row.variantOverride[cellIdx][letter] = next;
+      row.variantOverride[cellIdx][overrideKey] = next;
       queueSave();
       updateVariantBadges(cellDiv, rawSwara, row, cellIdx, ambiguousLetters, variantMap);
     };
