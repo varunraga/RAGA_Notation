@@ -6415,7 +6415,31 @@ function ensureLineShape(line, cfg, kalai){
     if(!r.variantOverride) r.variantOverride = []; // songs saved before this field existed
     while(r.swara.length < cellCount){ r.swara.push(''); r.lyric.push(''); r.variantOverride.push(null); }
     r.swara.length = cellCount; r.lyric.length = cellCount; r.variantOverride.length = cellCount;
-    for(let i=0;i<cellCount;i++){ if(r.variantOverride[i] === undefined) r.variantOverride[i] = null; }
+    for(let i=0;i<cellCount;i++){
+      if(r.variantOverride[i] === undefined) r.variantOverride[i] = null;
+      // One-time migration: overrides saved before multi-occurrence support
+      // was added were keyed by plain letter alone ("D"), but every lookup
+      // now looks for letter+occurrence-position ("D_0", "D_1", ...) — an
+      // old plain-letter key is invisible to that lookup, silently making
+      // a previously-set badge choice look lost/reset on reopening, even
+      // though the data was still sitting there the whole time. Confirmed
+      // directly: an old-format {N:2} override survived in storage across
+      // a real reload, but the badge displayed the wrong default value
+      // regardless, exactly matching this reported symptom. Migrates any
+      // old plain-letter key to letter_0 — the first occurrence is the
+      // only one the old format could ever have meant, since it had no
+      // way to address a second occurrence of the same letter at all.
+      const ov = r.variantOverride[i];
+      if(ov && typeof ov === 'object'){
+        Object.keys(ov).forEach(key=>{
+          if(!/_\d+$/.test(key)){
+            const migratedKey = key + '_0';
+            if(ov[migratedKey] === undefined) ov[migratedKey] = ov[key];
+            delete ov[key];
+          }
+        });
+      }
+    }
   });
 }
 
