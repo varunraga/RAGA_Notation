@@ -54,6 +54,21 @@
     --warn-bg:#f7e6e6;
     --warn-soft:#c17b72;
     --heading:#000000; /* app name, song title, section labels, card headings, preview modal title */
+    /* Dedicated, theme-independent grid-cell colors — deliberately NOT the
+       same variables as the ones above (--indigo-25/50/100/300, --paper,
+       --ink-soft), even though the values start out identical, because
+       those shared ones get redefined per app theme below and .beat-cell
+       inputs specifically need to stay fixed regardless — confirmed via a
+       real screenshot exchange that the swara/lyric input cells should
+       always read as plain grey, and .preview should always stay dark
+       navy, across every app theme. Still correctly respond to light/dark
+       mode via the matching set under [data-theme="dark"] below — this
+       only decouples them from the NEW app-theme system, not the
+       existing one. */
+    --gc-swara-bg:#f8f8fe; --gc-swara-bg-active:#f1f1fe;
+    --gc-lyric-bg:#ffffff; --gc-lyric-bg-active:#dedefc;
+    --gc-border:#ddd9d0; --gc-border-focus:#8f8fff;
+    --gc-text:#1a1a2e; --gc-text-lyric:#5c5f6e;
   }
   /* Dark theme. Page background is the darkest tone; cards/modals/inputs sit
      progressively lighter on top of it (the reverse of light mode, where
@@ -94,6 +109,10 @@
     --warn-bg:#3a2323;
     --warn-soft:#d98f87;
     --heading:#ffffff;
+    --gc-swara-bg:#32323f; --gc-swara-bg-active:#22223a;
+    --gc-lyric-bg:#2f2f3a; --gc-lyric-bg-active:#2b2b4d;
+    --gc-border:#34343f; --gc-border-focus:#a3a3ff;
+    --gc-text:#e8e8f0; --gc-text-lyric:#9a9aad;
   }
   *{box-sizing:border-box;}
   :focus-visible{ outline:2px solid var(--indigo-300); outline-offset:2px; }
@@ -305,6 +324,17 @@
     cursor:pointer; font-family:'Inter',sans-serif; box-shadow:0 1px 3px rgba(0,0,0,0.08);
   }
   .editor-topbar .theme-mini:hover{ filter:brightness(0.94); }
+  .notation-theme-mini-select{
+    padding:10px 14px; border-radius:var(--radius-md); border:1px solid var(--line);
+    background:var(--paper); color:var(--ink); font-size:13.5px; font-family:'Inter',sans-serif;
+    cursor:pointer;
+  }
+  .notation-theme-picker{ padding:10px 20px 4px; }
+  .notation-theme-picker label{ display:block; font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--ink-soft); margin-bottom:5px; font-weight:600; }
+  .notation-theme-picker select{
+    width:100%; padding:8px 10px; border-radius:var(--radius-sm); border:1px solid var(--line);
+    background:var(--paper); color:var(--ink); font-size:13px; font-family:'Inter',sans-serif; cursor:pointer;
+  }
 
   /* ---------- Main ---------- */
   .main{ padding:32px 40px 80px; max-width:1220px; height:100vh; overflow-y:auto; }
@@ -547,12 +577,12 @@
     font-family:'Courier Prime',monospace; font-size:14px; text-align:left;
     padding:7px 6px; border-radius:var(--radius-sm);
   }
-  .beat-cell input.swara{ background:var(--indigo-25); border:1px solid var(--line); color:var(--ink); font-weight:700; }
-  .beat-cell input.lyric{ background:var(--paper); border:1px solid var(--line); font-size:12px; font-weight:700; color:var(--ink-soft); }
-  .beat-cell input.swara.cell-in-selection{ background:var(--indigo-50); border-color:var(--indigo-300); }
-  .beat-cell input.lyric.cell-in-selection{ background:var(--indigo-100); border-color:var(--indigo-300); }
-  .beat-cell input.swara:focus{ background:var(--indigo-50); border-color:var(--indigo-300); }
-  .beat-cell input.lyric:focus{ background:var(--indigo-100); border-color:var(--indigo-300); }
+  .beat-cell input.swara{ background:var(--gc-swara-bg); border:1px solid var(--gc-border); color:var(--gc-text); font-weight:700; }
+  .beat-cell input.lyric{ background:var(--gc-lyric-bg); border:1px solid var(--gc-border); font-size:12px; font-weight:700; color:var(--gc-text-lyric); }
+  .beat-cell input.swara.cell-in-selection{ background:var(--gc-swara-bg-active); border-color:var(--gc-border-focus); }
+  .beat-cell input.lyric.cell-in-selection{ background:var(--gc-lyric-bg-active); border-color:var(--gc-border-focus); }
+  .beat-cell input.swara:focus{ background:var(--gc-swara-bg-active); border-color:var(--gc-border-focus); }
+  .beat-cell input.lyric:focus{ background:var(--gc-lyric-bg-active); border-color:var(--gc-border-focus); }
   .num{ font-variant-numeric:tabular-nums; }
   .aksh-badge{ font-size:9.5px; text-align:center; height:12px; line-height:12px; font-weight:700; letter-spacing:.3px; font-variant-numeric:tabular-nums; transition:color .18s ease; }
   .aksh-badge.ok{ color:var(--good-soft); }
@@ -683,6 +713,72 @@
     border:1px solid #3a3a5c;
   }
   [data-theme="dark"] .preview{ background:#23233f; border-color:var(--indigo-300); box-shadow:0 0 0 1px rgba(163,163,255,0.15); }
+
+  /* ---------- App-wide theme palettes ----------
+     Redefines the SAME root variables every component in the app already
+     uses (--surface, --ink, --brand-blue, --panel, etc.) — not hundreds of
+     individual overrides for every button/card/modal. Anything already
+     built with var(--paper)/var(--brand-blue)/etc. picks up the new
+     palette automatically through the existing cascade, the same way
+     dark mode already works above. Same specificity as [data-theme="dark"]
+     (one attribute selector each) but declared later in the stylesheet, so
+     when both are active together a theme's own palette correctly wins
+     over dark mode's — each theme is one complete, fixed look rather than
+     crossing with light/dark. All three keep the same light, neutral
+     background structure as the default look (not a dramatic tint) — the
+     accent family (indigo/brand-blue/heading) is what actually
+     distinguishes one theme from another. Colors are the user's own final
+     picks after two rounds of swatches — Kelly green (#16a34a) as-is,
+     Burgundy-wine (#a4133c) over an earlier brighter Ruby crimson, Bright
+     amber (#f59e0b) over an earlier Sunflower gold. Green sits closer to
+     --good (the app's fixed success color) than a more muted green would
+     have, since both are genuinely green — there's no way to fully avoid
+     that while honoring the exact shade chosen, so it's a real,
+     acknowledged trade-off rather than a fully solved one. Burgundy-wine
+     is dark enough to need no contrast adjustment (white text on it
+     measures 7.67:1). Amber needed the same adjustment Sunflower gold
+     did: buttons render white text on top of --indigo/--brand-blue (see
+     .theme-mini and primary .btn below), and pure Bright amber (#f59e0b)
+     only measures 2.15:1 with white text — checked against real WCAG
+     contrast math, not eyeballed. --indigo/--brand-blue instead use a
+     deepened amber (#8f5a06, 5.78:1) for anything text sits on top of,
+     while the exact chosen #f59e0b is still used prominently elsewhere
+     (--indigo-300, --search-bg, hover/border accents) so the theme still
+     reads as genuinely "amber," not just "gold" in name only.
+     Deliberately NOT touched here: .grid-table-doc and every .doc-* rule
+     (the DOCX/PDF-matching views, always fixed to match the real exported
+     document) and — per explicit request — the notation grid's input
+     cells and the live .preview strip, which use their own dedicated,
+     theme-independent variables defined separately below specifically so
+     they can never drift when a new theme's palette changes. */
+  [data-notation-theme="green"]{
+    --surface:#eef4ee; --surface-light:#f5f9f5; --surface-deep:#dbe9db;
+    --ink:#0f2a18; --ink-rgb:15,42,24; --ink-soft:#3f5c48;
+    --indigo-25:#f0faf3; --indigo-50:#dcf5e3; --indigo-100:#b3e6c1;
+    --indigo-300:#4ade80; --indigo:#16a34a; --indigo-deep:#0f7a37; --indigo-900:#0a4d23;
+    --brand-blue:#16a34a; --brand-blue-light:#22c55e;
+    --line:#cde3d1; --panel:#f5f9f5; --paper:#ffffff; --search-bg:#b3e6c1;
+    --heading:#0a3d1c;
+  }
+  [data-notation-theme="maroon"]{
+    --surface:#f6eef0; --surface-light:#faf5f6; --surface-deep:#ecd7db;
+    --ink:#3a0a16; --ink-rgb:58,10,22; --ink-soft:#6b3f47;
+    --indigo-25:#fbeef1; --indigo-50:#f6d4db; --indigo-100:#eba7b4;
+    --indigo-300:#d45a76; --indigo:#a4133c; --indigo-deep:#7e0f2e; --indigo-900:#4a081b;
+    --brand-blue:#a4133c; --brand-blue-light:#c01a48;
+    --line:#e6cdd2; --panel:#faf5f6; --paper:#ffffff; --search-bg:#eba7b4;
+    --heading:#3a0a16;
+  }
+  [data-notation-theme="gold"]{
+    --surface:#faf5e6; --surface-light:#fdfaef; --surface-deep:#f0e2bd;
+    --ink:#3d2702; --ink-rgb:61,39,2; --ink-soft:#6b5426;
+    --indigo-25:#fef6e7; --indigo-50:#fdecc4; --indigo-100:#fbd68a;
+    --indigo-300:#f59e0b; --indigo:#8f5a06; --indigo-deep:#6b4404; --indigo-900:#3d2702;
+    --brand-blue:#8f5a06; --brand-blue-light:#a86c07;
+    --line:#ecd8a0; --panel:#fdfaef; --paper:#ffffff; --search-bg:#fbd68a;
+    --heading:#3d2702;
+  }
+
   /* ---------- Notation grid tables (shared by live preview and the full
      Preview modal — mirrors the .docx export's real table structure:
      fixed per-cell widths, an explicit divider cell, Consolas font. ---------- */
@@ -893,6 +989,8 @@
     var saved = localStorage.getItem('kriti-theme');
     var theme = saved || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
     if(theme === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+    var savedNotationTheme = localStorage.getItem('kriti-notation-theme');
+    if(savedNotationTheme && savedNotationTheme !== 'default') document.documentElement.setAttribute('data-notation-theme', savedNotationTheme);
   })();
 </script>
 </head>
@@ -907,6 +1005,15 @@
       <svg id="themeToggleIcon" width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></svg>
       <span id="themeToggleLabel">Dark mode</span>
     </button>
+    <div class="notation-theme-picker">
+      <label for="notationThemeSelect">App theme</label>
+      <select id="notationThemeSelect">
+        <option value="default">Modern (default)</option>
+        <option value="green">Green</option>
+        <option value="maroon">Maroon</option>
+        <option value="gold">Gold</option>
+      </select>
+    </div>
     <div class="nav-divider"></div>
     <div class="nav-group">
       <button class="nav-item" id="newSongBtn">
@@ -2657,6 +2764,23 @@ function applyTheme(theme){
 function toggleTheme(){
   const current = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
   applyTheme(current === 'dark' ? 'light' : 'dark');
+}
+
+/* A separate, independent axis from light/dark mode above — purely
+   cosmetic treatments for the notation grid itself (.preview /
+   .grid-table-dark), not the rest of the app chrome. Each is a complete,
+   fixed look rather than crossing with light/dark, keeping this simple:
+   4 looks total, not 8 combinations. */
+function applyNotationTheme(theme){
+  const valid = ['default', 'green', 'maroon', 'gold'];
+  const t = valid.includes(theme) ? theme : 'default';
+  if(t === 'default') document.documentElement.removeAttribute('data-notation-theme');
+  else document.documentElement.setAttribute('data-notation-theme', t);
+  localStorage.setItem('kriti-notation-theme', t);
+  const sel = document.getElementById('notationThemeSelect');
+  const selMini = document.getElementById('notationThemeSelectMini');
+  if(sel) sel.value = t;
+  if(selMini) selMini.value = t;
 }
 
 function showToast(msg){
@@ -5899,6 +6023,12 @@ function renderMain(){
     <div class="editor-topbar">
       <button class="back-btn" id="backToLibraryBtn"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15l-5-5 5-5"/></svg> Library</button>
       <button class="theme-mini" id="themeMiniBtn" title="Toggle dark mode"><svg id="themeMiniIcon" width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></svg> <span id="themeMiniLabel">Dark mode</span></button>
+      <select class="notation-theme-mini-select" id="notationThemeSelectMini" title="App theme">
+        <option value="default">Modern (default)</option>
+        <option value="green">Green</option>
+        <option value="maroon">Maroon</option>
+        <option value="gold">Gold</option>
+      </select>
     </div>
     <img class="banner" src="${BANNER}" alt="Kriti Notation Studio">
     <div class="hero">
@@ -6012,6 +6142,8 @@ function renderMain(){
   // applyTheme() is only called on toggle or at page load, and this button
   // is rebuilt from scratch every time the editor view renders.
   applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light');
+  applyNotationTheme(document.documentElement.getAttribute('data-notation-theme') || 'default');
+  document.getElementById('notationThemeSelectMini').onchange = e=> applyNotationTheme(e.target.value);
   document.getElementById('titleEdit').oninput = e=>{ song.title = e.target.textContent; renderSongList(); queueSave(); };
   document.getElementById('f_raga').oninput = e=>{
     song.raga=e.target.value; renderSongList(); queueSave();
@@ -7508,6 +7640,8 @@ function attemptAutoConnectDrive(retriesLeft){
 (async function init(){
   applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light');
   document.getElementById('themeToggleBtn').onclick = toggleTheme;
+  applyNotationTheme(localStorage.getItem('kriti-notation-theme') || 'default');
+  document.getElementById('notationThemeSelect').onchange = e=> applyNotationTheme(e.target.value);
   function populateTalaSelect(sel){
     Object.entries(TALAS).forEach(([k,v])=>{
       const opt = document.createElement('option');
