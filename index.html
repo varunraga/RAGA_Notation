@@ -1657,6 +1657,17 @@ let driveLibraryChecksum = null; // Drive's md5Checksum for the library file, as
                          // dialog to reappear on every sync instead of only on genuine external
                          // changes. A checksum only differs when the bytes actually differ.
 let driveConflictPending = false; // true once a conflict's been detected but not yet resolved
+let driveAutoConflictModalUsedThisSession = false; // becomes true the moment the FIRST
+  // auto-triggered (background) sync check of this session completes — used
+  // so the auto-popped conflict modal only ever appears once per session,
+  // specifically for the very first check (the one right after auto-
+  // connecting on a fresh app open), never again for a LATER auto-triggered
+  // check during ongoing editing, even if a genuinely new/different conflict
+  // shows up while actively working. A manual Sync-button click is a
+  // separate, explicit request and always shows the modal immediately
+  // regardless of this flag — see the conflict-handling block in
+  // syncLibraryToDrive for the full reasoning. Resets to false on every
+  // fresh page load, matching "only when I open the app" exactly.
 let driveConflictRemote = null;   // { library, checksum } fetched from Drive while a conflict is open
 try{ driveFolderId = localStorage.getItem(DRIVE_FOLDER_ID_KEY) || null; }catch(e){}
 try{ driveLibraryFileId = localStorage.getItem(DRIVE_LIBRARY_FILE_ID_KEY) || null; }catch(e){}
@@ -2280,6 +2291,19 @@ async function syncLibraryToDrive(auto){
     }
 
     const conflict = await checkDriveConflict();
+    // Marks the ONE app-open opportunity for the modal to auto-pop as used,
+    // right after this first auto-triggered check's result is known —
+    // regardless of whether THIS particular check happened to find a
+    // conflict or not. That's deliberate: "only when I open the app" means
+    // the modal's one chance to auto-appear is specifically the check that
+    // runs right after auto-connecting on a fresh load, not "the first time
+    // a conflict happens to exist" — if nothing was wrong at that moment but
+    // a genuinely different conflict shows up later while actively editing,
+    // it should still only ever surface as the quiet status-line warning
+    // (never gone, always visible until resolved) until the NEXT fresh app
+    // open, not interrupt mid-session with a popup.
+    const isFirstAutoSyncOfSession = auto && !driveAutoConflictModalUsedThisSession;
+    if(auto) driveAutoConflictModalUsedThisSession = true;
     if(conflict && conflict.mode === 'silent-adopt'){
       library = await driveDownloadLibraryJSON();
       try{ localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(library)); }catch(e){}
@@ -2295,11 +2319,22 @@ async function syncLibraryToDrive(auto){
       return;
     }
     if(conflict && conflict.mode === 'conflict'){
+      // A manual Sync click (auto=false) always shows the modal immediately,
+      // unconditionally — that's an explicit request, not a background
+      // check, so "only when I open the app" doesn't apply to it at all.
+      // An auto-triggered check only shows it if this is genuinely the
+      // first auto-check of the session (see isFirstAutoSyncOfSession
+      // above) — every later auto-triggered check during the same
+      // session, even one that finds a completely different conflict,
+      // stays silent beyond the status line. Confirmed by direct testing:
+      // repeated edits while a conflict sat unresolved used to re-open
+      // this modal on every single save, which is the exact bug this
+      // — and the flag above — exists to prevent.
       driveConflictPending = true;
       driveConflictRemote = { checksum: conflict.checksum };
       updateSyncStatusText();
       driveSyncInFlight = false; // release before the modal, so its own resolve action can sync again
-      await openConflictModal();
+      if(!auto || isFirstAutoSyncOfSession) await openConflictModal();
       return;
     }
 
@@ -2791,8 +2826,19 @@ async function persist(){
   // Auto-sync to Drive on every save, but only if already connected and the
   // browser reports it's online — silent either way (auto=true), since this
   // fires on every single edit. If we're not connected, this is a no-op (the
-  // Sync button is how you connect in the first place).
-  if(driveAccessToken && navigator.onLine) syncLibraryToDrive(true);
+  // Sync button is how you connect in the first place). Also skipped
+  // entirely while a conflict is already known and unresolved
+  // (driveConflictPending) — attempting a sync in that state would just
+  // re-detect the exact same conflict again for no benefit, and risked
+  // racing against the modal's own resolution: an edit-triggered sync
+  // sneaking in during the brief window the modal is open (waiting on a
+  // click) could re-check against a checksum the resolution hadn't
+  // finished updating yet, making a single click look like it needed to
+  // be clicked twice. Local edits keep saving and queuing normally either
+  // way (driveDirtyCount above already accounts for this one); this only
+  // pauses the Drive round-trip itself until the existing conflict is
+  // actually resolved.
+  if(driveAccessToken && navigator.onLine && !driveConflictPending) syncLibraryToDrive(true);
 }
 /* Debounced: waits until typing pauses (800ms of silence) before actually
    writing to storage, instead of firing on every keystroke. This is the main
