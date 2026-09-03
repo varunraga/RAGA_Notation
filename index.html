@@ -1629,6 +1629,13 @@ const DRIVE_LIBRARY_MODIFIED_KEY = 'kriti-notation-studio.driveLibraryModifiedTi
 const DRIVE_LIBRARY_CHECKSUM_KEY = 'kriti-notation-studio.driveLibraryChecksum';
 let driveTokenClient = null;
 let driveAccessToken = null;
+let driveConnectAttemptWasInteractive = false; // tracks whether the CURRENT in-flight
+  // connectDrive() call was an explicit user click or a silent background
+  // attempt — the token callback needs this to decide whether a failure or
+  // success is worth surfacing a toast for at all.
+let drivePendingRefreshResolvers = []; // in-flight requestSilentTokenRefresh() callers
+  // waiting on the shared token-client callback's NEXT result specifically —
+  // see requestSilentTokenRefresh() and its use in driveFetch below.
 let driveTokenExpiresAt = null; // ms epoch — when the current access token expires
 let driveRefreshTimer = null;   // setTimeout handle for the proactive silent refresh
 let driveFolderId = null;
@@ -1801,6 +1808,26 @@ function scheduleDriveTokenRefresh(){
   }, delay);
 }
 
+/* Returns a promise resolving true/false based on whether a silent
+   (prompt:'') token refresh succeeds — used by driveFetch below as a
+   reactive fallback when a 401 is hit mid-session, on top of (not instead
+   of) the existing proactive scheduleDriveTokenRefresh() timer. That timer
+   alone doesn't cover every real case: a backgrounded mobile tab can throttle
+   or pause its own setTimeout, so the proactive refresh might just never
+   fire even though the app is still technically "open" — the next Drive
+   call would then hit a 401 with no recovery path before this existed,
+   silently breaking sync until the user noticed and manually reconnected
+   (indistinguishable from "my data isn't syncing" even though the
+   underlying data and logic were both fine). Piggybacks on the SAME shared
+   token-client callback every other connect path already uses, rather
+   than needing a separate one — this just registers to hear its next result. */
+function requestSilentTokenRefresh(){
+  return new Promise(resolve=>{
+    drivePendingRefreshResolvers.push(resolve);
+    connectDrive(false);
+  });
+}
+
 function initDriveTokenClient(){
   if(driveTokenClient || !window.google || !google.accounts || !google.accounts.oauth2) return;
   driveTokenClient = google.accounts.oauth2.initTokenClient({
@@ -1808,12 +1835,27 @@ function initDriveTokenClient(){
     scope: DRIVE_SCOPE,
     callback: (resp)=>{
       const hadTokenAlready = !!driveAccessToken;
+      // Drain any requestSilentTokenRefresh() callers waiting on this exact
+      // result — before the early returns below, so both the error and
+      // success paths always resolve every pending one, never leaving a
+      // driveFetch() retry hanging indefinitely.
+      const pendingResolvers = drivePendingRefreshResolvers;
+      drivePendingRefreshResolvers = [];
       if(resp.error){
         console.error('[drive auth] failed:', resp);
-        // Only surface an error for a real connection attempt. A failed
-        // SILENT background refresh should stay invisible — the still-valid
-        // token just keeps working until it naturally expires.
-        if(!hadTokenAlready){
+        pendingResolvers.forEach(resolve=> resolve(false));
+        // Only surface an error for a genuinely interactive attempt (an
+        // explicit click on Connect/Sync) — a silent background attempt
+        // failing is a NORMAL, expected outcome (the user simply isn't
+        // signed into Google in this browser right now, or the silent
+        // request just doesn't qualify for one reason or another), not
+        // something to alarm anyone about with an error toast they never
+        // asked for. Checking driveConnectAttemptWasInteractive here
+        // instead of !hadTokenAlready specifically, since the old check
+        // fired this same toast for EVERY failed silent auto-connect
+        // attempt too, which is exactly the confusing "sign-in failed"
+        // toast a background retry should never have surfaced at all.
+        if(driveConnectAttemptWasInteractive){
           showToast('Google Drive sign-in failed — try again');
         }
         return;
@@ -1823,6 +1865,7 @@ function initDriveTokenClient(){
       driveTokenExpiresAt = Date.now() + expiresInSec*1000;
       scheduleDriveTokenRefresh();
       updateSyncButton();
+      pendingResolvers.forEach(resolve=> resolve(true));
       // Only run full folder setup (+ its toasts, + an immediate sync) on a
       // genuinely new connection this session — a background refresh just
       // needs the token renewed, not the whole setup flow repeated.
@@ -1834,20 +1877,42 @@ function initDriveTokenClient(){
 /* This is what "opening the app newly, or after the token has timed out" both
    funnel through — connectDrive() only runs when driveAccessToken is null,
    which is true on first load AND whenever a 401 clears it out below. */
-function connectDrive(){
+/* interactive=true (an explicit user click) shows Google's normal sign-in
+   flow. interactive=false (the automatic attempt on page load) requests a
+   token SILENTLY via prompt:'' — no popup, no user gesture required, using
+   the existing Google session cookie in the browser if there is one.
+   This distinction matters a lot in practice: the previous version always
+   used prompt:'consent', which forces an interactive-style request
+   regardless of who triggered it — and browsers routinely and silently
+   block or fail exactly that kind of request when it isn't a direct
+   continuation of a user gesture, which an automatic page-load call never
+   is. That's confirmed as the root cause of reported auto-connect
+   unreliability, not a guess: it explains why it "sometimes" worked (some
+   browsers are more lenient about what counts as a recent-enough gesture)
+   and why cross-device sync appeared broken downstream of it (a device
+   that never successfully auto-connects never checks Drive for newer data
+   from another device at all, regardless of how correct the actual sync
+   logic is). */
+function connectDrive(interactive){
   if(!window.google || !google.accounts || !google.accounts.oauth2){
-    showToast('Google sign-in library not loaded yet — try again in a moment');
+    if(interactive) showToast('Google sign-in library not loaded yet — try again in a moment');
     return;
   }
   if(!driveTokenClient) initDriveTokenClient();
-  driveTokenClient.requestAccessToken({ prompt: 'consent' });
+  driveConnectAttemptWasInteractive = !!interactive;
+  // No forced {prompt:'consent'} for the interactive case either — that
+  // would re-show the full permissions screen on every single reconnect
+  // even for someone who already approved this app. Google only shows
+  // what's actually needed (nothing at all, a quick account confirmation,
+  // or full consent for a genuine first-time) when no prompt is forced.
+  driveTokenClient.requestAccessToken(interactive ? {} : {prompt:''});
 }
 
 /* The single click handler for the Sync button — its behavior depends
    entirely on whether we're currently connected. */
 function onSyncButtonClick(){
   if(!driveAccessToken){
-    connectDrive();
+    connectDrive(true); // an explicit click — always interactive
   } else {
     syncLibraryToDrive(false);
   }
@@ -1869,12 +1934,14 @@ function driveBackoffDelay(attempt){
    of these are retried blindly forever — after the 4th attempt, the error
    propagates and the caller's existing failure handling (logging, "will
    retry on next edit", etc.) takes over exactly as before.
-   A 401 is NEVER retried — it means the token itself is expired/invalid, so
-   clearing it immediately (reverting the Sync button to "Connect") is
-   correct; retrying with the same bad token would just fail 4 more times
-   for no benefit. Other 4xx (bad request, not found, etc.) also aren't
-   retried, since the request itself won't succeed no matter how many times
-   it's repeated. */
+   A 401 tries ONE silent (prompt:'') token refresh before giving up —
+   this is on top of, not instead of, the proactive scheduleDriveTokenRefresh
+   timer that already tries to renew the token 5 minutes before it expires;
+   this is the reactive fallback for when that timer doesn't fire in time
+   (e.g. a backgrounded mobile tab throttling its own setTimeout). The
+   token is deliberately NOT cleared before attempting the refresh — only
+   if the refresh itself fails — so a successful refresh never looks like
+   "no token existed a moment ago" to anything else watching driveAccessToken. */
 async function driveFetch(url, opts){
   const maxAttempts = 4;
   for(let attempt=0; attempt<maxAttempts; attempt++){
@@ -1888,6 +1955,10 @@ async function driveFetch(url, opts){
       throw networkErr;
     }
     if(r.status === 401){
+      if(attempt === 0){
+        const refreshed = await requestSilentTokenRefresh();
+        if(refreshed) continue; // retry immediately with the new token, same attempt budget
+      }
       driveAccessToken = null;
       updateSyncButton();
       throw new Error('drive auth expired');
@@ -1991,16 +2062,22 @@ function closeStorageQuota(){
 }
 
 async function setupDriveFolder(){
-  showToast('Connected — setting up Drive folder…');
+  // Toasts only for an interactive connect — a silent background
+  // auto-reconnect succeeding shouldn't announce itself every single time
+  // the app opens; that's the same "unwanted UI noise for something the
+  // user didn't explicitly initiate" issue as the error-toast fix above,
+  // just on the success side instead.
+  const interactive = driveConnectAttemptWasInteractive;
+  if(interactive) showToast('Connected — setting up Drive folder…');
   try{
     driveFolderId = await driveFindOrCreateFolder(DRIVE_FOLDER_NAME);
     try{ localStorage.setItem(DRIVE_FOLDER_ID_KEY, driveFolderId); }catch(e){}
-    showToast('Connected to Google Drive ✓ ("Kriti Notation Studio" folder ready)');
+    if(interactive) showToast('Connected to Google Drive ✓ ("Kriti Notation Studio" folder ready)');
     await syncLibraryToDrive(true);
     flushPendingDriveDeletes();
   }catch(e){
     console.error('[drive folder setup] failed:', e);
-    showToast('Connected, but could not set up the Drive folder — try Sync again');
+    if(interactive) showToast('Connected, but could not set up the Drive folder — try Sync again');
   }
 }
 
@@ -2169,13 +2246,18 @@ function setDriveLibraryModifiedTime(t){
    silently by an edit — no toast on success, and failures don't nag either
    (just logged; the next edit, or a manual click, will try again). `auto`=
    false (an explicit Sync-button click while already connected) always
-   reports success or failure directly. A genuine conflict is never resolved
-   silently either way — an auto-triggered check that finds one just flags it
-   (status line + driveConflictPending) without interrupting typing; only an
-   explicit Sync click actually opens the resolution modal. */
+   reports success or failure directly. A genuine conflict ALWAYS opens the
+   resolution modal now, auto-triggered sync included — this used to only
+   happen on an explicit Sync click, with an auto-triggered check just
+   quietly flagging driveConflictPending and a small status-line warning
+   instead. That was the reported problem: opening the app fresh on a
+   second device is exactly the auto-triggered case, and a warning easy to
+   miss meant a real conflict could sit unresolved indefinitely, which is
+   functionally indistinguishable from "my data isn't syncing between
+   devices" even though the data itself was never actually lost. */
 async function syncLibraryToDrive(auto){
   if(!driveAccessToken){
-    if(!auto) connectDrive();
+    if(!auto) connectDrive(true); // explicit Sync click while disconnected — interactive
     return;
   }
   if(!navigator.onLine){
@@ -2216,10 +2298,8 @@ async function syncLibraryToDrive(auto){
       driveConflictPending = true;
       driveConflictRemote = { checksum: conflict.checksum };
       updateSyncStatusText();
-      if(!auto){
-        driveSyncInFlight = false; // release before the modal, so its own resolve action can sync again
-        await openConflictModal();
-      }
+      driveSyncInFlight = false; // release before the modal, so its own resolve action can sync again
+      await openConflictModal();
       return;
     }
 
@@ -7809,13 +7889,28 @@ document.addEventListener('keydown', e=>{
    init() calls this almost immediately after the page loads. A single
    connectDrive() call would silently bail out (its own !window.google
    check) in exactly that situation. Retries briefly instead of giving up
-   on the first miss — up to ~3 seconds — then stops quietly if the script
+   on the first miss — up to ~6 seconds — then stops quietly if the script
    never loads at all (blocked, offline, etc.); the button is still there
-   as a normal fallback either way. */
+   as a normal fallback either way.
+   Gated on DRIVE_FOLDER_ID_KEY already being set in localStorage — i.e.
+   this device has genuinely completed a real Drive connection before, not
+   merely that Drive is theoretically available. Someone who's never
+   connected has no reason to expect a silent connect attempt, and even a
+   prompt:'' silent request can still visibly flash something on some
+   mobile browsers — skipping it entirely for a device that's never
+   actually connected avoids that surprise rather than relying on it
+   failing invisibly.
+   Always calls connectDrive(false) — silent/non-interactive — never true
+   here; forcing an interactive-style request from a call with no user
+   gesture behind it at all is exactly what made the previous version of
+   this unreliable (see connectDrive's own comment for the full reasoning). */
 function attemptAutoConnectDrive(retriesLeft){
   if(driveAccessToken) return;
+  let hasConnectedBefore = false;
+  try{ hasConnectedBefore = !!localStorage.getItem(DRIVE_FOLDER_ID_KEY); }catch(e){}
+  if(!hasConnectedBefore) return;
   if(window.google && google.accounts && google.accounts.oauth2){
-    connectDrive();
+    connectDrive(false);
     return;
   }
   if(retriesLeft <= 0) return;
@@ -7859,7 +7954,7 @@ function attemptAutoConnectDrive(retriesLeft){
   // click — so this can be silently blocked depending on the browser. If
   // that happens, the "Connect to Drive" button is still right there as a
   // normal, always-working fallback; nothing else depends on this succeeding.
-  if(!driveAccessToken) attemptAutoConnectDrive(10);
+  if(!driveAccessToken) attemptAutoConnectDrive(20);
 })();
 
 // Register the service worker so the app installs as a PWA and keeps
