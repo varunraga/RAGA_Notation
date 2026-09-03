@@ -7949,11 +7949,15 @@ function attemptAutoConnectDrive(retriesLeft){
   pushAppHistoryState();
   // Automatically prompt to connect to Google Drive on every fresh app open
   // (the access token is memory-only, so this is always needed after a
-  // reload). NOTE: this opens the Google account-chooser as a popup, and
-  // most browsers block popups that aren't the direct result of a user
-  // click — so this can be silently blocked depending on the browser. If
-  // that happens, the "Connect to Drive" button is still right there as a
-  // normal, always-working fallback; nothing else depends on this succeeding.
+  // reload) — gated inside attemptAutoConnectDrive on this device having
+  // genuinely connected successfully before. Uses connectDrive(false), a
+  // SILENT (prompt:'') token request — no popup, no user gesture required,
+  // using the browser's existing Google session if there is one. If that
+  // session has expired or was signed out, this silently does nothing
+  // rather than erroring (see connectDrive's own comment) — the "Connect
+  // to Drive" button is still right there as a normal, always-working
+  // fallback either way, and the sync status area reflects "not connected"
+  // so it's visible, not silently missing with no indication at all.
   if(!driveAccessToken) attemptAutoConnectDrive(20);
 })();
 
