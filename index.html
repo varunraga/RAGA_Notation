@@ -556,6 +556,10 @@
   }
   .variant-default-btn.active{ background:#0f9b8e; border-color:#0f9b8e; color:#fff; }
   .variant-defaults-hint{ font-size:11.5px; color:var(--ink-soft); line-height:1.5; }
+  .variant-nav-row{
+    display:flex; align-items:center; gap:10px; margin-top:10px; padding-top:10px;
+    border-top:1px solid var(--line); font-size:12.5px; color:var(--ink-soft);
+  }
   .heatmap-toggle{
     display:flex; align-items:center; gap:6px; padding:9px 13px; border-radius:var(--radius-sm);
     border:1px solid var(--line); background:var(--paper); color:var(--ink); font-size:12.5px; font-weight:600;
@@ -778,6 +782,56 @@
     --line:#ecd8a0; --panel:#fdfaef; --paper:#ffffff; --search-bg:#fbd68a;
     --heading:#3d2702;
   }
+  /* ---------- Dark-mode variants of the three app themes ----------
+     Each light-mode theme block above was written to fully override
+     dark mode's own colors too — same specificity, declared later — which
+     meant toggling dark mode while a theme was active had NO visible
+     effect at all, confirmed as a real reported problem, not just a
+     missed nice-to-have. Combined selectors here
+     ([data-theme="dark"][data-notation-theme="..."]) have higher
+     specificity than either alone (two attribute selectors vs one), so
+     these correctly layer a genuine dark variant on top regardless of
+     source order — mirrors the same structural pattern the existing
+     default dark mode already uses (dark desaturated surface, near-white
+     ink, a brighter accent than the light-mode version), hue-shifted to
+     each theme's own color rather than copied blindly: every accent here
+     was chosen by actually computing its contrast against --paper, since
+     .btn.primary renders color:var(--paper) as its text on top of the
+     --indigo/--brand-blue gradient background — green and gold land at a
+     strong 6.2–6.5:1, maroon at 4.6:1 (its accent naturally sits in a
+     narrower readable range being closer to mid-brightness), all
+     comfortably past the 4.5:1 normal-text guideline, not just the lower
+     3:1 bold-text minimum. The notation grid's own dedicated --gc-* variables are
+     untouched here, same as in light mode — they already have their own
+     correct dark-mode values from the base [data-theme="dark"] block and
+     were never meant to vary by app theme at all. */
+  [data-theme="dark"][data-notation-theme="green"]{
+    --surface:#131f16; --surface-light:#18251b; --surface-deep:#233826;
+    --ink:#e5f5ea; --ink-rgb:229,245,234; --ink-soft:#96b39f;
+    --indigo-25:#1f3325; --indigo-50:#16261b; --indigo-100:#1c3924;
+    --indigo-300:#5fe092; --indigo:#22c55e; --indigo-deep:#34d15e; --indigo-900:#c3f7d3;
+    --brand-blue:#22c55e; --brand-blue-light:#34d15e;
+    --line:#2a4030; --panel:#18251b; --paper:#1e2e22; --search-bg:#1c3924;
+    --heading:#eafcf0;
+  }
+  [data-theme="dark"][data-notation-theme="maroon"]{
+    --surface:#20121a; --surface-light:#2a1722; --surface-deep:#3d2030;
+    --ink:#f5e5ec; --ink-rgb:245,229,236; --ink-soft:#b3899d;
+    --indigo-25:#3a1f2d; --indigo-50:#2c1522; --indigo-100:#421f34;
+    --indigo-300:#f06a92; --indigo:#e8477a; --indigo-deep:#f06a92; --indigo-900:#fbd0e0;
+    --brand-blue:#e8477a; --brand-blue-light:#f06a92;
+    --line:#432c39; --panel:#2a1722; --paper:#291420; --search-bg:#421f34;
+    --heading:#fceaf0;
+  }
+  [data-theme="dark"][data-notation-theme="gold"]{
+    --surface:#211a0a; --surface-light:#2b220e; --surface-deep:#3d3115;
+    --ink:#f7f0d8; --ink-rgb:247,240,216; --ink-soft:#c2b385;
+    --indigo-25:#3d3113; --indigo-50:#2e250d; --indigo-100:#453712;
+    --indigo-300:#facc15; --indigo:#d9a821; --indigo-deep:#e8bc2e; --indigo-900:#fdedae;
+    --brand-blue:#d9a821; --brand-blue-light:#e8bc2e;
+    --line:#463a17; --panel:#2b220e; --paper:#332911; --search-bg:#453712;
+    --heading:#fdf6e0;
+  }
 
   /* ---------- Notation grid tables (shared by live preview and the full
      Preview modal — mirrors the .docx export's real table structure:
@@ -849,6 +903,26 @@
     box-shadow:0 4px 16px rgba(0,0,0,0.25);
   }
   .floating-stop-btn:hover{ filter:brightness(0.94); }
+
+  /* Bottom-LEFT, not bottom-right — the floating playback bar already
+     occupies that corner during active playback, and this needs to stay
+     visible independently of that (unlike playback, which is transient,
+     a raga's variant ambiguity is a standing condition for as long as
+     you're editing it), so the two must never compete for the same
+     corner of the screen. */
+  .floating-variant-nav{
+    position:fixed; bottom:22px; left:22px; z-index:60; display:flex; align-items:center; gap:6px;
+    padding:8px 10px; border-radius:999px; background:var(--paper); border:1px solid var(--line);
+    box-shadow:0 4px 16px rgba(0,0,0,0.18); font-size:12px; font-weight:600; color:var(--ink-soft);
+  }
+  .floating-variant-btn{
+    display:flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:999px;
+    border:1px solid var(--line); background:var(--panel); color:var(--ink); cursor:pointer; font-size:12px;
+  }
+  .floating-variant-btn:hover{ background:var(--indigo-50); border-color:var(--indigo-300); }
+  #floatingVariantCounter{ white-space:nowrap; padding:0 2px; }
+  .floating-variant-nav svg{ flex-shrink:0; color:var(--brand-blue); }
+  .floating-variant-label{ font-weight:700; color:var(--ink); white-space:nowrap; margin-right:2px; }
 
   .add-line-btn{ display:flex; align-items:center; gap:6px; }
 
@@ -1063,6 +1137,13 @@
     <input type="range" id="floatingTempoSlider" min="120" max="450" step="10" value="120">
   </div>
   <button class="floating-stop-btn" id="floatingStopBtn" title="Stop playback (Esc)"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="10" height="10" rx="1.5"/></svg> Stop playback</button>
+</div>
+<div class="floating-variant-nav" id="floatingVariantNav" style="display:none;" title="Jump between swara cells that have more than one valid form in this raga (e.g. D1/D2) — pick which one plays here with the cell's own small badge.">
+  <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h5M4 10h9M4 14h5"/><circle cx="15" cy="10" r="2.3"/></svg>
+  <span class="floating-variant-label">Swara Variants</span>
+  <button type="button" class="floating-variant-btn" id="floatingVariantPrev" title="Previous cell with a variant choice">◀</button>
+  <span id="floatingVariantCounter">0 of 0</span>
+  <button type="button" class="floating-variant-btn" id="floatingVariantNext" title="Next cell with a variant choice">▶</button>
 </div>
 <div id="printContainer"></div>
 
@@ -5248,15 +5329,83 @@ function rescanVariantBadges(){
    this. Choosing here sets song.variantDefaults, which every cell falls
    back to unless it has its own individual override (the small badge on
    the cell itself). */
+let variantNavIndex = -1; // which ambiguous cell prev/next navigation is currently on
+/* Walks every rendered swara cell in document order (matches reading
+   order, since sections/lines/cells render sequentially) and returns the
+   ones that actually contain at least one occurrence of an ambiguous
+   letter — i.e. exactly the cells that show a variant badge. Rebuilt
+   fresh on every navigation call rather than cached, so it can never go
+   stale if the kriti was edited between clicks (a cell added/removed, or
+   the raga's arohanam/avarohanam changed which letters are ambiguous). */
+function collectVariantCellInputs(song){
+  const ambiguous = getAmbiguousVariantLetters(song);
+  if(!Object.keys(ambiguous).length) return [];
+  const matches = [];
+  document.querySelectorAll('.beat-cell input.swara').forEach(inp=>{
+    const letters = (inp.value.match(/[A-Za-z]/g) || []).map(c=>c.toUpperCase());
+    if(letters.some(l=>ambiguous[l])) matches.push(inp);
+  });
+  return matches;
+}
+function navigateVariant(direction){
+  const song = getSong();
+  if(!song) return;
+  const cells = collectVariantCellInputs(song);
+  if(!cells.length) return;
+  variantNavIndex = ((variantNavIndex + direction) % cells.length + cells.length) % cells.length;
+  navigateToIssue({ input: cells[variantNavIndex] });
+  const counterText = `${variantNavIndex + 1} of ${cells.length}`;
+  const counter = document.getElementById('variantNavCounter');
+  if(counter) counter.textContent = counterText;
+  const floatingCounter = document.getElementById('floatingVariantCounter');
+  if(floatingCounter) floatingCounter.textContent = counterText;
+}
+/* Lightweight — updates only the counter text(s), not the whole variant-
+   defaults block. Hooked into the swara cell's own oninput (see below)
+   so the count stays live as you type, without the disruption a full
+   renderVariantDefaultsUI() rebuild would cause on every keystroke
+   (rebuilding buttons out from under a click, losing focus, etc). Updates
+   both the Song Details counter and the floating widget's, since they
+   always show the same number. */
+function refreshVariantNavCounter(){
+  const song = getSong();
+  if(!song) return;
+  const cellCount = collectVariantCellInputs(song).length;
+  const text = `${cellCount} cell${cellCount===1?'':'s'} with a variant choice`;
+  const counter = document.getElementById('variantNavCounter');
+  if(counter) counter.textContent = text;
+  const floatingCounter = document.getElementById('floatingVariantCounter');
+  if(floatingCounter) floatingCounter.textContent = `${cellCount} total`;
+  variantNavIndex = -1; // the set of cells may have changed — start prev/next fresh
+}
+/* Shows/hides the floating bottom-left nav — deliberately a SEPARATE
+   always-on-screen control from the one in Song Details, added after
+   the Song Details version turned out to be useless in practice: you're
+   typically deep in a Charanam or Chittai Swaram section when you
+   actually want to jump to the next ambiguous note, and scrolling all
+   the way back up to Song Details just to click "Next" defeats the
+   whole point of quick navigation. This one stays fixed on screen
+   regardless of scroll position, exactly like the floating playback bar
+   already does for tempo/stop during playback (bottom-LEFT specifically,
+   so the two never compete for the same corner). */
+function updateFloatingVariantNav(){
+  const el = document.getElementById('floatingVariantNav');
+  if(!el) return;
+  const song = getSong();
+  const hasAmbiguity = song && Object.keys(getAmbiguousVariantLetters(song)).length > 0;
+  el.style.display = hasAmbiguity ? 'flex' : 'none';
+}
 function renderVariantDefaultsUI(){
   const wrap = document.getElementById('variantDefaultsWrap');
   if(!wrap) return;
   const song = getSong();
   const ambiguous = getAmbiguousVariantLetters(song);
   const letters = Object.keys(ambiguous);
+  updateFloatingVariantNav();
   if(!letters.length){ wrap.innerHTML = ''; return; }
   if(!song.variantDefaults) song.variantDefaults = {};
   const currentMap = getRagaVariantMap(song);
+  const cellCount = collectVariantCellInputs(song).length;
   wrap.innerHTML = `
     <div class="variant-defaults">
       <div class="variant-defaults-title">This raga states more than one form of ${letters.join(', ')} — which should play by default?</div>
@@ -5268,7 +5417,12 @@ function renderVariantDefaultsUI(){
           </div>
         `).join('')}
       </div>
-      <div class="variant-defaults-hint">Individual cells can still be flipped one at a time with their own small badge — this just sets what everything else falls back to.</div>
+      <div class="variant-defaults-hint">Individual cells can still be flipped one at a time with their own small badge — this just sets what everything else falls back to. There's also a floating ◀ ▶ at the bottom-left of the screen for jumping between them without scrolling back up here.</div>
+      <div class="variant-nav-row">
+        <button type="button" class="btn small" id="variantNavPrev" title="Jump to the previous cell with a variant choice">◀ Prev</button>
+        <span id="variantNavCounter">${cellCount} cell${cellCount===1?'':'s'} with a variant choice</span>
+        <button type="button" class="btn small" id="variantNavNext" title="Jump to the next cell with a variant choice">Next ▶</button>
+      </div>
     </div>`;
   wrap.querySelectorAll('.variant-default-btn').forEach(btn=>{
     btn.onclick = ()=>{
@@ -5278,6 +5432,8 @@ function renderVariantDefaultsUI(){
       rescanVariantBadges(); // cells without their own override need to reflect the new default immediately
     };
   });
+  document.getElementById('variantNavPrev').onclick = ()=> navigateVariant(-1);
+  document.getElementById('variantNavNext').onclick = ()=> navigateVariant(1);
 }
 function setHeatmapMode(on){
   heatmapMode = on;
@@ -6012,6 +6168,8 @@ function renderMain(){
   if(song) ensureUndoBaseline(song);
 
   if(currentView !== 'editor' || !song){
+    const floatingNav = document.getElementById('floatingVariantNav');
+    if(floatingNav) floatingNav.style.display = 'none';
     renderDashboard();
     return;
   }
@@ -6571,6 +6729,7 @@ function renderLines(host, sec, cfg, kalai){
           if(!noSahitya) updateAlignBadge(cellDiv, r.swara[i], r.lyric[i]);
           updateRagaScaleFlag(cellDiv, r.swara[i], getRagaScale(getSong()));
           updateVariantBadges(cellDiv, r.swara[i], r, i, getAmbiguousVariantLetters(getSong()), getRagaVariantMap(getSong()));
+          refreshVariantNavCounter();
           queueSave(); updatePreview(row, line, noSahitya, cfg, kalai);
         };
         inp.onfocus = ()=> focusModeEnter(row);
@@ -7308,6 +7467,8 @@ function copyForClaude(song){
 
 /* ===================== Boot ===================== */
 document.getElementById('floatingStopBtn').onclick = stopPlayback;
+document.getElementById('floatingVariantPrev').onclick = ()=> navigateVariant(-1);
+document.getElementById('floatingVariantNext').onclick = ()=> navigateVariant(1);
 document.getElementById('floatingTempoSlider').oninput = (e)=>{
   const aksharasPerMin = parseInt(e.target.value, 10);
   PLAYBACK_SECONDS_PER_AKSHARA = 60 / aksharasPerMin;
