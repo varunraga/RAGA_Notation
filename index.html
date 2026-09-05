@@ -1054,6 +1054,19 @@
     .line-top{ gap:6px; }
     .aksh-badge{ font-size:9px; }
     .dashboard-search-row{ flex-direction:column; }
+    /* 16px minimum specifically here — below that, iOS Safari and many
+       Android browsers auto-zoom the whole page in when this input gets
+       focused/tapped, and that zoom can persist even after navigating
+       away (to Raga Directory and back, for instance), which is exactly
+       what a reported screenshot showed: the dashboard appearing shifted
+       and cropped on the left, not an actual CSS layout overflow — my own
+       reproduction at a real mobile viewport width showed no overflow at
+       all, which is what pointed at a zoom-state cause instead of a
+       layout one. Both were below the threshold before this (14px and
+       12.5px), so both needed it, not just the one that was tapped in
+       that particular screenshot. */
+    .dashboard-search-row .search{ font-size:16px; }
+    .dashboard-search-row .filter-select{ font-size:16px; }
     .dashboard-grid{ grid-template-columns:1fr; }
     .rule-example{ flex-direction:column; }
   }
@@ -1814,8 +1827,13 @@ function scheduleDriveTokenRefresh(){
   const refreshAt = driveTokenExpiresAt - 5*60*1000;
   const delay = Math.max(refreshAt - Date.now(), 10000); // never less than 10s out
   driveRefreshTimer = setTimeout(()=>{
-    if(!driveTokenClient) return;
-    driveTokenClient.requestAccessToken({ prompt: '' });
+    // Routed through connectDrive(false) — not a direct requestAccessToken
+    // call — specifically so this shares the SAME driveConnectInFlight
+    // lock as every other path that can request a token (auto-connect on
+    // load, a manual click, the reactive 401 refresh). A direct call here
+    // used to bypass that lock entirely, leaving exactly one gap where two
+    // requests could still overlap despite the lock existing everywhere else.
+    connectDrive(false);
   }, delay);
 }
 
@@ -1845,6 +1863,7 @@ function initDriveTokenClient(){
     client_id: DRIVE_CLIENT_ID,
     scope: DRIVE_SCOPE,
     callback: (resp)=>{
+      driveConnectInFlight = false; // release the lock — this request has resolved, one way or another
       const hadTokenAlready = !!driveAccessToken;
       // Drain any requestSilentTokenRefresh() callers waiting on this exact
       // result — before the early returns below, so both the error and
@@ -1904,11 +1923,25 @@ function initDriveTokenClient(){
    that never successfully auto-connects never checks Drive for newer data
    from another device at all, regardless of how correct the actual sync
    logic is). */
+let driveConnectInFlight = false; // hard lock — see connectDrive() below
 function connectDrive(interactive){
   if(!window.google || !google.accounts || !google.accounts.oauth2){
     if(interactive) showToast('Google sign-in library not loaded yet — try again in a moment');
     return;
   }
+  // Structurally prevents two token requests from ever being in flight at
+  // once, no matter which of connectDrive's several callers (auto-connect
+  // on load, the proactive refresh timer, a manual Sync click, the reactive
+  // 401 refresh) happens to fire close together — added specifically
+  // because a reported "conflict modal appears twice" couldn't be
+  // reproduced by testing the sync/conflict logic in isolation, which
+  // means the actual cause has to be upstream of that: two overlapping
+  // connect attempts both succeeding and each independently running their
+  // own full setupDriveFolder() -> syncLibraryToDrive() chain, each
+  // thinking it's the session's first. This closes that off at the root
+  // rather than trying to patch every downstream symptom of it individually.
+  if(driveConnectInFlight) return;
+  driveConnectInFlight = true;
   if(!driveTokenClient) initDriveTokenClient();
   driveConnectAttemptWasInteractive = !!interactive;
   // No forced {prompt:'consent'} for the interactive case either — that
@@ -7938,23 +7971,24 @@ document.addEventListener('keydown', e=>{
    on the first miss — up to ~6 seconds — then stops quietly if the script
    never loads at all (blocked, offline, etc.); the button is still there
    as a normal fallback either way.
-   Gated on DRIVE_FOLDER_ID_KEY already being set in localStorage — i.e.
-   this device has genuinely completed a real Drive connection before, not
-   merely that Drive is theoretically available. Someone who's never
-   connected has no reason to expect a silent connect attempt, and even a
-   prompt:'' silent request can still visibly flash something on some
-   mobile browsers — skipping it entirely for a device that's never
-   actually connected avoids that surprise rather than relying on it
-   failing invisibly.
+   No longer gated on DRIVE_FOLDER_ID_KEY already existing in localStorage.
+   That gate was meant to avoid a pointless attempt on a device that's
+   never connected, but it's also a direct, plausible explanation for a
+   real reported symptom: the check never running at all on some devices,
+   with no popup and no visible reason why, if that one key was ever
+   missing there for any reason (storage cleared, an earlier version of
+   the app, connected via a slightly different path, etc.) — a permanent,
+   silent dead end with no way to recover except a manual click. A silent
+   (prompt:'') attempt that isn't going to succeed already fails quietly
+   with no popup and no error either way (see connectDrive/the token
+   callback), so there's very little actually gained by skipping the
+   attempt, and a real, reported cost to skipping it incorrectly.
    Always calls connectDrive(false) — silent/non-interactive — never true
    here; forcing an interactive-style request from a call with no user
    gesture behind it at all is exactly what made the previous version of
    this unreliable (see connectDrive's own comment for the full reasoning). */
 function attemptAutoConnectDrive(retriesLeft){
   if(driveAccessToken) return;
-  let hasConnectedBefore = false;
-  try{ hasConnectedBefore = !!localStorage.getItem(DRIVE_FOLDER_ID_KEY); }catch(e){}
-  if(!hasConnectedBefore) return;
   if(window.google && google.accounts && google.accounts.oauth2){
     connectDrive(false);
     return;
