@@ -1468,6 +1468,60 @@ function numRowsForLine(cfg, kalai){
   return (cfg.kalaiAware && kalai === 2) ? 2 : 1;
 }
 
+/* Advances a sangati label to a plausible "next" one when a line is duplicated — the copy
+   is a new variant, not a repeat of the same one, so leaving it with an identical label
+   (as duplicating used to) meant two lines both reading "1)" until manually retyped.
+   Increments whichever comes last: a trailing letter ("1a"->"1b", "A"->"B", "A."->"B.",
+   "1)a"->"1)b") or, failing that, a trailing number ("1)"->"2)", "2"->"3"). Anything that
+   doesn't match either shape (including a blank label, which is the normal — and correct —
+   case for a continuation row) is left exactly as it was rather than guessing wrong. */
+function incrementSangatiLabel(label){
+  if(!label) return label;
+  const letterMatch = label.match(/^(.*?)([A-Za-z])(\.?)$/);
+  if(letterMatch){
+    const [, prefix, letter, suffix] = letterMatch;
+    const isUpper = letter === letter.toUpperCase();
+    const nextCode = letter.toLowerCase().charCodeAt(0) + 1;
+    if(nextCode <= 'z'.charCodeAt(0)){
+      const nextLetter = String.fromCharCode(nextCode);
+      return prefix + (isUpper ? nextLetter.toUpperCase() : nextLetter) + suffix;
+    }
+    return label; // already 'z' — nowhere sensible to go, leave as typed
+  }
+  const numMatch = label.match(/^(\d+)(\)?)$/);
+  if(numMatch){
+    const [, num, suffix] = numMatch;
+    return (parseInt(num, 10) + 1) + suffix;
+  }
+  return label;
+}
+
+/* "Renumber sangatis" — fixes gaps left behind after duplicating/deleting/reordering
+   lines (e.g. "1), 1a, 3)" once "2)" is gone). Deliberately narrow in scope: only labels
+   that are PURELY numeric ("1)", "2", "3)"...) get renumbered in order, 1 upward, keeping
+   each one's own "(" style. Any label containing a letter (a sangati sub-variant like "1a"
+   or "A") is left completely untouched, on the assumption it was placed deliberately to
+   group with a specific numbered line — renumbering those too would require guessing which
+   letters belong under which number, and a wrong guess would quietly scramble a
+   relationship the user actually intended. Blank labels (continuation rows) are untouched
+   too, same as they already are everywhere else. */
+function renumberSectionSangatis(sec){
+  const numericLines = sec.lines.filter(line => /^\d+\)?$/.test((line.label || '').trim()));
+  if(!numericLines.length){ showToast('No purely-numbered labels to renumber in this section'); return; }
+  if(!confirm(`Renumber this section's ${numericLines.length} numbered line label${numericLines.length===1?'':'s'} back into order (1, 2, 3…)? Labels with a letter (like "1a" or "A") are left untouched.`)) return;
+  let counter = 0;
+  sec.lines.forEach(line=>{
+    const trimmed = (line.label || '').trim();
+    if(/^\d+\)?$/.test(trimmed)){
+      counter++;
+      line.label = counter + (trimmed.endsWith(')') ? ')' : '');
+    }
+  });
+  queueSave();
+  renderSections();
+  showToast('Renumbered \u2713');
+}
+
 /* ===================== Import: file reading (Step 3) =====================
    This section only READS a source file (.docx or .pdf) into a normalized,
    source-agnostic structure: an array of "lines", each an array of runs
@@ -4877,6 +4931,48 @@ function distributeImportWordsByWeight(words, cellCaps){
   });
 }
 
+/* "Fill cells from this text" (manual-entry counterpart to the import pipeline's own
+   word distribution above) — lets you type a section's sahitya once as plain running text
+   and have it split across every line's cells by rhythm, instead of typing every cell by
+   hand. Reuses distributeImportWordsByWeight directly rather than a separate
+   implementation, so this behaves identically to how the same text would have landed if
+   the kriti had been imported instead of typed.
+   A line's physical rows (plural only for a 2-kalai line) are flattened into ONE
+   continuous capacity sequence before distributing — a 2-kalai line's "two rows" are a
+   single avartanam's worth of sahitya split across two rows for readability, not two
+   separate repeats of it, so the words should flow through continuously rather than
+   restarting each row.
+   Every line in the section gets the SAME source words, each split by that line's own
+   rhythm — confirmed against real files earlier that this matches how sangati variants of
+   one section genuinely work (several differently-numbered/lettered lines, same sahitya,
+   different melodic treatment each time). This does NOT attempt to guess where a single
+   word should carry over multiple held notes (e.g. inserting "-" continuations) — that
+   depends on the actual melodic phrasing, which can't be derived from word length alone.
+   The existing "X/Y syl ⚠" badge already flags exactly the cells that need that manual
+   touch-up, the same way it already does for imported content. */
+function fillLineLyricsFromWords(line, words, cfg){
+  const perRowCaps = line.rows.map(()=> cfg.rowCells);
+  const flatCaps = perRowCaps.flat();
+  const flatLyrics = distributeImportWordsByWeight(words, flatCaps);
+  let idx = 0;
+  line.rows.forEach(row=>{
+    const n = cfg.rowCells.length;
+    row.lyric = flatLyrics.slice(idx, idx + n);
+    idx += n;
+  });
+}
+function fillSectionFromPlainLyricsPrompt(sec, cfg){
+  const words = (sec.sahitya || '').trim().split(/\s+/).filter(Boolean);
+  if(!words.length){ showToast('Type the plain lyrics above first'); return; }
+  if(!sec.lines.length){ showToast('Add a line first'); return; }
+  const n = sec.lines.length;
+  if(!confirm(`Fill ${n} line${n===1?'':'s'} in "${sec.name || 'this section'}" from the plain lyrics above?\n\nEach line gets the same words, split by its own rhythm — this replaces that line's current sahitya cells (swara is untouched). You can still touch up individual cells afterward, and Undo works per line as usual.`)) return;
+  sec.lines.forEach(line => fillLineLyricsFromWords(line, words, cfg));
+  queueSave();
+  renderSections();
+  showToast('Filled \u2014 check the \u26A0 badges for any cell that needs a held-note dash added');
+}
+
 /* Combined entry point for Step 2: classified tokens + tala cell caps for
    ONE half-avartanam + that half-avartanam's flat sahitya word list in ->
    per-cell {swara, sahitya, weight, cap} out, plus any warnings to surface
@@ -6969,6 +7065,7 @@ function renderSections(){
                 <button class="btn small icon-only" data-si="${si}" data-act="secDown" title="Move section down"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 5v10M5 11l5 5 5-5"/></svg></button>
               </div>
               <button class="btn small" data-si="${si}" data-act="spreadPattern" title="Copy this section's swara (not sahitya) into other sections"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10h8m0 0l-3-3m3 3l-3 3M16 5v10"/></svg> Spread pattern</button>
+              <button class="btn small" data-si="${si}" data-act="renumberSangatis" title="Renumber this section's purely-numbered line labels (1, 2, 3…) back into order — labels with a letter are left untouched"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h9M4 10h6M4 15h9"/><path d="M15 13l2 2 2-2M17 15V6"/></svg> Renumber sangatis</button>
             </div>
           </div>
           <div class="toolbar-divider"></div>
@@ -6981,7 +7078,11 @@ function renderSections(){
           No sahitya for this section (e.g. Chittaswaram)
         </label>
       </div>
-      <div class="fieldwrap secSahityaWrap" data-si="${si}" style="${sec.noSahitya ? 'display:none;' : ''}"><label>Sahitya (plain lyrics)</label><textarea data-si="${si}" class="secSahitya" placeholder="Plain lyric lines, as in your original template…" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off">${escapeHtml(sec.sahitya)}</textarea></div>
+      <div class="fieldwrap secSahityaWrap" data-si="${si}" style="${sec.noSahitya ? 'display:none;' : ''}">
+        <label>Sahitya (plain lyrics)</label>
+        <textarea data-si="${si}" class="secSahitya" placeholder="Plain lyric lines, as in your original template…" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off">${escapeHtml(sec.sahitya)}</textarea>
+        <button class="btn small" data-si="${si}" data-act="fillFromPlain" style="margin-top:8px;" title="Splits this text across every line below, by each line's own rhythm — the same word-distribution the importer uses">Fill cells from this text</button>
+      </div>
       <div class="linesHost" data-si="${si}"></div>
       <button class="btn small add-line-btn" data-si="${si}" data-act="addLine">+ Add line (avartanam / sangati)</button>
       ${refBlock}
@@ -7038,12 +7139,14 @@ function renderSections(){
       queueSave(); renderSections();
     };
     card.querySelector('[data-act="spreadPattern"]').onclick = ()=> openSpreadPatternPicker(si);
+    card.querySelector('[data-act="renumberSangatis"]').onclick = ()=> renumberSectionSangatis(sec);
     card.querySelector('[data-act="delSec"]').onclick = ()=>{
       if(confirm('Remove this section?')){ song.sections.splice(si,1); queueSave(); renderSections(); }
     };
     card.querySelector('[data-act="addLine"]').onclick = ()=>{
       sec.lines.push(blankLine(cfg, kalai)); queueSave(); renderSections();
     };
+    card.querySelector('[data-act="fillFromPlain"]').onclick = ()=> fillSectionFromPlainLyricsPrompt(sec, cfg);
 
     renderLines(card.querySelector('.linesHost'), sec, cfg, kalai);
   });
@@ -7234,7 +7337,9 @@ function renderLines(host, sec, cfg, kalai){
       queueSave(); renderSections();
     };
     row.querySelector('[data-act="dup"]').onclick = ()=>{
-      sec.lines.splice(li+1, 0, JSON.parse(JSON.stringify(line))); queueSave(); renderSections();
+      const copy = JSON.parse(JSON.stringify(line));
+      copy.label = incrementSangatiLabel(line.label);
+      sec.lines.splice(li+1, 0, copy); queueSave(); renderSections();
     };
     row.querySelector('[data-act="clear"]').onclick = ()=>{
       if(!confirm('Clear all swara and sahitya typed in this line? The line itself stays — only its content is erased.')) return;
@@ -7618,7 +7723,7 @@ async function buildDocxBlob(song){
   const {
     Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
     WidthType, AlignmentType, BorderStyle, VerticalAlign, UnderlineType, TableLayoutType,
-    Tab, TabStopType
+    Tab, TabStopType, Header, Footer, PageNumber,
   } = lib;
 
   const FONT_D = GRID_FONT;
@@ -7877,9 +7982,35 @@ async function buildDocxBlob(song){
   // its 48 aksharas/row (vs Adi's 32) need ~17.5in of usable width at the
   // current 10pt grid font, so only that tala gets a further-widened page.
   const pageWidth = song.tala === 'adi_tishra' ? 25920 : 20160; // 18in vs 14in
+  // Header (title + raga, running on every page) and footer (page numbers) — useful once a
+  // kriti runs past one page, which most multi-section ones do: without these, a printed
+  // stack of pages that gets shuffled or separated has no way back to the right order or
+  // even which kriti it belongs to. Deliberately plain and small (9pt, not the grid's own
+  // Courier New) so neither competes visually with the notation itself.
+  const headerFooterRun = (text) => new TextRun({ text, font: 'Calibri', size: 16, color: '595959' });
+  const docHeader = new Header({
+    children: [
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        children: [ headerFooterRun([song.title, song.raga].filter(Boolean).join(' \u2014 ') || 'Untitled Kriti') ],
+      }),
+    ],
+  });
+  const docFooter = new Footer({
+    children: [
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        children: [
+          new TextRun({ font: 'Calibri', size: 16, color: '595959', children: ['Page ', PageNumber.CURRENT, ' of ', PageNumber.TOTAL_PAGES] }),
+        ],
+      }),
+    ],
+  });
   const doc = new Document({
     sections: [{
       properties: { page: { size:{width:pageWidth,height:12240}, margin:{top:1008,bottom:1008,left:1008,right:720} } },
+      headers: { default: docHeader },
+      footers: { default: docFooter },
       children: dBuildDocBody(song),
     }],
   });
