@@ -8417,6 +8417,18 @@ function buildUploadedFilesHTML(){
       <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8.5" cy="8.5" r="5.5"/><path d="M17 17l-4.3-4.3"/></svg>
       <input type="text" id="uploadedFilesSearch" placeholder="Search name, raga, tala, or composer…" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off">
     </div>
+    <div class="dashboard-search-row" style="margin-top:10px;">
+      <select class="filter-select" id="uploadedFilesSort">
+        <option value="name">Sort: Name</option>
+        <option value="raga">Sort: Raga</option>
+        <option value="tala">Sort: Tala</option>
+        <option value="composer">Sort: Composer</option>
+        <option value="date">Sort: Date uploaded</option>
+      </select>
+      <select class="filter-select" id="uploadedFilesFilterRaga"><option value="">All ragas</option></select>
+      <select class="filter-select" id="uploadedFilesFilterTala"><option value="">All talas</option></select>
+      <select class="filter-select" id="uploadedFilesFilterComposer"><option value="">All composers</option></select>
+    </div>
     <div id="uploadedFilesListWrap"><div class="quota-loading">Loading…</div></div>
   </div>`;
 }
@@ -8425,7 +8437,11 @@ function wireUploadedFiles(){
   document.getElementById('uploadedFilesDriveFolderBtn').onclick = openDriveFolderInBrowser;
   document.getElementById('uploadedFilesUploadBtn').onclick = () => document.getElementById('uploadRefFileInput').click();
   document.getElementById('uploadRefFileInput').onchange = handleUploadRefFileChange;
-  document.getElementById('uploadedFilesSearch').oninput = (e) => renderMyFilesList(e.target.value);
+  document.getElementById('uploadedFilesSearch').oninput = () => renderMyFilesList();
+  document.getElementById('uploadedFilesSort').onchange = () => renderMyFilesList();
+  document.getElementById('uploadedFilesFilterRaga').onchange = () => renderMyFilesList();
+  document.getElementById('uploadedFilesFilterTala').onchange = () => renderMyFilesList();
+  document.getElementById('uploadedFilesFilterComposer').onchange = () => renderMyFilesList();
   loadAndRenderMyFiles();
 }
 async function openDriveFolderInBrowser(){
@@ -8508,22 +8524,78 @@ async function loadAndRenderMyFiles(){
     const r = await driveFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,mimeType,modifiedTime,appProperties)&orderBy=modifiedTime desc&spaces=drive`);
     const j = await r.json();
     myFilesCache = j.files || [];
-    renderMyFilesList(document.getElementById('uploadedFilesSearch') ? document.getElementById('uploadedFilesSearch').value : '');
+    populateUploadedFilesFilterOptions();
+    renderMyFilesList();
   }catch(err){
     console.error('[my files] list failed:', err);
     wrap.innerHTML = '<div class="quota-error">Couldn\u2019t reach Google Drive.</div>';
   }
 }
-function renderMyFilesList(filterText){
+/* Same pattern as the kriti dashboard's own Raga/Tala/Composer filters (populateFilterOptions
+   above) — built from whatever values actually appear in appProperties right now, not a fixed
+   list, and each keeps its current selection if that value is still valid after the list
+   refreshes. */
+function populateUploadedFilesFilterOptions(){
+  const ragaSel = document.getElementById('uploadedFilesFilterRaga');
+  const talaSel = document.getElementById('uploadedFilesFilterTala');
+  const composerSel = document.getElementById('uploadedFilesFilterComposer');
+  if(!ragaSel || !talaSel || !composerSel) return;
+  const prevRaga = ragaSel.value, prevTala = talaSel.value, prevComposer = composerSel.value;
+  const uniqueSorted = (key) => [...new Set(myFilesCache.map(f => ((f.appProperties||{})[key]||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  const ragas = uniqueSorted('raga');
+  ragaSel.innerHTML = '<option value="">All ragas</option>' + ragas.map(v=>`<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
+  ragaSel.value = ragas.includes(prevRaga) ? prevRaga : '';
+  const talas = uniqueSorted('tala');
+  talaSel.innerHTML = '<option value="">All talas</option>' + talas.map(v=>`<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
+  talaSel.value = talas.includes(prevTala) ? prevTala : '';
+  const composers = uniqueSorted('composer');
+  composerSel.innerHTML = '<option value="">All composers</option>' + composers.map(v=>`<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
+  composerSel.value = composers.includes(prevComposer) ? prevComposer : '';
+}
+function formatDateDDMMYYYY(dateStr){
+  const d = new Date(dateStr);
+  const dd = String(d.getDate()).padStart(2,'0');
+  const mm = String(d.getMonth()+1).padStart(2,'0');
+  return `${dd}-${mm}-${d.getFullYear()}`;
+}
+function renderMyFilesList(){
   const wrap = document.getElementById('uploadedFilesListWrap');
   if(!wrap) return;
-  const f = (filterText||'').trim().toLowerCase();
-  const files = !f ? myFilesCache : myFilesCache.filter(file=>{
+  const searchEl = document.getElementById('uploadedFilesSearch');
+  const sortEl = document.getElementById('uploadedFilesSort');
+  const ragaEl = document.getElementById('uploadedFilesFilterRaga');
+  const talaEl = document.getElementById('uploadedFilesFilterTala');
+  const composerEl = document.getElementById('uploadedFilesFilterComposer');
+  const searchText = searchEl ? searchEl.value.trim().toLowerCase() : '';
+  const sortBy = sortEl ? sortEl.value : 'date';
+  const ragaFilter = ragaEl ? ragaEl.value : '';
+  const talaFilter = talaEl ? talaEl.value : '';
+  const composerFilter = composerEl ? composerEl.value : '';
+
+  let files = myFilesCache.filter(file=>{
     const p = file.appProperties || {};
-    return [file.name, p.raga, p.tala, p.composer].some(v => (v||'').toLowerCase().includes(f));
+    if(searchText && ![file.name, p.raga, p.tala, p.composer].some(v => (v||'').toLowerCase().includes(searchText))) return false;
+    if(ragaFilter && (p.raga||'') !== ragaFilter) return false;
+    if(talaFilter && (p.tala||'') !== talaFilter) return false;
+    if(composerFilter && (p.composer||'') !== composerFilter) return false;
+    return true;
   });
+  const sortKeyFor = (f) => {
+    const p = f.appProperties || {};
+    if(sortBy === 'name') return f.name || '';
+    if(sortBy === 'raga') return p.raga || '';
+    if(sortBy === 'tala') return p.tala || '';
+    if(sortBy === 'composer') return p.composer || '';
+    return ''; // 'date' sorts by modifiedTime directly below, not through this text key
+  };
+  if(sortBy === 'date'){
+    files.sort((a,b) => new Date(b.modifiedTime) - new Date(a.modifiedTime)); // most recent first, matches the original default
+  } else {
+    files.sort((a,b) => sortKeyFor(a).localeCompare(sortKeyFor(b)));
+  }
+
   if(!myFilesCache.length){ wrap.innerHTML = '<div class="placeholder"><h2>No uploaded files yet</h2><p>Use "Upload files" above to add one or more.</p></div>'; return; }
-  if(!files.length){ wrap.innerHTML = `<div class="placeholder"><h2>No matches</h2><p>Nothing matches "${escapeHtml(filterText)}".</p></div>`; return; }
+  if(!files.length){ wrap.innerHTML = `<div class="placeholder"><h2>No matches</h2><p>Nothing matches the current search/filters.</p></div>`; return; }
   wrap.innerHTML = '<div class="my-files-list">' + files.map(f => {
     const p = f.appProperties || {};
     const metaBits = [p.raga, p.tala, p.composer].filter(Boolean).join(' \u00b7 ');
@@ -8533,7 +8605,7 @@ function renderMyFilesList(filterText){
           <div class="name">${escapeHtml(f.name)}</div>
           ${metaBits ? `<div class="when" style="margin-top:2px;">${escapeHtml(metaBits)}</div>` : ''}
         </div>
-        <span class="when">${new Date(f.modifiedTime).toLocaleDateString()}</span>
+        <span class="when">${formatDateDDMMYYYY(f.modifiedTime)}</span>
         <button class="btn small icon-btn my-file-edit-btn" data-id="${f.id}" title="Edit details"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 4l3 3-8 8-4 1 1-4 8-8z"/></svg></button>
       </div>`;
   }).join('') + '</div>';
@@ -8599,7 +8671,8 @@ document.getElementById('efdSaveBtn').onclick = async () => {
     const cached = myFilesCache.find(x=>x.id===editingFileId);
     if(cached){ cached.name = name; cached.appProperties = { raga, tala, composer }; }
     document.getElementById('editFileDetailsOverlay').classList.remove('show');
-    renderMyFilesList(document.getElementById('uploadedFilesSearch') ? document.getElementById('uploadedFilesSearch').value : '');
+    populateUploadedFilesFilterOptions(); // the edited raga/tala/composer might be new to the filter lists
+    renderMyFilesList();
     showToast('Saved \u2713');
   }catch(err){
     console.error('[file details] save failed:', err);
