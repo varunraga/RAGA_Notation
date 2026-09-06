@@ -1204,7 +1204,7 @@
     </button>
     <div class="nav-divider"></div>
     <input type="file" id="importFileInput" accept=".pdf,.docx" style="display:none;">
-    <div class="side-foot">Your kritis are stored in this browser, with Google Drive as optional backup.<br><span style="opacity:.55; font-size:10px;">Build: 2026-09-06-tombstone1</span></div>
+    <div class="side-foot">Your kritis are stored in this browser, with Google Drive as optional backup.</div>
   </aside>
 
   <main class="main" id="main"></main>
@@ -5555,6 +5555,11 @@ function assembleFromDocxTable(song, getCfg, table, warnings, ensureSection){
 
   function finalize(swaraRow, lyricRow){
     const line = buildDocxTableLine(swaraRow, lyricRow, warnings);
+    // Sangati-variant numbering (1a/1b/1c, A/B...) exists to distinguish alternate melodic
+    // treatments of the SAME sahitya line — meaningless, and visually just noise, for a
+    // no-sahitya section like Chitte Swara or Mukthayi Swaram, even though the source
+    // document still bolds a sequence marker there for its own reference.
+    if(currentSection && currentSection.noSahitya) line.label = '';
     currentSection.lines.push(line);
   }
   function flushPending(){
