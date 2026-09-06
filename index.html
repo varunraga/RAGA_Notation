@@ -1785,9 +1785,9 @@ window.addEventListener('online', ()=>{
    local edit, so with no local activity there was previously no trigger at all, and
    changes made elsewhere would silently sit unseen until this device happened to be
    edited, manually synced, or reloaded. This just calls the exact same
-   syncLibraryToDrive(true) as every other auto-trigger; its own checksum check (and the
-   auto-pull vs. conflict distinction above) decides whether anything actually needs to
-   happen. */
+   syncLibraryToDrive(true) as every other auto-trigger; its own checksum check decides
+   whether anything actually needs to happen — including surfacing the Merge/Keep/Use-Drive
+   popup, the same as a fresh app open would. */
 setInterval(()=>{
   if(driveAccessToken && navigator.onLine && !driveConflictPending) syncLibraryToDrive(true);
 }, 60000);
@@ -2333,22 +2333,17 @@ async function checkDriveConflict(){
     const j = await r.json();
     if(!j.md5Checksum) return null;
     if(j.md5Checksum === driveLibraryChecksum) return null; // Drive hasn't moved since we last knew
-    // Drive's content differs from what we last knew about. Whether that's a real conflict
-    // depends entirely on whether THIS device has made any edits of its own since it last
-    // matched Drive — not on whether it's the very first time this session has checked.
-    const localUnchanged = driveLastSyncedLibraryJSON !== null && JSON.stringify(library) === driveLastSyncedLibraryJSON;
     if(!driveLibraryChecksum && !library.length){
-      // Never synced before, and there's nothing local to lose either way.
+      // Never synced before, and there's nothing local to lose either way — nothing to ask.
       return { mode: 'silent-adopt', checksum: j.md5Checksum };
     }
-    if(localUnchanged){
-      // Local hasn't diverged since our last known-good sync point (push or pull) — Drive
-      // simply has a newer copy, most likely pushed from another device. Nothing of this
-      // device's own is at risk, so there is no real decision for the user to make here;
-      // auto-adopting it is what makes background/idle polling actually keep devices in
-      // sync instead of silently sitting on stale data until an edit or manual click.
-      return { mode: 'auto-pull', checksum: j.md5Checksum };
-    }
+    // Any other genuine difference is always treated as a conflict that needs your decision —
+    // deliberately NOT auto-resolved based on a guess about whether your local copy "looks
+    // unchanged," even when that guess would usually be safe. An earlier version of this
+    // function tried exactly that (silently adopting Drive's copy whenever local seemed
+    // untouched), and the direct, confirmed cost was that the Merge/Keep/Use-Drive popup you
+    // rely on stopped appearing on ordinary app opens, since that's precisely the case it was
+    // built to auto-skip. Always surfacing the choice here is what makes the popup dependable.
     return { mode: 'conflict', checksum: j.md5Checksum };
   }catch(e){
     console.warn('[drive conflict check] failed, proceeding without one:', e);
@@ -2416,12 +2411,12 @@ async function syncLibraryToDrive(auto){
     // open, not interrupt mid-session with a popup.
     const isFirstAutoSyncOfSession = auto && !driveAutoConflictModalUsedThisSession;
     if(auto) driveAutoConflictModalUsedThisSession = true;
-    if(conflict && (conflict.mode === 'silent-adopt' || conflict.mode === 'auto-pull')){
+    if(conflict && conflict.mode === 'silent-adopt'){
       library = await driveDownloadLibraryJSON();
       try{ localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(library)); }catch(e){}
       setDriveDirtyCount(0);
       setDriveLibraryChecksum(conflict.checksum);
-      driveLastSyncedLibraryJSON = JSON.stringify(library); // this device now exactly matches Drive again
+      driveLastSyncedLibraryJSON = JSON.stringify(library); // this device now exactly matches Drive
       driveConflictPending = false; // same reasoning as the normal-upload path below
       driveConflictRemote = null;
       driveLastSyncedAt = Date.now();
@@ -2432,9 +2427,7 @@ async function syncLibraryToDrive(auto){
       if(currentId && !library.some(s=>s.id===currentId)) currentId = library.length ? library[0].id : null;
       renderAll();
       updateSyncStatusText();
-      showToast(conflict.mode === 'silent-adopt'
-        ? 'Loaded your existing library from Google Drive'
-        : 'Updated from Google Drive — synced from another device');
+      showToast('Loaded your existing library from Google Drive');
       return;
     }
     if(conflict && conflict.mode === 'conflict'){
