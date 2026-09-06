@@ -587,6 +587,36 @@
   .beat-cell input.lyric.cell-in-selection{ background:var(--gc-lyric-bg-active); border-color:var(--gc-border-focus); }
   .beat-cell input.swara:focus{ background:var(--gc-swara-bg-active); border-color:var(--gc-border-focus); }
   .beat-cell input.lyric:focus{ background:var(--gc-lyric-bg-active); border-color:var(--gc-border-focus); }
+  /* Below 600px: these two are the single most-tapped inputs in the entire app — composing
+     a kriti means constantly tapping into swara/lyric cells — and both were still under the
+     16px auto-zoom-on-focus threshold (14px / 12px) even after the earlier dashboard fix,
+     which only ever touched the search box and filter dropdowns. That gap is almost
+     certainly why the zoom-and-pan symptom kept showing up on Android "all the time": it
+     only takes tapping ANY notation cell once, and since this is a single-page app with no
+     full reload between screens, the resulting zoom then persists across every other view
+     (dashboard, Raga Directory, etc.) for the rest of the session — matching a symptom that
+     shows up everywhere, not just wherever it was actually tapped.
+     Fixed via the approach flagged (but deliberately deferred) previously: the CSS
+     font-size is raised to 16px — the property the browser's zoom trigger actually reads —
+     but each input is first widened by the exact inverse of the scale below, then visually
+     scaled back down, so it still renders at its original size and position. This is safe
+     here specifically because the grid's column widths (cellWidthPx, further down in the
+     JS) are fixed pixel values that don't depend on font-size at all — unlike the DOCX/PDF
+     export's own font-metric-based widths — so nothing about column alignment changes. */
+  @media (max-width:600px){
+    .beat-cell input{
+      font-size:16px;
+      width:114.286%; /* 100 / (14/16) — cancels the scale below so the box still exactly
+                          fills the cell, border to border, same as before */
+      transform:scale(0.875); /* 14/16 — visually restores the original swara-cell text size */
+      transform-origin:left center;
+    }
+    .beat-cell input.lyric{
+      font-size:16px;
+      width:133.333%; /* 100 / (12/16) */
+      transform:scale(0.75); /* 12/16 — visually restores the original lyric-cell text size */
+    }
+  }
   .num{ font-variant-numeric:tabular-nums; }
   .aksh-badge{ font-size:9.5px; text-align:center; height:12px; line-height:12px; font-weight:700; letter-spacing:.3px; font-variant-numeric:tabular-nums; transition:color .18s ease; }
   .aksh-badge.ok{ color:var(--good-soft); }
@@ -1669,6 +1699,17 @@ let driveLibraryChecksum = null; // Drive's md5Checksum for the library file, as
                          // nothing about the file's content changed, which was causing the conflict
                          // dialog to reappear on every sync instead of only on genuine external
                          // changes. A checksum only differs when the bytes actually differ.
+let driveLastSyncedLibraryJSON = null; // JSON.stringify(library) as of the last moment THIS
+  // device's copy is known to exactly match Drive's (right after a successful push, or right
+  // after adopting Drive's content) — set at boot to the freshly-loaded local state too, since
+  // that's the baseline for "have I changed anything this session". Comparing the CURRENT
+  // library against this is what tells checkDriveConflict whether a genuine conflict exists,
+  // or whether this device simply hasn't touched anything since it last knew Drive's state —
+  // in which case a newer remote copy is never a conflict, just a safe pull. Without this
+  // distinction, an idle device (a laptop tab left open while edits happen on a phone) would
+  // incorrectly be asked to choose between "local" and "Drive" even though its "local" is just
+  // an untouched, older copy of the exact same data — which is exactly the reported symptom of
+  // changes on one device never reliably appearing on another.
 let driveConflictPending = false; // true once a conflict's been detected but not yet resolved
 let driveAutoConflictModalUsedThisSession = false; // becomes true the moment the FIRST
   // auto-triggered (background) sync check of this session completes — used
@@ -1728,11 +1769,35 @@ function updateSyncStatusText(){
 }
 setInterval(updateSyncStatusText, 30000); // keeps the "Xm ago" text fresh even with no new activity
 window.addEventListener('online', ()=>{
-  if(driveSyncPending && driveAccessToken){
+  // Not gated on driveSyncPending: coming back online should also pick up anything pushed
+  // by ANOTHER device while this one was offline, not just flush this device's own queued
+  // edit (if any) — checkDriveConflict handles both through the same checksum comparison.
+  if(driveAccessToken && !driveConflictPending){
     driveSyncPending = false;
     syncLibraryToDrive(true);
   }
   flushPendingDriveDeletes();
+});
+
+/* Background poll: the ONLY thing that lets an idle, unedited device (e.g. a laptop tab
+   left open while changes happen on your phone) ever learn about those changes without
+   you touching this app or reloading the page — persist()'s auto-sync only fires on a
+   local edit, so with no local activity there was previously no trigger at all, and
+   changes made elsewhere would silently sit unseen until this device happened to be
+   edited, manually synced, or reloaded. This just calls the exact same
+   syncLibraryToDrive(true) as every other auto-trigger; its own checksum check (and the
+   auto-pull vs. conflict distinction above) decides whether anything actually needs to
+   happen. */
+setInterval(()=>{
+  if(driveAccessToken && navigator.onLine && !driveConflictPending) syncLibraryToDrive(true);
+}, 60000);
+
+/* A much faster-acting companion to the poll above, for the single most common real case:
+   switching back to this device/tab after editing on another one. Waiting up to 60s for
+   the interval to catch up would still look "not synced" for a little while after every
+   switch; checking immediately on regaining visibility closes that gap. */
+document.addEventListener('visibilitychange', ()=>{
+  if(!document.hidden && driveAccessToken && navigator.onLine && !driveConflictPending) syncLibraryToDrive(true);
 });
 
 /* ===================== Drive deletion handling =====================
@@ -2267,10 +2332,24 @@ async function checkDriveConflict(){
     const r = await driveFetch(`https://www.googleapis.com/drive/v3/files/${driveLibraryFileId}?fields=md5Checksum`);
     const j = await r.json();
     if(!j.md5Checksum) return null;
-    if(!driveLibraryChecksum){
-      return { mode: library.length ? 'conflict' : 'silent-adopt', checksum: j.md5Checksum };
+    if(j.md5Checksum === driveLibraryChecksum) return null; // Drive hasn't moved since we last knew
+    // Drive's content differs from what we last knew about. Whether that's a real conflict
+    // depends entirely on whether THIS device has made any edits of its own since it last
+    // matched Drive — not on whether it's the very first time this session has checked.
+    const localUnchanged = driveLastSyncedLibraryJSON !== null && JSON.stringify(library) === driveLastSyncedLibraryJSON;
+    if(!driveLibraryChecksum && !library.length){
+      // Never synced before, and there's nothing local to lose either way.
+      return { mode: 'silent-adopt', checksum: j.md5Checksum };
     }
-    return (j.md5Checksum !== driveLibraryChecksum) ? { mode: 'conflict', checksum: j.md5Checksum } : null;
+    if(localUnchanged){
+      // Local hasn't diverged since our last known-good sync point (push or pull) — Drive
+      // simply has a newer copy, most likely pushed from another device. Nothing of this
+      // device's own is at risk, so there is no real decision for the user to make here;
+      // auto-adopting it is what makes background/idle polling actually keep devices in
+      // sync instead of silently sitting on stale data until an edit or manual click.
+      return { mode: 'auto-pull', checksum: j.md5Checksum };
+    }
+    return { mode: 'conflict', checksum: j.md5Checksum };
   }catch(e){
     console.warn('[drive conflict check] failed, proceeding without one:', e);
     return null;
@@ -2337,18 +2416,25 @@ async function syncLibraryToDrive(auto){
     // open, not interrupt mid-session with a popup.
     const isFirstAutoSyncOfSession = auto && !driveAutoConflictModalUsedThisSession;
     if(auto) driveAutoConflictModalUsedThisSession = true;
-    if(conflict && conflict.mode === 'silent-adopt'){
+    if(conflict && (conflict.mode === 'silent-adopt' || conflict.mode === 'auto-pull')){
       library = await driveDownloadLibraryJSON();
       try{ localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(library)); }catch(e){}
       setDriveDirtyCount(0);
       setDriveLibraryChecksum(conflict.checksum);
+      driveLastSyncedLibraryJSON = JSON.stringify(library); // this device now exactly matches Drive again
       driveConflictPending = false; // same reasoning as the normal-upload path below
       driveConflictRemote = null;
       driveLastSyncedAt = Date.now();
       try{ localStorage.setItem(DRIVE_LAST_SYNCED_KEY, String(driveLastSyncedAt)); }catch(e){}
+      // The kriti that was open a moment ago may no longer exist in the freshly-pulled
+      // library (e.g. it was deleted on the other device) — fall back cleanly instead of
+      // rendering against an id that's no longer there.
+      if(currentId && !library.some(s=>s.id===currentId)) currentId = library.length ? library[0].id : null;
       renderAll();
       updateSyncStatusText();
-      showToast('Loaded your existing library from Google Drive');
+      showToast(conflict.mode === 'silent-adopt'
+        ? 'Loaded your existing library from Google Drive'
+        : 'Updated from Google Drive — synced from another device');
       return;
     }
     if(conflict && conflict.mode === 'conflict'){
@@ -2378,6 +2464,7 @@ async function syncLibraryToDrive(auto){
     }
     if(res && res.modifiedTime) setDriveLibraryModifiedTime(res.modifiedTime);
     if(res && res.md5Checksum) setDriveLibraryChecksum(res.md5Checksum);
+    driveLastSyncedLibraryJSON = JSON.stringify(library); // this device's copy is now Drive's copy
     driveSyncPending = false;
     driveLastSyncedAt = Date.now();
     try{ localStorage.setItem(DRIVE_LAST_SYNCED_KEY, String(driveLastSyncedAt)); }catch(e){}
@@ -8018,6 +8105,8 @@ function attemptAutoConnectDrive(retriesLeft){
   }
   populateTalaSelect(document.getElementById('importTalaSelect'));
   await loadLibrary();
+  driveLastSyncedLibraryJSON = JSON.stringify(library); // baseline: "have I changed anything
+    // locally this session" is judged from this exact loaded state onward.
   loadRagaDatabase();
   if(library.length) currentId = library[0].id;
   renderAll();
