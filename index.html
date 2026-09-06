@@ -8349,8 +8349,8 @@ function buildUploadedFilesHTML(){
       <button class="back-btn" id="uploadedFilesBackBtn"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15l-5-5 5-5"/></svg> Kriti List</button>
       <div style="flex:1"></div>
       <button class="btn small" id="uploadedFilesDriveFolderBtn"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6a1 1 0 011-1h4l2 2h6a1 1 0 011 1v7a1 1 0 01-1 1H4a1 1 0 01-1-1V6z"/></svg> Open Drive folder</button>
-      <button class="btn small primary" id="uploadedFilesUploadBtn"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13V3M6 7l4-4 4 4M4 17h12"/></svg> Upload file</button>
-      <input type="file" id="uploadRefFileInput" accept=".pdf,.doc,.docx" style="display:none;">
+      <button class="btn small primary" id="uploadedFilesUploadBtn"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13V3M6 7l4-4 4 4M4 17h12"/></svg> Upload files</button>
+      <input type="file" id="uploadRefFileInput" accept=".pdf,.doc,.docx" multiple style="display:none;">
     </div>
     <h1>Uploaded Files</h1>
     <p class="intro">Word or PDF notation you've already typeset elsewhere — stored and viewable here exactly as-is, without importing anything into notation cells or changing it in any way. Backed up to the same Google Drive folder your kriti library already syncs to.</p>
@@ -8379,14 +8379,19 @@ async function openDriveFolderInBrowser(){
   window.open(`https://drive.google.com/drive/folders/${driveFolderId}`, '_blank');
 }
 async function handleUploadRefFileChange(e){
-  const file = e.target.files[0];
+  const files = Array.from(e.target.files || []);
   e.target.value = '';
-  if(!file) return;
-  const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
-  const isDocx = /\.docx$/i.test(file.name) || file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-  // View it right away, entirely locally — no Drive connection or upload needed for this
-  // part at all, PDF or DOCX either one.
-  if(isPdf || isDocx) openFileViewerModal(file, file.name, file.type);
+  if(!files.length) return;
+  // Auto-view only makes sense for a single selection — instantly, entirely locally, no
+  // Drive needed. With several files at once there's no one obvious file to show, so this
+  // skips straight to uploading all of them; the refreshed list below is how you open any
+  // of them afterward.
+  if(files.length === 1){
+    const file = files[0];
+    const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+    const isDocx = /\.docx$/i.test(file.name) || file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    if(isPdf || isDocx) openFileViewerModal(file, file.name, file.type);
+  }
   // The Drive upload is just for backup/safekeeping from here — runs in the background
   // regardless of whether an in-app preview was shown above.
   if(!driveFolderId){
@@ -8395,17 +8400,32 @@ async function handleUploadRefFileChange(e){
     const ready = await waitForDriveFolderReady(20000);
     if(!ready){ showToast('Could not reach Google Drive \u2014 saved for viewing only, not backed up'); return; }
   }
-  try{
-    const mimeType = file.type || (isDocx
-      ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-      : (isPdf ? 'application/pdf' : 'application/octet-stream'));
-    const result = await driveUploadBlob(file, file.name, mimeType);
-    showToast(result && result.id ? 'Backed up to Drive \u2713' : 'Upload finished, but Drive didn\u2019t confirm it');
-    if(result && result.id && document.getElementById('uploadedFilesRoot')) loadAndRenderMyFiles(); // refresh the list if still on this page
-  }catch(err){
-    console.error('[reference file upload] failed:', err);
-    showToast('Backup to Drive failed \u2014 try again from the upload button');
+  // One at a time, not in parallel — driveUploadBlob does its own name lookup per file
+  // first, and running several of those (plus the uploads themselves) concurrently risks
+  // tripping Drive's rate limit for no real benefit, since this already runs in the
+  // background regardless.
+  let succeeded = 0, failed = 0;
+  for(const file of files){
+    const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+    const isDocx = /\.docx$/i.test(file.name) || file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    if(files.length > 1) showToast(`Uploading ${succeeded + failed + 1} of ${files.length}\u2026`);
+    try{
+      const mimeType = file.type || (isDocx
+        ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        : (isPdf ? 'application/pdf' : 'application/octet-stream'));
+      const result = await driveUploadBlob(file, file.name, mimeType);
+      if(result && result.id) succeeded++; else failed++;
+    }catch(err){
+      console.error('[reference file upload] failed:', file.name, err);
+      failed++;
+    }
   }
+  if(files.length === 1){
+    showToast(succeeded ? 'Backed up to Drive \u2713' : 'Backup to Drive failed \u2014 try again from the upload button');
+  } else {
+    showToast(failed ? `${succeeded} uploaded, ${failed} failed \u2014 try again for those` : `${succeeded} files backed up to Drive \u2713`);
+  }
+  if(succeeded && document.getElementById('uploadedFilesRoot')) loadAndRenderMyFiles(); // refresh the list if still on this page
 }
 
 let myFilesCache = [];
@@ -8443,7 +8463,7 @@ function renderMyFilesList(filterText){
     const p = file.appProperties || {};
     return [file.name, p.raga, p.tala, p.composer].some(v => (v||'').toLowerCase().includes(f));
   });
-  if(!myFilesCache.length){ wrap.innerHTML = '<div class="placeholder"><h2>No uploaded files yet</h2><p>Use "Upload file" above to add one.</p></div>'; return; }
+  if(!myFilesCache.length){ wrap.innerHTML = '<div class="placeholder"><h2>No uploaded files yet</h2><p>Use "Upload files" above to add one or more.</p></div>'; return; }
   if(!files.length){ wrap.innerHTML = `<div class="placeholder"><h2>No matches</h2><p>Nothing matches "${escapeHtml(filterText)}".</p></div>`; return; }
   wrap.innerHTML = '<div class="my-files-list">' + files.map(f => {
     const p = f.appProperties || {};
