@@ -1084,19 +1084,36 @@
     .line-top{ gap:6px; }
     .aksh-badge{ font-size:9px; }
     .dashboard-search-row{ flex-direction:column; }
-    /* 16px minimum specifically here — below that, iOS Safari and many
-       Android browsers auto-zoom the whole page in when this input gets
-       focused/tapped, and that zoom can persist even after navigating
-       away (to Raga Directory and back, for instance), which is exactly
-       what a reported screenshot showed: the dashboard appearing shifted
-       and cropped on the left, not an actual CSS layout overflow — my own
-       reproduction at a real mobile viewport width showed no overflow at
-       all, which is what pointed at a zoom-state cause instead of a
-       layout one. Both were below the threshold before this (14px and
-       12.5px), so both needed it, not just the one that was tapped in
-       that particular screenshot. */
-    .dashboard-search-row .search{ font-size:16px; }
-    .dashboard-search-row .filter-select{ font-size:16px; }
+    /* 16px minimum, applied broadly here on purpose — below that, iOS Safari and many
+       Android browsers auto-zoom the whole page in when a focused input's font-size is
+       under 16px, and critically, that zoom does NOT reset on its own when you navigate
+       elsewhere in a single-page app like this one — it just rides along to every other
+       screen (dashboard, Raga Directory, the editor, all of it) until the page fully
+       reloads. That's exactly what a reported screenshot showed: every line uniformly
+       missing its left edge, on the Raga Directory screen, from tapping a completely
+       different input earlier. My own reproduction confirmed there's no actual layout
+       overflow at any of these widths — this is a zoom-state problem, not a CSS one.
+       A first pass only fixed the dashboard's search box and filter dropdowns (14px /
+       12.5px). That missed the much larger and more-tapped surface: a single generic
+       rule further down this sheet (`input[type=text], select, textarea`) sets 14px as
+       the DEFAULT for nearly every plain field in the app — every Song Details field
+       (title, composer, raga, melakarta, arohanam, avarohanam), every Sahitya textarea —
+       plus several more specific selectors that were separately under 16px too: the App
+       Theme dropdown (right on the dashboard's first screen), its mini equivalent in the
+       editor topbar, Raga Directory's own search box (a different element from the
+       dashboard's), and the row-number label boxes. Practically any field in the app
+       could trigger this, which is exactly why it kept showing up "everywhere, all the
+       time" even after the first, narrower pass. The notation grid's own swara/lyric
+       cells are deliberately NOT included in this broad rule — they need the width+
+       transform-scale compensation used further down instead, to stay at their original
+       visual size within the grid's fixed-width alignment math; a flat font-size bump
+       here would make their text overflow those narrow cells. */
+    .search, .filter-select,
+    input[type=text], select, textarea,
+    .notation-theme-mini-select, .notation-theme-picker select,
+    .raga-dir-search-wrap input, .line-top input.label{
+      font-size:16px;
+    }
     .dashboard-grid{ grid-template-columns:1fr; }
     .rule-example{ flex-direction:column; }
   }
@@ -1748,7 +1765,25 @@ function updateSyncStatusText(){
   const el = document.getElementById('syncStatus');
   const badge = document.getElementById('syncPendingBadge');
   if(!el) return;
-  if(!driveAccessToken){ el.textContent = ''; if(badge) badge.style.display = 'none'; return; }
+  if(!driveAccessToken){
+    // Blank text here used to mean "nothing to report" for a device that's never touched
+    // Drive at all — reasonable. But it ALSO meant "nothing to report" for a device that
+    // HAS synced before but has silently failed to reconnect this session (the silent,
+    // no-popup auto-connect attempt can and does fail quietly on mobile browsers for
+    // reasons that have nothing to do with anything being broken — third-party-cookie
+    // restrictions, an expired refresh grant, etc.) — and those two situations look
+    // IDENTICAL to the user: a blank line, easy to never notice. That silent second case
+    // is a direct, plausible explanation for "I saved something on my phone and it never
+    // reached my laptop" — the phone's own edits were saving fine locally the entire time,
+    // with nothing ever visibly wrong, while Drive simply never received them. Now: only a
+    // device that has genuinely synced before gets a visible warning when disconnected: a
+    // brand-new, never-connected device still stays blank rather than nagging.
+    let everSynced = null;
+    try{ everSynced = localStorage.getItem(DRIVE_LAST_SYNCED_KEY); }catch(e){}
+    el.textContent = everSynced ? '⚠ Not connected to Drive right now — tap Sync to reconnect' : '';
+    if(badge) badge.style.display = 'none';
+    return;
+  }
   if(driveConflictPending){ el.textContent = '⚠ Drive changed elsewhere — click Sync to resolve'; if(badge) badge.style.display = 'none'; return; }
   const pendingDeleteCount = (typeof pendingDriveDeletes !== 'undefined') ? pendingDriveDeletes.length : 0;
   const totalPending = driveDirtyCount + pendingDeleteCount;
@@ -2451,29 +2486,7 @@ async function syncLibraryToDrive(auto){
     }
 
     const res = await driveUploadLibraryJSON();
-    if(res && res.id){
-      driveLibraryFileId = res.id;
-      try{ localStorage.setItem(DRIVE_LIBRARY_FILE_ID_KEY, driveLibraryFileId); }catch(e){}
-    }
-    if(res && res.modifiedTime) setDriveLibraryModifiedTime(res.modifiedTime);
-    if(res && res.md5Checksum) setDriveLibraryChecksum(res.md5Checksum);
-    driveLastSyncedLibraryJSON = JSON.stringify(library); // this device's copy is now Drive's copy
-    driveSyncPending = false;
-    driveLastSyncedAt = Date.now();
-    try{ localStorage.setItem(DRIVE_LAST_SYNCED_KEY, String(driveLastSyncedAt)); }catch(e){}
-    setDriveDirtyCount(0);
-    // A successful sync reaching this point means checkDriveConflict() found
-    // no mismatch THIS time — even if an earlier auto-triggered check had
-    // set driveConflictPending from a since-resolved/transient mismatch, a
-    // clean upload here means there's nothing left to warn about. Without
-    // this, the only way to ever clear the flag was clicking through the
-    // conflict modal's own buttons — so once set, a sync that later found no
-    // conflict would still succeed silently while the stale "Drive changed
-    // elsewhere" warning stayed on screen forever, looking like syncing
-    // was never actually working no matter how many times it ran.
-    driveConflictPending = false;
-    driveConflictRemote = null;
-    updateSyncStatusText();
+    applyDriveUploadResult(res);
     if(!auto) showToast('Synced to Google Drive ✓');
   }catch(e){
     console.error('[drive sync] failed:', e);
@@ -2484,6 +2497,30 @@ async function syncLibraryToDrive(auto){
     driveSyncInFlight = false;
     setSyncIconPulsing(false);
   }
+}
+
+/* Shared bookkeeping after ANY successful push, win, split out so conflict
+   resolution (below) can reuse it directly without going through another
+   checkDriveConflict() first. */
+function applyDriveUploadResult(res){
+  if(res && res.id){
+    driveLibraryFileId = res.id;
+    try{ localStorage.setItem(DRIVE_LIBRARY_FILE_ID_KEY, driveLibraryFileId); }catch(e){}
+  }
+  if(res && res.modifiedTime) setDriveLibraryModifiedTime(res.modifiedTime);
+  if(res && res.md5Checksum) setDriveLibraryChecksum(res.md5Checksum);
+  driveLastSyncedLibraryJSON = JSON.stringify(library); // this device's copy is now Drive's copy
+  driveSyncPending = false;
+  driveLastSyncedAt = Date.now();
+  try{ localStorage.setItem(DRIVE_LAST_SYNCED_KEY, String(driveLastSyncedAt)); }catch(e){}
+  setDriveDirtyCount(0);
+  // A successful push reaching this point means there's nothing left to warn about —
+  // even if an earlier check had set driveConflictPending from a since-resolved or
+  // transient mismatch, clear it here too so a later clean sync can't leave a stale
+  // "Drive changed elsewhere" warning on screen forever.
+  driveConflictPending = false;
+  driveConflictRemote = null;
+  updateSyncStatusText();
 }
 
 /* Fetches Drive's actual library content and current checksum (fresh — not
@@ -2553,28 +2590,44 @@ async function resolveDriveConflict(choice){
   if(!remote) return;
   if(choice === 'use-drive'){
     library = remote.library;
+    showToast('Using Drive\u2019s version');
   } else if(choice === 'merge'){
     const { merged, added, updated } = mergeLibraries(library, remote.library);
     library = merged;
     showToast(`Merged — ${added} added, ${updated} updated`);
+  } else if(choice === 'keep-local'){
+    showToast('Keeping this browser\u2019s version');
   }
   // 'keep-local': library is left exactly as-is; the push below overwrites Drive with it.
 
   try{ localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(library)); }catch(e){}
   setDriveDirtyCount(0);
-  // Adopt Drive's just-fetched checksum as our baseline BEFORE pushing —
-  // otherwise the push we're about to trigger would immediately detect the
-  // exact same conflict again and loop back into this same modal. (The
-  // upload moments later overwrites this with the checksum of whatever we
-  // actually end up pushing — merged/local/drive content — this is just to
-  // get past the pre-upload conflict check cleanly.)
-  setDriveLibraryChecksum(remote.checksum);
   driveConflictPending = false;
   driveConflictRemote = null;
   document.getElementById('conflictOverlay').classList.remove('show');
   currentId = library.length ? library[0].id : null;
   renderAll();
-  await syncLibraryToDrive(false);
+  // Pushes directly, deliberately WITHOUT going back through syncLibraryToDrive()'s own
+  // checkDriveConflict() first. Routing through it used to mean: pick an option here, and
+  // its immediate re-check — using Drive state that's already a network round-trip or two
+  // stale by the time it runs — could disagree with the decision you just made and reopen
+  // this exact modal a second later, requiring the same choice to be clicked twice every
+  // time to actually stick. Once you've explicitly resolved a conflict using the Drive
+  // content already captured when this modal opened, there's nothing left to re-verify —
+  // this is now a plain, unconditional push of that decision.
+  if(driveSyncInFlight) return;
+  driveSyncInFlight = true;
+  setSyncIconPulsing(true);
+  try{
+    const res = await driveUploadLibraryJSON();
+    applyDriveUploadResult(res);
+  }catch(e){
+    console.error('[drive conflict resolve] push failed:', e);
+    showToast('Saved here, but couldn\u2019t reach Google Drive — will retry on next edit');
+  } finally {
+    driveSyncInFlight = false;
+    setSyncIconPulsing(false);
+  }
 }
 
 const uid = () => 'k_' + Date.now().toString(36) + Math.random().toString(36).slice(2,7);
