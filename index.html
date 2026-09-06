@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Kriti Notation Studio</title>
 <meta name="description" content="Create, edit, and export Carnatic music kriti notation — swara, sahitya, and tala-aware grids, with Word/PDF export.">
 <meta name="theme-color" content="#4a4aef" media="(prefers-color-scheme: light)">
@@ -1115,6 +1115,18 @@
       font-size:16px;
     }
     .dashboard-grid{ grid-template-columns:1fr; }
+    /* A long composer or raga name (e.g. "Maanambuchaavadi Venkatasubbaiyer") was forcing
+       the whole kriti card wider than its container instead of wrapping — the raga/tala/
+       composer block on the right (.m) is set to never shrink below its natural one-line
+       width, which is fine on desktop where there's room, but on a narrow phone screen
+       that natural width alone can exceed what's left after the title column, pushing the
+       card into horizontal overflow while the sidebar buttons above it (plain single-column
+       text with no such competing content) never hit the same problem. Stacking the meta
+       block below the title instead of beside it removes the competition for width
+       entirely — everything simply wraps within the full card width now. */
+    .dashboard-grid .song-item{ flex-direction:column; align-items:flex-start; gap:6px; }
+    .dashboard-grid .song-item .m{ text-align:left; width:100%; }
+    .dashboard-grid .song-item .col-left{ width:100%; }
     .rule-example{ flex-direction:column; }
   }
 </style>

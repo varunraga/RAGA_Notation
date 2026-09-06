@@ -7,13 +7,29 @@
    - Third-party library scripts/fonts (docx, pdf.js, jszip, Google Fonts):
      cache-first with a network fallback, so the editor keeps working
      offline once they've been fetched once.
-   - Google Identity Services (accounts.google.com) is NEVER intercepted —
-     sign-in requires a live network round-trip and caching it would just
-     break Drive sync.
+   - Google Identity Services (accounts.google.com) and the Google Drive
+     API (www.googleapis.com) are NEVER intercepted — sign-in requires a
+     live network round-trip, and so does every single Drive read. Drive's
+     checksum-check and file-download calls hit the exact same URL every
+     time (same file ID), which is precisely the shape of request this
+     service worker's stale-while-revalidate strategy handles WORST: it
+     returns whatever was cached from the very first call, instantly,
+     without waiting for the network — silently, with a normal-looking
+     200, no error anywhere. That meant every "has Drive changed?" check
+     could have been answered from a frozen-in-time snapshot instead of
+     Drive's actual current state, on any device, indefinitely — which
+     looks exactly like "sync succeeds but nothing ever actually updates."
+     Confirmed directly: DevTools' Network tab showed sw.js as the
+     initiator on the checksum-check requests. Drive API calls must always
+     go straight to the network, live, every time, same as sign-in already
+     did.
    Bump CACHE_VERSION whenever index.html (or anything precached) changes,
-   so returning users get the update instead of a stale cached copy. */
+   so returning users get the update instead of a stale cached copy. Bumped
+   here too, specifically so any device that already has the old, buggy
+   worker installed is forced onto this fixed one rather than continuing
+   to run its own already-cached version of this very file. */
 
-const CACHE_VERSION = 'kriti-studio-v2';
+const CACHE_VERSION = 'kriti-studio-v3';
 const PRECACHE_URLS = [
   './',
   './index.html',
@@ -22,7 +38,7 @@ const PRECACHE_URLS = [
   './icon-512x512.png',
 ];
 
-const NEVER_CACHE_HOSTS = ['accounts.google.com'];
+const NEVER_CACHE_HOSTS = ['accounts.google.com', 'www.googleapis.com'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
