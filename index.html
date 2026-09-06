@@ -3284,14 +3284,22 @@ function populateFilterOptions(){
 function songPreviewSnippet(song){
   const pallavi = song.sections && song.sections[0];
   if(!pallavi) return '';
-  const plainFirstLine = (pallavi.sahitya || '').split('\n').map(l=>l.trim()).filter(Boolean)[0];
-  if(plainFirstLine) return plainFirstLine;
-  const line = pallavi.lines && pallavi.lines[0];
-  if(line && line.rows && line.rows[0]){
-    const cellLyrics = (line.rows[0].lyric || []).filter(Boolean).join(' ').trim();
-    if(cellLyrics) return cellLyrics;
+  let text = (pallavi.sahitya || '').split('\n').map(l=>l.trim()).filter(Boolean)[0];
+  if(!text){
+    const line = pallavi.lines && pallavi.lines[0];
+    if(line && line.rows && line.rows[0]){
+      const cellLyrics = (line.rows[0].lyric || []).filter(Boolean).join(' ').trim();
+      if(cellLyrics) text = cellLyrics;
+    }
   }
-  return '';
+  if(!text) return '';
+  // Just the first 3 words, not the whole line — the card is meant to be scanned at a
+  // glance, not read in full; the CSS ellipsis this used to rely on truncated mid-word at
+  // whatever width the card happened to have, which looked different every time depending
+  // on the title/raga length next to it. Cutting by word count is stable and predictable
+  // regardless of layout.
+  const words = text.split(/\s+/).filter(Boolean);
+  return words.length <= 3 ? words.join(' ') : words.slice(0, 3).join(' ') + '…';
 }
 /* A fixed, deliberately distinct color per tala family — used as a left
    border accent on dashboard kriti cards so the list can be visually
@@ -6038,6 +6046,31 @@ function tokenizeSwaraForAlign(raw){
    even if it contains internal spaces, and the normal token-count-vs-
    syllable-count mismatch check is skipped entirely for that cell, since
    the pipes are the user's explicit signal that this is intentional. */
+/* A held syllable's continuation dashes sometimes get typed glued onto the syllable with no
+   space ("dya--"), sometimes with spaces between each one ("sha- -") — confirmed both forms
+   in the same real document. Only the spaced form was ever splitting into separate pieces
+   that align one-per-note; a glued run like "dya--" was staying as ONE word, which then
+   lined up with only the FIRST swara sub-note in that group while stretching that column to
+   fit the whole string — pushing every other note in the group to the right with nothing
+   aligned underneath it at all. This explodes a leading and/or trailing run of 2+ hyphens
+   into individual "-" continuation pieces (one per held note), the same shape a spaced-out
+   "sha- -" already produces naturally. A single leading/trailing hyphen is left exactly as
+   typed — that's the normal, already-correct "held over one note, no new syllable" marker
+   used throughout ("sha-" on its own is fine and shouldn't be touched). */
+function explodeContinuationDashes(word){
+  const m = word.match(/^(-*)([^-]*?)(-*)$/);
+  if(!m) return [word];
+  const [, lead, core, trail] = m;
+  const out = [];
+  for(let i=0;i<lead.length;i++) out.push('-');
+  if(core){
+    out.push(trail.length ? core + '-' : core);
+    for(let i=1;i<trail.length;i++) out.push('-');
+  } else {
+    for(let i=0;i<trail.length;i++) out.push('-');
+  }
+  return out.length ? out : [word];
+}
 function buildAlignedColumns(rawSwara, rawLyric){
   const tokens = tokenizeSwaraForAlign(rawSwara);
   const trimmedLyric = (rawLyric||'').trim();
@@ -6049,7 +6082,7 @@ function buildAlignedColumns(rawSwara, rawLyric){
   // and when it's one word among several normal syllables in the same cell
   // ("abc |defghij| klm") — previously only the whole-cell case was handled,
   // so a mid-cell wrapped word kept its literal "|" characters in the output.
-  const rawWords = trimmedLyric ? trimmedLyric.split(/\s+/) : [];
+  const rawWords = trimmedLyric ? trimmedLyric.split(/\s+/).flatMap(explodeContinuationDashes) : [];
   let forcedNoMismatch = false;
   const syllables = rawWords.map(w=>{
     if(w.length >= 2 && w.startsWith('|') && w.endsWith('|')){
