@@ -1124,9 +1124,16 @@
        text with no such competing content) never hit the same problem. Stacking the meta
        block below the title instead of beside it removes the competition for width
        entirely — everything simply wraps within the full card width now. */
-    .dashboard-grid .song-item{ flex-direction:column; align-items:flex-start; gap:6px; }
+    .dashboard-grid .song-item{ flex-direction:column; align-items:flex-start; justify-content:flex-start; gap:6px; }
     .dashboard-grid .song-item .m{ text-align:left; width:100%; }
     .dashboard-grid .song-item .col-left{ width:100%; }
+    /* The hover-only arrow makes sense as a subtle right-aligned nudge in the row layout
+       above, but stacked into a column it becomes a stray third block sitting under the
+       composer line instead — and the row's own space-between was leaving room for it,
+       making the card's bottom edge look uneven/incomplete rather than a clean rectangle.
+       It's a hover affordance anyway, which doesn't really apply on a touch screen where
+       the whole card is already tappable — simplest to just drop it here. */
+    .dashboard-grid .song-item .card-chevron{ display:none; }
     .rule-example{ flex-direction:column; }
   }
 </style>
@@ -1451,6 +1458,7 @@ function readDocxRunsFromNode(node, W_NS){
     if(!text) continue;
     text = decodeOctaveDiacritics(text);
     let underline = 0;
+    let bold = false;
     const rPr = rNode.getElementsByTagNameNS(W_NS, 'rPr')[0];
     if(rPr){
       const uNode = rPr.getElementsByTagNameNS(W_NS, 'u')[0];
@@ -1459,8 +1467,13 @@ function readDocxRunsFromNode(node, W_NS){
         if(val === 'double') underline = 2;
         else if(val && val !== 'none') underline = 1;
       }
+      const bNode = rPr.getElementsByTagNameNS(W_NS, 'b')[0];
+      if(bNode){
+        const bVal = bNode.getAttributeNS(W_NS, 'val') || bNode.getAttribute('w:val');
+        bold = (bVal !== '0' && bVal !== 'false'); // <w:b/> alone (no val attr) means true
+      }
     }
-    runs.push({ text, underline });
+    runs.push({ text, underline, bold });
   }
   return runs;
 }
@@ -1664,6 +1677,12 @@ async function readImportFile(file){
 }
 
 let library = [];
+let tombstones = []; // [{id, deletedAt}] — deletions made in THIS browser, kept and synced
+  // alongside the library so another device knows to remove the same song too. Without this,
+  // a plain union-merge has no way to tell "remote doesn't have this song because it was
+  // deleted" apart from "remote never had it" — it would just add the deleted song right back
+  // on the very next merge. Pruned of old entries during merge (see mergeLibraries) rather than
+  // kept forever.
 let currentId = null;
 let currentView = 'dashboard'; // 'dashboard' (spacious library browser) or 'editor' (full-width notation grid)
                                 // for one song. Kept as two distinct views — rather than sidebar+editor
@@ -2248,18 +2267,19 @@ async function driveFindLibraryFile(){
   return (j.files && j.files[0]) ? j.files[0] : null;
 }
 
-/* Downloads and parses the library JSON currently sitting in Drive — used
+/* Downloads and parses the library payload currently sitting in Drive — used
    only while resolving a conflict (Merge / Use Drive's Version both need the
-   actual remote content, not just its modifiedTime). */
+   actual remote content, not just its modifiedTime). Returns {library, tombstones}. */
 async function driveDownloadLibraryJSON(){
   const r = await driveFetch(`https://www.googleapis.com/drive/v3/files/${driveLibraryFileId}?alt=media`);
-  return r.json();
+  const text = await r.text();
+  return parseLibraryPayload(text);
 }
 
-/* Uploads the current library JSON — PATCHes the existing file if we know its
+/* Uploads the current library payload — PATCHes the existing file if we know its
    id, otherwise creates it (multipart: metadata + content in one request). */
 async function driveUploadLibraryJSON(){
-  const body = JSON.stringify(library);
+  const body = serializeLibraryPayload();
   if(driveLibraryFileId){
     const r = await driveFetch(`https://www.googleapis.com/upload/drive/v3/files/${driveLibraryFileId}?uploadType=media&fields=id,modifiedTime,md5Checksum`, {
       method: 'PATCH',
@@ -2459,8 +2479,10 @@ async function syncLibraryToDrive(auto){
     const isFirstAutoSyncOfSession = auto && !driveAutoConflictModalUsedThisSession;
     if(auto) driveAutoConflictModalUsedThisSession = true;
     if(conflict && conflict.mode === 'silent-adopt'){
-      library = await driveDownloadLibraryJSON();
-      try{ localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(library)); }catch(e){}
+      const payload = await driveDownloadLibraryJSON();
+      library = payload.library;
+      tombstones = payload.tombstones;
+      try{ localStorage.setItem(LOCAL_STORAGE_KEY, serializeLibraryPayload()); }catch(e){}
       setDriveDirtyCount(0);
       setDriveLibraryChecksum(conflict.checksum);
       driveLastSyncedLibraryJSON = JSON.stringify(library); // this device now exactly matches Drive
@@ -2544,12 +2566,12 @@ async function openConflictModal(){
   overlay.classList.add('show');
   body.innerHTML = '<div class="quota-loading">Checking what changed on Drive…</div>';
   try{
-    const [remoteLibrary, metaRes] = await Promise.all([
+    const [remotePayload, metaRes] = await Promise.all([
       driveDownloadLibraryJSON(),
       driveFetch(`https://www.googleapis.com/drive/v3/files/${driveLibraryFileId}?fields=md5Checksum`).then(r=>r.json()),
     ]);
-    driveConflictRemote = { library: remoteLibrary, checksum: metaRes.md5Checksum };
-    const localCount = library.length, remoteCount = remoteLibrary.length;
+    driveConflictRemote = { library: remotePayload.library, tombstones: remotePayload.tombstones, checksum: metaRes.md5Checksum };
+    const localCount = library.length, remoteCount = remotePayload.library.length;
     body.innerHTML = `
       <div class="quota-text" style="margin-bottom:14px;">
         Google Drive has a version of your library that didn't come from an edit in this browser —
@@ -2576,25 +2598,49 @@ async function openConflictModal(){
   }
 }
 
-/* Song-level merge, keyed by id: a song on only one side is kept as-is (no
-   data ever silently dropped); a song present on both sides keeps whichever
-   copy has the more recent updatedAt. Songs saved before this feature
-   existed have no updatedAt (treated as 0), so a genuinely-timestamped copy
-   from either side naturally wins over an untimestamped one. */
-function mergeLibraries(localLib, remoteLib){
+/* Song-level merge, keyed by id: a song present on only one side is normally kept as-is (no
+   data ever silently dropped), UNLESS the OTHER side recorded a tombstone for that id dated
+   at or after the song's own updatedAt — that means it was deliberately deleted elsewhere
+   after this copy was last touched, so it's dropped here too instead of being resurrected. A
+   song present on both sides keeps whichever copy has the more recent updatedAt (same as
+   before). Tombstones from both sides are unioned (keeping the latest deletedAt per id) and
+   carried forward in the result; ones older than ~180 days are dropped rather than kept
+   forever, since by then every device has long since had the chance to see them. Takes and
+   returns {library, tombstones} on both sides — not bare arrays — since a deletion has to
+   travel as data, the same as any other edit. */
+function mergeLibraries(localPayload, remotePayload){
+  const localLib = localPayload.library, localTomb = localPayload.tombstones || [];
+  const remoteLib = remotePayload.library, remoteTomb = remotePayload.tombstones || [];
+  const tombById = new Map();
+  localTomb.concat(remoteTomb).forEach(t=>{
+    const existing = tombById.get(t.id);
+    if(!existing || t.deletedAt > existing.deletedAt) tombById.set(t.id, t);
+  });
+  const isDeleted = (song) => {
+    const t = tombById.get(song.id);
+    return !!t && t.deletedAt >= (song.updatedAt || 0);
+  };
   const remoteById = new Map(remoteLib.map(s=>[s.id, s]));
   const localById = new Map(localLib.map(s=>[s.id, s]));
-  let added = 0, updated = 0;
-  const merged = localLib.map(localSong=>{
+  let added = 0, updated = 0, removed = 0;
+  const merged = [];
+  localLib.forEach(localSong=>{
     const remoteSong = remoteById.get(localSong.id);
-    if(!remoteSong) return localSong;
-    if((remoteSong.updatedAt||0) > (localSong.updatedAt||0)){ updated++; return remoteSong; }
-    return localSong;
+    if(remoteSong && (remoteSong.updatedAt||0) > (localSong.updatedAt||0)){
+      if(isDeleted(remoteSong)){ removed++; return; }
+      updated++; merged.push(remoteSong);
+      return;
+    }
+    if(isDeleted(localSong)){ removed++; return; }
+    merged.push(localSong);
   });
   remoteLib.forEach(remoteSong=>{
-    if(!localById.has(remoteSong.id)){ merged.push(remoteSong); added++; }
+    if(!localById.has(remoteSong.id) && !isDeleted(remoteSong)){ merged.push(remoteSong); added++; }
   });
-  return { merged, added, updated };
+  const PRUNE_AFTER_MS = 180*24*60*60*1000;
+  const now = Date.now();
+  const mergedTombstones = Array.from(tombById.values()).filter(t => now - t.deletedAt < PRUNE_AFTER_MS);
+  return { merged, tombstones: mergedTombstones, added, updated, removed };
 }
 
 async function resolveDriveConflict(choice){
@@ -2602,17 +2648,22 @@ async function resolveDriveConflict(choice){
   if(!remote) return;
   if(choice === 'use-drive'){
     library = remote.library;
+    tombstones = remote.tombstones || [];
     showToast('Using Drive\u2019s version');
   } else if(choice === 'merge'){
-    const { merged, added, updated } = mergeLibraries(library, remote.library);
+    const { merged, tombstones: mergedTombstones, added, updated, removed } = mergeLibraries(
+      { library, tombstones },
+      { library: remote.library, tombstones: remote.tombstones || [] }
+    );
     library = merged;
-    showToast(`Merged — ${added} added, ${updated} updated`);
+    tombstones = mergedTombstones;
+    showToast(`Merged — ${added} added, ${updated} updated${removed ? `, ${removed} removed` : ''}`);
   } else if(choice === 'keep-local'){
     showToast('Keeping this browser\u2019s version');
   }
-  // 'keep-local': library is left exactly as-is; the push below overwrites Drive with it.
+  // 'keep-local': library and tombstones are left exactly as-is; the push below overwrites Drive with them.
 
-  try{ localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(library)); }catch(e){}
+  try{ localStorage.setItem(LOCAL_STORAGE_KEY, serializeLibraryPayload()); }catch(e){}
   setDriveDirtyCount(0);
   driveConflictPending = false;
   driveConflictRemote = null;
@@ -2760,11 +2811,26 @@ function migrateRowUl(r){
    (added in the next step) layers on top of this as backup/cross-device
    sync; localStorage remains the fast, offline-first local copy. */
 const LOCAL_STORAGE_KEY = 'kriti-notation-studio.library';
+/* Both localStorage and Drive store the SAME payload shape now: {library, tombstones}
+   instead of a bare library array — needed so a deletion actually travels between devices
+   (see the tombstones declaration above). parseLibraryPayload migrates transparently from
+   the old bare-array format (whatever's already sitting in localStorage or Drive from
+   before this existed): no tombstones, nothing lost, just nothing to delete-sync yet. */
+function serializeLibraryPayload(){
+  return JSON.stringify({ library, tombstones });
+}
+function parseLibraryPayload(text){
+  const parsed = JSON.parse(text);
+  if(Array.isArray(parsed)) return { library: parsed, tombstones: [] };
+  return { library: parsed.library || [], tombstones: parsed.tombstones || [] };
+}
 async function loadLibrary(){
   try{
     const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
-    library = raw ? JSON.parse(raw) : [];
-  }catch(e){ library = []; }
+    const payload = raw ? parseLibraryPayload(raw) : { library: [], tombstones: [] };
+    library = payload.library;
+    tombstones = payload.tombstones;
+  }catch(e){ library = []; tombstones = []; }
   library.forEach(s=>{
     if(s.kalai === undefined) s.kalai = 1;
     if(s.melakarta === undefined) s.melakarta = '';
@@ -2989,7 +3055,7 @@ let saveInFlight = false;
 let saveQueued = false;
 async function persist(){
   try{
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(library));
+    localStorage.setItem(LOCAL_STORAGE_KEY, serializeLibraryPayload());
   }catch(e){
     // Background autosave failures are silent now — typing shouldn't be
     // interrupted by a toast. It'll be retried on the next edit, and the
@@ -4775,7 +4841,7 @@ const IMPORT_META_LABELS = [
   ['version','version'],
 ];
 const IMPORT_NO_SAHITYA_SECTION_RE = /chitta|chittai|muktayi|mukthayi/i;
-const IMPORT_SECTION_NAME_RE = /^(pallavi|anu\s*pallavi|charanam|caranam|samashti\s+charanam|samasthi\s+charanam|chitta\s*swaram|chittai\s+swar(?:a|am)s?(?:\s*[:\-]?\s*\(?\d+\)?)?|mukthayi\s+swaram|muktayi\s+swaram|anubandham)\b/i;
+const IMPORT_SECTION_NAME_RE = /^(pallavi|anu\s*pallavi|samashti\s+charan(?:a|am)|samasthi\s+charan(?:a|am)|charan(?:a|am)|caran(?:a|am)|chitt(?:a|e|ai)\s*swar(?:a|am)s?(?:\s*[:\-]?\s*\(?\d+\)?)?|mukthayi\s+swaram|muktayi\s+swaram|madhyama\s+kala\s+sahitya|anubandham)\b/i;
 const IMPORT_TALA_NAME_MAP = {
   'adi': 'adi', 'rupakam': 'rupakam', 'khanda chapu': 'khanda_chapu',
   'misra chapu': 'misra_chapu', 'adi tishra': 'adi_tishra', 'adi (tishra nadai)': 'adi_tishra',
@@ -5346,20 +5412,42 @@ function assembleImportedSongBestFit(fileResult, forcedTala, forcedKalai){
    matching this app's own label column; others don't, and start directly
    with the first real cap-cell instead — detected by content, not a fixed
    position, since it varies by file). */
-function extractDocxRowCells(row){
+/* A line-number/variant label in the first cell — "1)", "2.", bare "2", or a
+   letter-based variant like "A", "B", "A.", "1a", "1b", "1)a" (all confirmed
+   forms used across real files). Text pattern alone isn't reliable for the
+   letter forms (a lone "A" is indistinguishable from real content by text
+   alone), so this also checks boldness — confirmed directly in the source
+   XML that every one of these label cells is bold while actual swara/lyric
+   text never is. Requires real content to follow in the same row; a short
+   bold FIRST-and-ONLY cell is instead a section header or reference note,
+   handled separately by classifyDocxTableRow before this ever runs. */
+function looksLikeDocxRowLabel(text, cell){
+  if(!text || text.length > 6) return false;
+  if(/^(?:\d+\)[a-zA-Z]|\d+[a-zA-Z]?[\)\.]?|[A-Za-z][\)\.]?)$/.test(text)) return true;
+  return !!(cell && cell.runs.length && cell.runs.every(r => r.bold));
+}
+function extractDocxRowCells(row, filterDividers){
   let cells = row.slice();
   let label = '';
-  if(cells.length){
+  if(cells.length > 1){
     const firstText = cells[0].runs.map(r=>r.text).join('').trim();
-    if(/^\d+[\)\.]$/.test(firstText)){
+    const restHasContent = cells.slice(1).some(c => c.runs.map(r=>r.text).join('').trim().length > 0);
+    // An entirely blank first cell, with real content following, is the same label slot as its
+    // sibling rows — just empty on THIS row (a continuation line of a multi-row variant only
+    // labels its first row; confirmed against real files). Stripping it the same way keeps every
+    // row's content cells aligned to the same positions regardless of whether that row happens to
+    // carry a visible label.
+    if(restHasContent && (firstText === '' || looksLikeDocxRowLabel(firstText, cells[0]))){
       label = firstText;
       cells = cells.slice(1);
     }
   }
-  cells = cells.filter(c => {
-    const t = c.runs.map(r=>r.text).join('').trim();
-    return !(t === '\u2503' || t === '|' || t === '\u2551');
-  });
+  if(filterDividers !== false){
+    cells = cells.filter(c => {
+      const t = c.runs.map(r=>r.text).join('').trim();
+      return !(t === '\u2503' || t === '|' || t === '\u2551');
+    });
+  }
   return { label, cells };
 }
 
@@ -5378,7 +5466,7 @@ function classifyDocxTableRow(row){
     const c = classifyImportLineKind(text);
     if(c.kind === 'section') return { kind: 'section', name: c.name };
     if(/^\(.*\)$/.test(text)) return { kind: 'refnote', text: text.slice(1, -1).trim() };
-    if(/^\d+[\)\.]$/.test(text)) return { kind: 'label-row' }; // a numbered-variant marker row, e.g. "1)" on its own — informational only
+    if(looksLikeDocxRowLabel(text, nonEmpty[0])) return { kind: 'label-row' }; // a numbered/lettered variant marker row, e.g. "1)" or "A" on its own — informational only
     return { kind: 'other-single', text };
   }
   const combinedText = nonEmpty.map(c => c.runs.map(r=>r.text).join('')).join(' ');
@@ -5392,10 +5480,18 @@ function classifyDocxTableRow(row){
    directly on each cell's own tokens, with no capacity-boundary splitting
    step at all (that's specifically a PDF/plain-text-only concern). */
 function buildDocxTableLine(swaraRow, lyricRow, warnings){
-  const { label, cells: swaraCells } = extractDocxRowCells(swaraRow);
-  const lyricCellsRaw = lyricRow ? extractDocxRowCells(lyricRow).cells : null;
+  // filterDividers:false on both — the divider glyph only literally appears in the SWARA row's
+  // own cell text; the lyric row's matching position is just blank, not the glyph, so filtering
+  // each row's dividers independently removed one cell from swara but not from lyric, shifting
+  // every syllable after the divider one slot away from its actual swara partner. Removing
+  // divider positions from both rows TOGETHER, driven by where the swara row actually has one,
+  // keeps every remaining cell correctly paired by index.
+  const { label, cells: swaraCellsRaw } = extractDocxRowCells(swaraRow, false);
+  const lyricCellsRaw = lyricRow ? extractDocxRowCells(lyricRow, false).cells : null;
   const rowSwara = [], rowLyric = [];
-  swaraCells.forEach((cell, i) => {
+  swaraCellsRaw.forEach((cell, i) => {
+    const swaraText = cell.runs.map(r=>r.text).join('').trim();
+    if(swaraText === '\u2503' || swaraText === '|' || swaraText === '\u2551') return; // divider position — skip on both sides together
     const tokens = classifySourceLine(cell.runs, false); // false: docx underline level carries all the speed meaning, case doesn't
     rowSwara.push(generateImportCellMarkup(tokens));
     const lyricText = lyricCellsRaw && lyricCellsRaw[i] ? lyricCellsRaw[i].runs.map(r=>r.text).join('').trim() : '';
@@ -7745,6 +7841,11 @@ function deleteSong(id){
   if(!confirm('Delete this kriti from your library? This cannot be undone.')) return;
   const song = library.find(s=>s.id===id);
   library = library.filter(s=>s.id!==id);
+  // Recorded and synced alongside the library so another device knows this song was actually
+  // deleted, not just "never created there" — otherwise the very next Merge would add it right
+  // back. See the tombstones declaration up top for the full reasoning.
+  tombstones = tombstones.filter(t=>t.id!==id);
+  tombstones.push({ id, deletedAt: Date.now() });
   currentId = library.length ? library[0].id : null;
   currentView = 'dashboard';
   persist(); renderAll();
