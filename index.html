@@ -1044,7 +1044,7 @@
   .file-viewer-doc{ font-family:'Inter',sans-serif; font-size:14px; line-height:1.65; color:var(--ink); padding:16px 20px; }
   .file-viewer-doc p{ margin:0 0 10px; }
   .file-viewer-doc table{ border-collapse:collapse; margin:12px 0; width:100%; font-family:'Courier Prime',monospace; font-size:13px; }
-  .file-viewer-doc td{ border:1px solid var(--line); padding:5px 9px; vertical-align:top; }
+  .file-viewer-doc td{ border:none; padding:4px 8px; vertical-align:top; }
   .my-files-list{ max-height:60vh; overflow-y:auto; }
   .my-file-row{
     display:flex; align-items:center; gap:10px; padding:10px 8px; border-radius:var(--radius-sm);
@@ -8245,6 +8245,20 @@ function commitImportedSong(){
    paragraph first and every table shoved in afterward — unrecognizable as the original
    document. Kept fully separate from readDocxRuns rather than reworked to share it, so
    nothing about the carefully-tuned import path is touched by this at all. */
+/* jc = "justification" in OOXML — the actual alignment Word applied to a paragraph
+   (center/right/justify). Absent entirely means left, which needs no special handling
+   since that's the HTML default anyway. */
+function readDocxParagraphAlign(pNode, W_NS){
+  const pPr = pNode.getElementsByTagNameNS(W_NS, 'pPr')[0];
+  if(!pPr) return null;
+  const jc = pPr.getElementsByTagNameNS(W_NS, 'jc')[0];
+  if(!jc) return null;
+  const val = jc.getAttributeNS(W_NS, 'val') || jc.getAttribute('w:val');
+  if(val === 'center') return 'center';
+  if(val === 'right' || val === 'end') return 'right';
+  if(val === 'both' || val === 'distribute') return 'justify';
+  return null;
+}
 async function readDocxDocumentInOrder(arrayBuffer){
   const zip = await JSZip.loadAsync(arrayBuffer);
   const docXmlFile = zip.file('word/document.xml');
@@ -8261,20 +8275,49 @@ async function readDocxDocumentInOrder(arrayBuffer){
     const localName = child.localName || child.nodeName.replace(/^\w+:/, '');
     if(localName === 'p'){
       const runs = readDocxRunsFromNode(child, W_NS);
-      if(runs.length) items.push({ type:'p', runs });
+      if(runs.length) items.push({ type:'p', runs, align: readDocxParagraphAlign(child, W_NS) });
       continue;
     }
     if(localName === 'tbl'){
+      // <w:tblGrid><w:gridCol w:w="dxa-value"/>...</w:tblGrid> — Word's own intended column
+      // widths. Without these, each column falls back to auto-sizing purely from its own
+      // cell content, which is exactly why columns were rendering uneven: a column that
+      // happens to hold only short text (a single swara letter) shrinks to fit it, even
+      // when Word itself laid it out the same width as every other column in the row.
+      let colWidths = null;
+      const tblGrid = Array.from(child.childNodes).find(n =>
+        n.nodeType === 1 && (n.localName || n.nodeName.replace(/^\w+:/, '')) === 'tblGrid');
+      if(tblGrid){
+        const gridCols = Array.from(tblGrid.childNodes).filter(n =>
+          n.nodeType === 1 && (n.localName || n.nodeName.replace(/^\w+:/, '')) === 'gridCol');
+        if(gridCols.length){
+          colWidths = gridCols.map(gc => parseInt(gc.getAttributeNS(W_NS, 'w') || gc.getAttribute('w:w') || '0', 10) || 0);
+        }
+      }
       const rows = [];
       const trNodes = child.getElementsByTagNameNS(W_NS, 'tr');
       for(let ri=0; ri<trNodes.length; ri++){
         const cells = [];
         const tcNodes = Array.from(trNodes[ri].childNodes).filter(n =>
           n.nodeType === 1 && (n.localName || n.nodeName.replace(/^\w+:/, '')) === 'tc');
-        for(let ci=0; ci<tcNodes.length; ci++) cells.push(readDocxRunsFromNode(tcNodes[ci], W_NS));
+        for(let ci=0; ci<tcNodes.length; ci++){
+          const tcNode = tcNodes[ci];
+          const runs = readDocxRunsFromNode(tcNode, W_NS);
+          const firstP = Array.from(tcNode.childNodes).find(n =>
+            n.nodeType === 1 && (n.localName || n.nodeName.replace(/^\w+:/, '')) === 'p');
+          let gridSpan = 1;
+          const tcPr = Array.from(tcNode.childNodes).find(n =>
+            n.nodeType === 1 && (n.localName || n.nodeName.replace(/^\w+:/, '')) === 'tcPr');
+          if(tcPr){
+            const gsNode = Array.from(tcPr.childNodes).find(n =>
+              n.nodeType === 1 && (n.localName || n.nodeName.replace(/^\w+:/, '')) === 'gridSpan');
+            if(gsNode) gridSpan = parseInt(gsNode.getAttributeNS(W_NS, 'val') || gsNode.getAttribute('w:val') || '1', 10) || 1;
+          }
+          cells.push({ runs, align: firstP ? readDocxParagraphAlign(firstP, W_NS) : null, gridSpan });
+        }
         rows.push(cells);
       }
-      items.push({ type:'tbl', rows });
+      items.push({ type:'tbl', rows, colWidths });
     }
   }
   return items;
@@ -8291,12 +8334,28 @@ function renderDocxItemsAsHtml(items){
   return items.map(item=>{
     if(item.type === 'p'){
       const html = runsToHtml(item.runs);
-      return html.trim() ? `<p>${html}</p>` : '';
+      const style = item.align ? ` style="text-align:${item.align};"` : '';
+      return html.trim() ? `<p${style}>${html}</p>` : '';
+    }
+    // Explicit column widths (from Word's own <w:gridCol>, converted to percentages) with
+    // table-layout:fixed — without this, each column auto-sizes purely from its own cell's
+    // content, so a column holding just one short swara letter shrinks far below a column
+    // holding a longer syllable, even though Word laid every column in the row out at the
+    // same width. colgroup is only emitted when Word actually specified widths; otherwise
+    // this falls back to ordinary auto-sizing rather than guessing.
+    let colgroupHtml = '';
+    if(item.colWidths && item.colWidths.length){
+      const total = item.colWidths.reduce((a,b)=>a+b, 0) || 1;
+      colgroupHtml = '<colgroup>' + item.colWidths.map(w => `<col style="width:${(w/total*100).toFixed(3)}%;">`).join('') + '</colgroup>';
     }
     const rowsHtml = item.rows.map(row=>
-      `<tr>${row.map(cellRuns=>`<td>${runsToHtml(cellRuns) || '&nbsp;'}</td>`).join('')}</tr>`
+      `<tr>${row.map(cell=>{
+        const style = cell.align ? ` style="text-align:${cell.align};"` : '';
+        const span = cell.gridSpan > 1 ? ` colspan="${cell.gridSpan}"` : '';
+        return `<td${style}${span}>${runsToHtml(cell.runs) || '&nbsp;'}</td>`;
+      }).join('')}</tr>`
     ).join('');
-    return `<table>${rowsHtml}</table>`;
+    return `<table style="table-layout:fixed;">${colgroupHtml}${rowsHtml}</table>`;
   }).join('');
 }
 
