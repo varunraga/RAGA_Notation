@@ -4840,25 +4840,46 @@ const IMPORT_META_LABELS = [
   ['avarohanam','avarohanam'], ['avarahonam','avarohanam'], ['avarohana','avarohanam'], ['ava','avarohanam'],
   ['version','version'],
 ];
-const IMPORT_NO_SAHITYA_SECTION_RE = /chitta|chittai|muktayi|mukthayi/i;
+const IMPORT_NO_SAHITYA_SECTION_RE = /chitt[ae]|chittai|muktayi|mukthayi/i;
 const IMPORT_SECTION_NAME_RE = /^(pallavi|anu\s*pallavi|samashti\s+charan(?:a|am)|samasthi\s+charan(?:a|am)|charan(?:a|am)|caran(?:a|am)|chitt(?:a|e|ai)\s*swar(?:a|am)s?(?:\s*[:\-]?\s*\(?\d+\)?)?|mukthayi\s+swaram|muktayi\s+swaram|madhyama\s+kala\s+sahitya|anubandham)\b/i;
+/* Different mentions of "the same" section in a single document can genuinely spell it
+   differently — confirmed against a real file where the plain-text preview heading said
+   "CharaNam" while the in-table header said "Charana" (no trailing "m"). Matching sections
+   by exact text (as ensureSection used to) treats those as two unrelated sections, splitting
+   one song's Charanam sahitya and notation across two — this collapses any recognized
+   spelling variant down to one stable key so they always merge into the same section
+   regardless of which exact wording showed up where. */
+function canonicalSectionKey(name){
+  const w = (name || '').replace(/[:.]+$/, '').trim().toLowerCase().replace(/\s+/g,' ');
+  if(/^pallavi$/.test(w)) return 'pallavi';
+  if(/^anu\s*pallavi$/.test(w)) return 'anupallavi';
+  if(/^(samashti|samasthi)\s+(charan(?:a|am)|caran(?:a|am))$/.test(w)) return 'samashticharanam';
+  if(/^(charan(?:a|am)|caran(?:a|am))$/.test(w)) return 'charanam';
+  if(/^chitt(?:a|e|ai)\s*swar(?:a|am)s?(?:\s*[:\-]?\s*\(?\d+\)?)?$/.test(w)) return 'chittaswaram';
+  if(/^(mukthayi|muktayi)\s+swaram$/.test(w)) return 'mukthayiswaram';
+  if(/^madhyama\s+kala\s+sahitya$/.test(w)) return 'madhyamakalasahitya';
+  if(/^anubandham$/.test(w)) return 'anubandham';
+  return w; // not a recognized section name — fall back to plain normalized text
+}
 const IMPORT_TALA_NAME_MAP = {
   'adi': 'adi', 'rupakam': 'rupakam', 'khanda chapu': 'khanda_chapu',
   'misra chapu': 'misra_chapu', 'adi tishra': 'adi_tishra', 'adi (tishra nadai)': 'adi_tishra',
 };
 
-function importLineText(runsOrLine){
+function importLineText(runsOrLine, sourceKind){
   const runs = runsOrLine.runs || runsOrLine;
-  // A space between EVERY separate run, not none — separate PDF text items
-  // (e.g. a section heading split into "Mukthayi" + "Swaram:" by however the
-  // source PDF happened to batch its text-showing operations) need a space
-  // reinserted between them, or "mukthayi\s+swaram" can never match against
-  // the resulting "MukthayiSwaram:". This is safe for every other caller of
-  // this function too: classifyImportLineKind immediately collapses ANY
-  // run of whitespace (single or multiple) down to one space, so an extra
-  // space here is never visible downstream — only a genuinely-missing one
-  // was ever a real problem.
-  return runs.map(r=>r.text).join(' ');
+  // PDF text items carry no inherent word-boundary information, so rejoining them WITHOUT a
+  // space can wrongly fuse adjacent words (a section heading split into "Mukthayi" + "Swaram:"
+  // by however the source PDF happened to batch its text-showing operations needs a space put
+  // back, or "mukthayi\s+swaram" can never match the resulting "MukthayiSwaram:"). DOCX runs are
+  // the opposite case: Word freely splits a single run in the middle of a word for reasons that
+  // have nothing to do with word boundaries — confirmed directly against a real file, where
+  // blindly inserting a space at every run boundary fused "Anupallavi" into "A nupallavi" and
+  // "Charanam" into "Ch araNam", which then fails every pattern match downstream (section
+  // detection, the raga/melakarta split, swara-notation spacing like "R2") for the rest of that
+  // song's import. DOCX run text already contains every real space verbatim; concatenating it
+  // plainly is correct there, and only there.
+  return runs.map(r=>r.text).join(sourceKind === 'pdf' ? ' ' : '');
 }
 
 /* Undoes a specific, confirmed PDF-export artifact: this app's own DOCX
@@ -4920,9 +4941,22 @@ function extractImportMetaFields(text){
 
 /* "Nattai (36 mela janyam)" -> {raga:"Nattai", melakarta:"36"} */
 function splitRagaMelakarta(value){
-  const m = value.match(/^(.*?)\s*\((\d+)(?:st|nd|rd|th)?\s*mela.*\)\s*$/i);
+  // \s* right after the opening paren too, not just before it — belt-and-suspenders alongside
+  // the importLineText fix above, in case some other source still lands a stray space there.
+  const m = value.match(/^(.*?)\s*\(\s*(\d+)(?:st|nd|rd|th)?\s*mela.*\)\s*$/i);
   if(m) return { raga: m[1].trim(), melakarta: m[2] };
   return { raga: value.trim(), melakarta: '' };
+}
+
+/* Belt-and-suspenders alongside the importLineText fix above: a swara letter and its variant
+   number (e.g. "R2", "G3") sometimes sit in separate DOCX runs of their own (a common way to
+   apply different formatting to just the number), so even the corrected run-joining can still
+   leave "R 2" instead of "R2" if a source genuinely has a real space-carrying run there rather
+   than a mid-word split. Collapses exactly that one pattern — a single capital swara letter
+   directly followed by whitespace then a single digit — and nothing broader, so this can't
+   accidentally join unrelated numbers elsewhere in the line. */
+function cleanSwaraSequenceSpacing(value){
+  return value.replace(/\b([SRGMPDNsrgmpdn])\s+([1-4])\b/g, '$1$2');
 }
 
 function normalizeTalaValue(value){
@@ -5151,7 +5185,7 @@ function assembleImportedSong(fileResult, opts){
   const song = newSong();
   song.title = '';
   song.sections = [];
-  rawLines = rawLines.filter(l => !isImportPageArtifact(importLineText(l)));
+  rawLines = rawLines.filter(l => !isImportPageArtifact(importLineText(l, sourceKind)));
   // An explicit, user-provided tala takes priority over whatever the
   // document's own text might (or might not) state — it's asked for
   // specifically to make akshara-per-cell counting reliable even when the
@@ -5191,9 +5225,11 @@ function assembleImportedSong(fileResult, opts){
     // preview (block sahitya + full English meaning, no notation at all),
     // once for real (actual notation, no meaning repeated) — verified
     // against the real Swaminatha Paripalaya PDF, see chat. Reuse the
-    // existing section by exact name match rather than creating a
-    // duplicate, so the two passes merge into one correct section.
-    const existing = song.sections.find(s => s.name.toLowerCase() === name.toLowerCase());
+    // existing section by canonical name match (see canonicalSectionKey)
+    // rather than creating a duplicate, so the two passes — and any
+    // differently-spelled mention of the same section — merge into one.
+    const key = canonicalSectionKey(name);
+    const existing = song.sections.find(s => canonicalSectionKey(s.name) === key);
     if(existing) return existing;
     const sec = { name, sahitya:'', lines:[], showPallaviRef: song.sections.length>0, pallaviOverride:'', noSahitya: IMPORT_NO_SAHITYA_SECTION_RE.test(name) };
     song.sections.push(sec);
@@ -5224,7 +5260,7 @@ function assembleImportedSong(fileResult, opts){
   }
 
   rawLines.forEach(rawLine=>{
-    const text = importLineText(rawLine);
+    const text = importLineText(rawLine, sourceKind);
     const c = classifyImportLineKind(text);
     if(c.kind === 'blank') return;
 
@@ -5233,8 +5269,8 @@ function assembleImportedSong(fileResult, opts){
         if(field === 'raga'){ const sp = splitRagaMelakarta(value); song.raga = sp.raga; if(sp.melakarta) song.melakarta = sp.melakarta; }
         else if(field === 'tala'){ if(!opts.forcedTala){ song.tala = normalizeTalaValue(value); cfg = TALAS[song.tala] || TALAS.adi; } if(!opts.forcedKalai && /2\s*kalai/i.test(value)) song.kalai = 2; }
         else if(field === 'composer') song.composer = value;
-        else if(field === 'arohanam') song.arohanam = value.replace(/\|+$/,'').trim();
-        else if(field === 'avarohanam') song.avarohanam = value.replace(/\|+$/,'').trim();
+        else if(field === 'arohanam') song.arohanam = cleanSwaraSequenceSpacing(value.replace(/\|+$/,'').trim());
+        else if(field === 'avarohanam') song.avarohanam = cleanSwaraSequenceSpacing(value.replace(/\|+$/,'').trim());
         // 'version' has no field in this app's song model — intentionally dropped
       });
       return;
