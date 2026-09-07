@@ -1327,14 +1327,10 @@
       <div class="quota-modal-title">Fill sahitya cells from text</div>
       <button class="btn small icon-btn" id="closeFillSahityaModeBtn"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 5l10 10M15 5L5 15"/></svg></button>
     </div>
-    <div class="quota-text" id="fillSahityaModeIntro" style="margin-bottom:12px;"></div>
-    <div class="fieldwrap">
-      <label>Which line?</label>
-      <select id="fillSahityaLineSelect"></select>
-    </div>
-    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:14px;">
-      <button class="btn small" id="fillSahityaCancelBtn">Cancel</button>
-      <button class="btn small primary" id="fillSahityaSubmitBtn">Fill</button>
+    <div class="quota-text" id="fillSahityaModeIntro" style="margin-bottom:14px;"></div>
+    <div style="display:flex; flex-direction:column; gap:8px;">
+      <button class="btn" id="fillSahityaRepeatBtn">Repeat for every line — sangati variants of the same phrase</button>
+      <button class="btn" id="fillSahityaSequentialBtn">Split across lines in order — lyrics continue over multiple avartanams</button>
     </div>
   </div>
 </div>
@@ -1346,11 +1342,7 @@
       <button class="btn small icon-btn" id="closeFillSwaraBtn"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 5l10 10M15 5L5 15"/></svg></button>
     </div>
     <div class="quota-text" style="margin-bottom:10px;">
-      Type the whole avartanam's swara in one go, or recite it by voice a few short phrases at a time — either way, it'll be split across the chosen line's cells by each cell's own capacity once you click Fill. Sahitya is untouched.
-    </div>
-    <div class="fieldwrap" style="margin-bottom:10px;">
-      <label>Which line?</label>
-      <select id="fillSwaraLineSelect"></select>
+      Type the whole avartanam's swara in one go, or recite it by voice a few short phrases at a time — either way, it'll be split across this line's cells by each cell's own capacity once you click Fill. Sahitya is untouched.
     </div>
     <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
       <button class="btn small" id="fillSwaraMicBtn" type="button">
@@ -1361,11 +1353,28 @@
     </div>
     <textarea id="fillSwaraInput" placeholder="e.g. S R G M P D N S' S' N D P M G R" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off" style="width:100%; min-height:70px; padding:9px 11px; border:1px solid var(--line); border-radius:var(--radius-sm); font-family:'Courier Prime',monospace; font-size:14px; resize:vertical;"></textarea>
     <div class="quota-text" style="margin-top:6px; font-size:11.5px;">
-      Voice recitation is a best-effort draft, not a sure thing — say each swara name clearly (sa, ri, ga, ma, pa, da, ni), review what lands here, and fix anything wrong before clicking Fill. Reciting again adds on to what's already here rather than replacing it, so you can build up a full avartanam a short phrase at a time.
+      Voice recitation is a best-effort draft, not a sure thing — say each swara name clearly (sa, ri, ga, ma, pa, da, ni). Shorter phrases (2\u20134 swara) are heard more reliably than a long continuous run — the live "Hearing…" text shows what's being picked up as you speak, so you can tell right away if something got dropped and just redo that bit. Review what lands here and fix anything wrong before clicking Fill. Reciting again adds on to what's already here rather than replacing it, so you can build up a full avartanam a short phrase at a time.
     </div>
     <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:14px;">
       <button class="btn small" id="fillSwaraCancelBtn">Cancel</button>
       <button class="btn small primary" id="fillSwaraSubmitBtn">Fill</button>
+    </div>
+  </div>
+</div>
+
+<div class="quota-overlay" id="fillLineSahityaOverlay">
+  <div class="quota-modal">
+    <div class="quota-modal-head">
+      <div class="quota-modal-title">Fill sahitya for this line</div>
+      <button class="btn small icon-btn" id="closeFillLineSahityaBtn"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 5l10 10M15 5L5 15"/></svg></button>
+    </div>
+    <div class="quota-text" style="margin-bottom:10px;">
+      Type this line's words — they'll be split syllable by syllable across its cells, by each cell's own capacity, once you click Fill. Swara is untouched.
+    </div>
+    <textarea id="fillLineSahityaInput" placeholder="e.g. vande nishamaham varana vadanam" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off" style="width:100%; min-height:70px; padding:9px 11px; border:1px solid var(--line); border-radius:var(--radius-sm); font-family:'Courier Prime',monospace; font-size:14px; resize:vertical;"></textarea>
+    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:14px;">
+      <button class="btn small" id="fillLineSahityaCancelBtn">Cancel</button>
+      <button class="btn small primary" id="fillLineSahityaSubmitBtn">Fill</button>
     </div>
   </div>
 </div>
@@ -5413,17 +5422,18 @@ function fillLineSwaraFromText(line, text, cfg){
    insert a wrong note silently. This is exactly why the result lands in an editable box
    for review before anything is actually written to a cell, not applied automatically. */
 const SWARA_SPEECH_PATTERNS = [
-  ['S', ['sa','saa','saw','sir']],
-  ['R', ['ri','re','ree','rhi','rey']],
-  ['G', ['ga','gaa','gah']],
-  ['M', ['ma','maa','mah']],
-  ['P', ['pa','paa','paw']],
-  ['D', ['dha','da','daa','duh']],
+  ['S', ['sa','saa','saw','sir','suh']],
+  ['R', ['ri','re','ree','rhi','rey','rhee','wri','ray','rii']],
+  ['G', ['ga','gaa','gah','guh']],
+  ['M', ['ma','maa','mah','muh']],
+  ['P', ['pa','paa','paw','pah','puh']],
+  ['D', ['dha','da','daa','duh','tha']],
   ['N', ['nee','ni','knee','nih']],
 ].map(([letter, patterns]) => [letter, patterns.slice().sort((a,b)=>b.length-a.length)]);
 function decodeSpeechPhraseToSwara(transcript){
   const normalized = (transcript || '').toLowerCase().replace(/[^a-z]/g, '');
   const letters = [];
+  let skippedChars = 0;
   let i = 0;
   outer:
   while(i < normalized.length){
@@ -5436,19 +5446,15 @@ function decodeSpeechPhraseToSwara(transcript){
         }
       }
     }
-    i++; // nothing matched at this position — skip one character and keep scanning
+    skippedChars++; // nothing matched at this position — skip one character and keep scanning
+    i++;
   }
-  return letters.join(' ');
+  return { swara: letters.join(' '), skippedChars };
 }
 
 let fillSwaraTargetLine = null;
-function openFillSwaraModal(sec, cfg){
-  if(!sec.lines.length){ showToast('Add a line first'); return; }
-  const sel = document.getElementById('fillSwaraLineSelect');
-  sel.innerHTML = sec.lines.map((line, li) => `<option value="${li}">${escapeHtml(line.label ? line.label : 'Line ' + (li+1))}</option>`).join('');
-  fillSwaraTargetLine = sec.lines[0];
-  sel.value = '0';
-  sel.onchange = () => { fillSwaraTargetLine = sec.lines[Number(sel.value)]; };
+function openFillSwaraModal(line, cfg){
+  fillSwaraTargetLine = line;
   document.getElementById('fillSwaraInput').value = '';
   setFillSwaraMicStatus('');
   document.getElementById('fillSwaraOverlay').classList.add('show');
@@ -5479,30 +5485,41 @@ function fillSectionFromPlainLyricsPrompt(sec, cfg){
   const words = (sec.sahitya || '').trim().split(/\s+/).filter(Boolean);
   if(!words.length){ showToast('Type the plain lyrics above first'); return; }
   if(!sec.lines.length){ showToast('Add a line first'); return; }
-  const sel = document.getElementById('fillSahityaLineSelect');
-  const options = [];
-  if(sec.lines.length > 1){
-    options.push('<option value="__repeat__">All lines \u2014 repeat this text (sangati variants)</option>');
-    options.push('<option value="__sequential__">All lines \u2014 split this text across them in order</option>');
+  const finish = (msg) => { queueSave(); renderSections(); showToast(msg); };
+  if(sec.lines.length === 1){
+    // Only one line — "repeat" and "split across lines" produce the exact same result, so
+    // there's nothing to choose; and for just one specific line generally, that line's own
+    // "Fill sahitya" button (see fillSahityaLine wiring) is the more direct route anyway.
+    if(!confirm(`Fill this line in "${sec.name || 'this section'}" from the plain lyrics above? This replaces its current sahitya cells (swara is untouched).`)) return;
+    fillLineLyricsFromWords(sec.lines[0], words, cfg);
+    finish('Filled \u2014 check the \u26A0 badges for any cell that needs a held-note dash added');
+    return;
   }
-  sec.lines.forEach((line, li) => {
-    options.push(`<option value="${li}">${escapeHtml(line.label ? line.label : 'Line ' + (li+1))} only</option>`);
-  });
-  sel.innerHTML = options.join('');
-  document.getElementById('fillSahityaModeIntro').textContent = sec.lines.length > 1
-    ? `"${sec.name || 'This section'}" has ${sec.lines.length} lines. Choose how the plain lyrics above should be applied.`
-    : `Fill "${sec.name || 'this section'}"'s one line from the plain lyrics above?`;
+  document.getElementById('fillSahityaModeIntro').textContent =
+    `"${sec.name || 'This section'}" has ${sec.lines.length} lines. Repeat this text on every one (sangati variants), or split it across them in sequence (lyrics that continue over multiple avartanams)? To fill just one specific line instead, use that line's own "Fill sahitya" button.`;
   document.getElementById('fillSahityaModeOverlay').classList.add('show');
-  document.getElementById('fillSahityaSubmitBtn').onclick = () => {
-    const choice = sel.value;
+  document.getElementById('fillSahityaRepeatBtn').onclick = () => {
     document.getElementById('fillSahityaModeOverlay').classList.remove('show');
-    if(choice === '__repeat__') sec.lines.forEach(line => fillLineLyricsFromWords(line, words, cfg));
-    else if(choice === '__sequential__') fillSectionLyricsSequentially(sec, words, cfg);
-    else fillLineLyricsFromWords(sec.lines[Number(choice)], words, cfg);
-    queueSave();
-    renderSections();
-    showToast('Filled \u2014 check the \u26A0 badges for any cell that needs a held-note dash added');
+    sec.lines.forEach(line => fillLineLyricsFromWords(line, words, cfg));
+    finish('Filled \u2014 check the \u26A0 badges for any cell that needs a held-note dash added');
   };
+  document.getElementById('fillSahityaSequentialBtn').onclick = () => {
+    document.getElementById('fillSahityaModeOverlay').classList.remove('show');
+    fillSectionLyricsSequentially(sec, words, cfg);
+    finish('Filled \u2014 check the \u26A0 badges for any cell that needs a held-note dash added');
+  };
+}
+/* Fills just ONE line's sahitya from a short bit of text typed right here — the per-line
+   complement to fillSectionFromPlainLyricsPrompt above, which operates on ALL of a
+   section's lines at once from the shared Plain Lyrics box. This is for quickly filling
+   or re-filling a single line without touching any of its neighbors, using its own
+   dedicated text box rather than the section's shared one. */
+let fillLineSahityaTargetLine = null;
+function openFillLineSahityaModal(line, cfg){
+  fillLineSahityaTargetLine = line;
+  document.getElementById('fillLineSahityaInput').value = '';
+  document.getElementById('fillLineSahityaOverlay').classList.add('show');
+  document.getElementById('fillLineSahityaInput').focus();
 }
 
 /* Combined entry point for Step 2: classified tokens + tala cell caps for
@@ -7632,10 +7649,7 @@ function renderSections(){
       <div class="fieldwrap secSahityaWrap" data-si="${si}" style="${sec.noSahitya ? 'display:none;' : ''}">
         <label>Sahitya (plain lyrics)</label>
         <textarea data-si="${si}" class="secSahitya" placeholder="Plain lyric lines, as in your original template…" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off">${escapeHtml(sec.sahitya)}</textarea>
-        <div style="display:flex; gap:8px; margin-top:8px;">
-          <button class="btn small" data-si="${si}" data-act="fillFromPlain" title="Splits this text across every line below, by each line's own rhythm — the same word-distribution the importer uses">Fill sahitya cells from text</button>
-          <button class="btn small" data-si="${si}" data-act="fillSwaraForLine" title="Type or recite a whole avartanam's swara and split it across one line's cells, by that line's own rhythm">Fill swara for a line</button>
-        </div>
+        <button class="btn small" data-si="${si}" data-act="fillFromPlain" style="margin-top:8px;" title="Repeats or splits this text across ALL lines below at once — to fill just one specific line, use that line's own 'Fill sahitya' button instead">Fill sahitya cells from text (all lines)</button>
       </div>
       <div class="linesHost" data-si="${si}"></div>
       <button class="btn small add-line-btn" data-si="${si}" data-act="addLine">+ Add line (avartanam / sangati)</button>
@@ -7701,7 +7715,6 @@ function renderSections(){
       sec.lines.push(blankLine(cfg, kalai)); queueSave(); renderSections();
     };
     card.querySelector('[data-act="fillFromPlain"]').onclick = ()=> fillSectionFromPlainLyricsPrompt(sec, cfg);
-    card.querySelector('[data-act="fillSwaraForLine"]').onclick = ()=> openFillSwaraModal(sec, cfg);
 
     renderLines(card.querySelector('.linesHost'), sec, cfg, kalai);
   });
@@ -7850,6 +7863,8 @@ function renderLines(host, sec, cfg, kalai){
       <div class="line-top">
         <input class="label" placeholder="1)" value="${escapeHtml(line.label)}" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off">
         <button class="btn small icon-only" data-act="play" title="Play this line (prototype — synthesized/sampled tone, not a real instrument)" data-play-title="Play this line (prototype — synthesized/sampled tone, not a real instrument)"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4.5v11l9-5.5-9-5.5z"/></svg></button>
+        <button class="btn small icon-only" data-act="fillSwaraLine" title="Fill swara for this line — type or recite a whole avartanam and split it across this line's cells"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h9M4 10h5M4 15h7"/><path d="M14 13l3 3 4-4" stroke-width="2"/></svg></button>
+        <button class="btn small icon-only" data-act="fillSahityaLine" title="Fill sahitya for this line — type the words and split them across this line's cells, syllable by syllable"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h12M4 10h8M4 14h10"/></svg></button>
         <div class="spacer"></div>
         <button class="btn small icon-only" data-act="undo" title="Undo (Ctrl+Z)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg></button>
         <button class="btn small icon-only" data-act="redo" title="Redo (Ctrl+Y)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg></button>
@@ -7891,6 +7906,8 @@ function renderLines(host, sec, cfg, kalai){
       [sec.lines[li+1], sec.lines[li]] = [sec.lines[li], sec.lines[li+1]];
       queueSave(); renderSections();
     };
+    row.querySelector('[data-act="fillSwaraLine"]').onclick = ()=> openFillSwaraModal(line, cfg);
+    row.querySelector('[data-act="fillSahityaLine"]').onclick = ()=> openFillLineSahityaModal(line, cfg);
     row.querySelector('[data-act="dup"]').onclick = ()=>{
       const copy = JSON.parse(JSON.stringify(line));
       copy.label = incrementSangatiLabel(line.label);
@@ -9375,18 +9392,29 @@ document.getElementById('fillSwaraMicBtn').onclick = () => {
   fillSwaraRecognizer = new SpeechRecognitionCtor();
   fillSwaraRecognizer.lang = 'en-IN';
   fillSwaraRecognizer.continuous = false;
-  fillSwaraRecognizer.interimResults = false;
+  fillSwaraRecognizer.interimResults = true;
   fillSwaraRecognizer.maxAlternatives = 1;
   fillSwaraListening = true;
   document.getElementById('fillSwaraMicBtn').classList.add('playing-active');
-  setFillSwaraMicStatus('Listening\u2026 say one short phrase');
+  setFillSwaraMicStatus('Listening\u2026 try 2\u20134 swara at a time \u2014 shorter phrases are heard more reliably than a long continuous run');
   fillSwaraRecognizer.onresult = (event) => {
-    const transcript = event.results[0][0].transcript;
-    const decoded = decodeSpeechPhraseToSwara(transcript);
+    const last = event.results[event.results.length - 1];
+    const transcript = last[0].transcript;
+    if(!last.isFinal){
+      // Live feedback while you're still speaking — lets you hear-what-it's-hearing in
+      // real time rather than only finding out after the fact.
+      setFillSwaraMicStatus(`Hearing\u2026 "${transcript}"`);
+      return;
+    }
+    const { swara: decoded, skippedChars } = decodeSpeechPhraseToSwara(transcript);
     const inputEl = document.getElementById('fillSwaraInput');
     if(decoded){
       inputEl.value = (inputEl.value.trim() ? inputEl.value.trim() + ' ' : '') + decoded;
-      setFillSwaraMicStatus(`Heard "${transcript}" \u2192 added: ${decoded}`);
+      // A run of characters that never matched any swara name is a real signal something
+      // in the middle of what you said didn't come through cleanly — surfaced immediately
+      // rather than only becoming obvious later when a cell count looks short.
+      const note = skippedChars > 2 ? ' \u2014 part of that didn\u2019t sound like a swara name; check nothing\u2019s missing before filling' : '';
+      setFillSwaraMicStatus(`Heard "${transcript}" \u2192 added: ${decoded}${note}`);
     } else {
       setFillSwaraMicStatus(`Heard "${transcript}" \u2014 couldn\u2019t make out any swara names in that, nothing added.`);
     }
@@ -9398,7 +9426,23 @@ document.getElementById('fillSwaraMicBtn').onclick = () => {
   try{ fillSwaraRecognizer.start(); }catch(e){ stopFillSwaraListening(); setFillSwaraMicStatus('Could not start listening \u2014 try again.'); }
 };
 
-document.getElementById('closeFillSahityaModeBtn').onclick = document.getElementById('fillSahityaCancelBtn').onclick = () => document.getElementById('fillSahityaModeOverlay').classList.remove('show');
+document.getElementById('closeFillSahityaModeBtn').onclick = () => document.getElementById('fillSahityaModeOverlay').classList.remove('show');
+document.getElementById('closeFillLineSahityaBtn').onclick = document.getElementById('fillLineSahityaCancelBtn').onclick = () => {
+  document.getElementById('fillLineSahityaOverlay').classList.remove('show');
+  fillLineSahityaTargetLine = null;
+};
+document.getElementById('fillLineSahityaSubmitBtn').onclick = () => {
+  if(!fillLineSahityaTargetLine) return;
+  const words = document.getElementById('fillLineSahityaInput').value.trim().split(/\s+/).filter(Boolean);
+  if(!words.length){ showToast('Type some words first'); return; }
+  const cfg = TALAS[getSong().tala] || TALAS.adi;
+  fillLineLyricsFromWords(fillLineSahityaTargetLine, words, cfg);
+  document.getElementById('fillLineSahityaOverlay').classList.remove('show');
+  fillLineSahityaTargetLine = null;
+  queueSave();
+  renderSections();
+  showToast('Filled \u2014 check the \u26A0 badges for any cell that needs a held-note dash added');
+};
 document.getElementById('closeFillSwaraBtn').onclick = document.getElementById('fillSwaraCancelBtn').onclick = () => {
   stopFillSwaraListening();
   document.getElementById('fillSwaraOverlay').classList.remove('show');
