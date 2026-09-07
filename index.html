@@ -692,7 +692,7 @@
 
   /* ---------- Raga Directory ---------- */
   .raga-dir-table{
-    width:100%; border-collapse:separate; border-spacing:0; margin:18px 0 8px; font-size:13.5px;
+    width:100%; table-layout:fixed; border-collapse:separate; border-spacing:0; margin:18px 0 8px; font-size:13.5px;
     border:1px solid var(--line); border-radius:var(--radius-md); overflow:hidden;
     box-shadow:0 1px 3px rgba(0,0,0,0.04);
   }
@@ -700,25 +700,36 @@
     text-align:left; padding:11px 14px; font-size:10.5px; text-transform:uppercase; letter-spacing:.6px;
     font-weight:700; color:var(--ink-soft); background:var(--panel); border-bottom:1px solid var(--line);
   }
-  .raga-dir-table tbody td{ padding:11px 14px; border-bottom:1px solid var(--line); vertical-align:top; }
-  /* Arohanam/Avarohanam genuinely need more room than the other columns — a full swara
-     sequence plus its play button, vs. a short name or number elsewhere in the row. */
-  .raga-dir-table th:nth-child(4), .raga-dir-table td:nth-child(4),
-  .raga-dir-table th:nth-child(5), .raga-dir-table td:nth-child(5){ min-width:190px; }
-  .raga-dir-table th:nth-child(2), .raga-dir-table td:nth-child(2){ width:80px; }
+  .raga-dir-table tbody td{
+    padding:11px 14px; border-bottom:1px solid var(--line); vertical-align:top;
+    overflow-wrap:break-word; /* wraps within the fixed column instead of forcing the table wider */
+  }
+  /* table-layout:fixed with explicit percentage widths, deliberately NOT auto/min-width —
+     this is what keeps the whole table within its container on any screen size, with long
+     content wrapping onto a second line inside its own column instead of pushing the table
+     wider and forcing horizontal scroll. Melakarta # is just a short ordinal number ("29th")
+     so it gets the least room; Arohanam/Avarohanam get the most since they're the columns
+     that actually need it (a full swara sequence plus its play button). */
+  .raga-dir-table th:nth-child(1), .raga-dir-table td:nth-child(1){ width:18%; }
+  .raga-dir-table th:nth-child(2), .raga-dir-table td:nth-child(2){ width:9%; }
+  .raga-dir-table th:nth-child(3), .raga-dir-table td:nth-child(3){ width:13%; }
+  .raga-dir-table th:nth-child(4), .raga-dir-table td:nth-child(4){ width:25%; }
+  .raga-dir-table th:nth-child(5), .raga-dir-table td:nth-child(5){ width:25%; }
+  .raga-dir-table th:nth-child(6), .raga-dir-table td:nth-child(6){ width:10%; }
   .raga-dir-table tbody tr:last-child td{ border-bottom:none; }
   .raga-dir-table tbody tr:nth-child(even){ background:rgba(74,74,239,0.02); }
   .raga-dir-table tbody tr:hover{ background:rgba(74,74,239,0.05); }
-  .raga-dir-name{ font-family:'Fraunces',serif; font-weight:600; font-size:14.5px; color:var(--heading); white-space:nowrap; }
+  .raga-dir-name{ font-family:'Fraunces',serif; font-weight:600; font-size:14.5px; color:var(--heading); }
   .raga-dir-mela-name{ font-style:italic; color:var(--indigo-deep); font-size:13px; }
   .raga-dir-dim{ color:var(--ink-soft); opacity:.5; }
   .raga-dir-mono{ font-family:'Inter',sans-serif; font-size:13.5px; color:var(--ink); }
-  .raga-dir-play-cell{ display:flex; align-items:center; gap:7px; }
+  .raga-dir-play-cell{ display:flex; align-items:flex-start; gap:7px; }
   .raga-dir-play-cell .raga-dir-play-btn{ flex:none; width:26px; height:26px; padding:0; }
   .raga-dir-play-cell .raga-dir-play-btn svg{ width:11px; height:11px; }
+  .raga-dir-play-cell span{ min-width:0; overflow-wrap:break-word; }
   .raga-dir-actions{ white-space:nowrap; text-align:right; }
   .raga-dir-mela-preview{ font-size:11.5px; color:var(--indigo-deep); font-weight:600; margin-top:4px; min-height:14px; }
-  .raga-dir-sortable{ cursor:pointer; user-select:none; white-space:nowrap; }
+  .raga-dir-sortable{ cursor:pointer; user-select:none; }
   .raga-dir-sortable:hover{ color:var(--brand-blue); }
   .raga-dir-search-wrap{
     display:flex; align-items:center; gap:9px; padding:10px 14px; margin:4px 0 6px;
@@ -1167,6 +1178,22 @@
        It's a hover affordance anyway, which doesn't really apply on a touch screen where
        the whole card is already tappable — simplest to just drop it here. */
     .dashboard-grid .song-item .card-chevron{ display:none; }
+    /* Six columns simply can't fit readably on a phone screen at any width split — tried
+       percentage widths first and confirmed directly it just forces short cells (even a
+       4-character "29th") into ugly one-character-per-line wrapping instead. Below this
+       width the table becomes a stack of cards instead: each row turns into its own
+       bordered block, and each cell gets a small label (from its own data-label attribute)
+       identifying which column it was, since the table header disappears along with the
+       table structure itself. */
+    .raga-dir-table, .raga-dir-table thead, .raga-dir-table tbody, .raga-dir-table tr{ display:block; width:auto; }
+    .raga-dir-table thead{ display:none; }
+    .raga-dir-table tr{ border:1px solid var(--line); border-radius:var(--radius-sm); margin-bottom:10px; padding:4px 0; }
+    .raga-dir-table td{ display:block; width:auto !important; border-bottom:none !important; padding:6px 12px; }
+    .raga-dir-table td[data-label]:not([data-label=""])::before{
+      content:attr(data-label); display:block; font-size:10px; text-transform:uppercase; letter-spacing:.5px;
+      font-weight:700; color:var(--ink-soft); margin-bottom:2px;
+    }
+    .raga-dir-table td.raga-dir-actions{ display:flex; gap:8px; padding-top:8px; }
     .file-viewer-modal{ width:100vw; height:100vh; max-width:100vw; border-radius:0; }
     .rule-example{ flex-direction:column; }
   }
@@ -6624,8 +6651,8 @@ function ragaDirTableHTML(){
     <table class="raga-dir-table">
       <thead><tr>
         <th class="raga-dir-sortable" data-sort="name">Raga${ragaDirSortArrow('name')}</th>
-        <th class="raga-dir-sortable" data-sort="melakarta">Melakarta #${ragaDirSortArrow('melakarta')}</th>
-        <th class="raga-dir-sortable" data-sort="melakartaName">Melakarta Raga${ragaDirSortArrow('melakartaName')}</th>
+        <th class="raga-dir-sortable" data-sort="melakarta">Mela #${ragaDirSortArrow('melakarta')}</th>
+        <th class="raga-dir-sortable" data-sort="melakartaName">Mela Raga${ragaDirSortArrow('melakartaName')}</th>
         <th>Arohanam</th><th>Avarohanam</th><th></th>
       </tr></thead>
       <tbody>
@@ -6633,12 +6660,12 @@ function ragaDirTableHTML(){
           const melaName = melakartaNameForNumber(r.melakarta);
           return `
           <tr>
-            <td class="raga-dir-name"><div class="raga-dir-play-cell"><button class="btn small icon-only raga-dir-play-btn" data-idx="${i}" data-field="both" title="Play arohanam, then avarohanam (prototype — synthesized/sampled tone, not a real instrument)">${PLAY_ICON_SVG}</button><span>${escapeHtml(r.name)}</span></div></td>
-            <td>${r.melakarta ? escapeHtml(ordinalSuffix(r.melakarta)) : ''}</td>
-            <td class="raga-dir-mela-name">${melaName ? escapeHtml(melaName) : '<span class="raga-dir-dim">—</span>'}</td>
-            <td class="raga-dir-mono"><div class="raga-dir-play-cell"><button class="btn small icon-only raga-dir-play-btn" data-idx="${i}" data-field="arohanam" title="Play arohanam (prototype — synthesized/sampled tone, not a real instrument)">${PLAY_ICON_SVG}</button><span>${escapeHtml(r.arohanam)}</span></div></td>
-            <td class="raga-dir-mono"><div class="raga-dir-play-cell"><button class="btn small icon-only raga-dir-play-btn" data-idx="${i}" data-field="avarohanam" title="Play avarohanam (prototype — synthesized/sampled tone, not a real instrument)">${PLAY_ICON_SVG}</button><span>${escapeHtml(r.avarohanam)}</span></div></td>
-            <td class="raga-dir-actions">
+            <td class="raga-dir-name" data-label="Raga"><div class="raga-dir-play-cell"><button class="btn small icon-only raga-dir-play-btn" data-idx="${i}" data-field="both" title="Play arohanam, then avarohanam (prototype — synthesized/sampled tone, not a real instrument)">${PLAY_ICON_SVG}</button><span>${escapeHtml(r.name)}</span></div></td>
+            <td data-label="Melakarta #">${r.melakarta ? escapeHtml(ordinalSuffix(r.melakarta)) : ''}</td>
+            <td class="raga-dir-mela-name" data-label="Melakarta Raga">${melaName ? escapeHtml(melaName) : '<span class="raga-dir-dim">—</span>'}</td>
+            <td class="raga-dir-mono" data-label="Arohanam"><div class="raga-dir-play-cell"><button class="btn small icon-only raga-dir-play-btn" data-idx="${i}" data-field="arohanam" title="Play arohanam (prototype — synthesized/sampled tone, not a real instrument)">${PLAY_ICON_SVG}</button><span>${escapeHtml(r.arohanam)}</span></div></td>
+            <td class="raga-dir-mono" data-label="Avarohanam"><div class="raga-dir-play-cell"><button class="btn small icon-only raga-dir-play-btn" data-idx="${i}" data-field="avarohanam" title="Play avarohanam (prototype — synthesized/sampled tone, not a real instrument)">${PLAY_ICON_SVG}</button><span>${escapeHtml(r.avarohanam)}</span></div></td>
+            <td class="raga-dir-actions" data-label="">
               <button class="btn small icon-only" data-act="ragaDirEdit" data-idx="${i}" title="Edit"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3l3 3-9 9-4 1 1-4 9-9z"/></svg></button>
               <button class="btn small icon-only danger" data-act="ragaDirDelete" data-idx="${i}" title="Delete"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h12M8 6V4a1 1 0 011-1h2a1 1 0 011 1v2M6 6l.6 10a1 1 0 001 .9h4.8a1 1 0 001-.9L14 6"/></svg></button>
             </td>
