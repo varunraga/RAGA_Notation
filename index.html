@@ -701,6 +701,11 @@
     font-weight:700; color:var(--ink-soft); background:var(--panel); border-bottom:1px solid var(--line);
   }
   .raga-dir-table tbody td{ padding:11px 14px; border-bottom:1px solid var(--line); vertical-align:top; }
+  /* Arohanam/Avarohanam genuinely need more room than the other columns — a full swara
+     sequence plus its play button, vs. a short name or number elsewhere in the row. */
+  .raga-dir-table th:nth-child(4), .raga-dir-table td:nth-child(4),
+  .raga-dir-table th:nth-child(5), .raga-dir-table td:nth-child(5){ min-width:190px; }
+  .raga-dir-table th:nth-child(2), .raga-dir-table td:nth-child(2){ width:80px; }
   .raga-dir-table tbody tr:last-child td{ border-bottom:none; }
   .raga-dir-table tbody tr:nth-child(even){ background:rgba(74,74,239,0.02); }
   .raga-dir-table tbody tr:hover{ background:rgba(74,74,239,0.05); }
@@ -4527,26 +4532,40 @@ async function playKriti(song){
    commas/semicolons for sustain, no speed-grouping markup): just a plain, steady sequence
    of swara letters, each optionally followed by a variant digit (already consumed by
    getRagaVariantMap below, not needed again here) and/or an octave mark. */
-function parseSwaraSequenceString(text){
+/* `kind` ('arohanam' | 'avarohanam') applies the standard convention neither string usually
+   marks explicitly: an arohanam's LAST Sa and an avarohanam's FIRST Sa are the upper-octave
+   Sa even when written as plain "S" with no apostrophe — that's how the ascent/descent is
+   actually understood, not a literal mid-octave repeat of the starting Sa. Without this,
+   the last note of a played arohanam would sound at the exact same pitch as the first note,
+   not the octave above it — not actually demonstrating the scale ascending. Only touches a
+   boundary "S" that has no octave mark of its own; anything explicitly marked is left alone. */
+function parseSwaraSequenceString(text, kind){
   const notes = [];
   const re = /([A-Za-z])[0-9]?([\'\.]?)/g;
   let m;
   while((m = re.exec(text || '')) !== null) notes.push({ letter: m[1].toUpperCase(), octave: m[2] || '' });
+  if(kind === 'arohanam' && notes.length){
+    const last = notes[notes.length-1];
+    if(last.letter === 'S' && !last.octave) last.octave = "'";
+  }
+  if(kind === 'avarohanam' && notes.length){
+    const first = notes[0];
+    if(first.letter === 'S' && !first.octave) first.octave = "'";
+  }
   return notes;
 }
-/* Plays a raga's arohanam or avarohanam (or any other plain swara-letter string) at a
-   fixed, steady pace — there's no rhythm of its own to preserve, unlike a kriti line, so
-   this doesn't need playCellSequence's tempo/weight machinery at all. Reuses the exact
-   same instrument, frequency mapping, and stop/state handling as kriti playback, so it
-   sounds identical and the two can never run at once — starting this while a kriti (or
-   another raga entry) is already playing just stops that first, same as every other play
-   button in the app already behaves. `ragaLike` only needs .arohanam/.avarohanam/
-   .variantDefaults — a raw Raga Directory entry works directly, same shape a real song
-   object would need for getRagaVariantMap. */
-async function playSwaraSequenceString(text, ragaLike, startBtn){
+/* Plays an already-parsed sequence of notes (see parseSwaraSequenceString) at a fixed,
+   steady pace — there's no rhythm of its own to preserve, unlike a kriti line, so this
+   doesn't need playCellSequence's tempo/weight machinery at all. Reuses the exact same
+   instrument, frequency mapping, and stop/state handling as kriti playback, so it sounds
+   identical and the two can never run at once — starting this while a kriti (or another
+   raga entry) is already playing just stops that first, same as every other play button in
+   the app already does. `ragaLike` only needs .arohanam/.avarohanam/.variantDefaults — a
+   raw Raga Directory entry works directly, same shape a real song object would need for
+   getRagaVariantMap. */
+async function playSwaraNotes(notes, ragaLike, startBtn){
   if(!window.Tone){ showToast('Playback engine failed to load — check your connection and reload'); return; }
   if(playbackActive) return;
-  const notes = parseSwaraSequenceString(text);
   if(!notes.length) return;
   playbackGeneration++;
   const myGeneration = playbackGeneration;
@@ -4575,11 +4594,17 @@ async function playSwaraSequenceString(text, ragaLike, startBtn){
 
   const totalDuration = notes.length * NOTE_SECONDS;
   Tone.Transport.scheduleOnce(()=>{
-    Tone.Draw.schedule(()=>{
-      playbackActive = false;
-      setPlayButtonState(startBtn, false);
-      setFloatingStopVisible(false);
-    }, Tone.now());
+    // Reuses stopPlayback's own cleanup rather than a separate inline copy — that copy
+    // used to just flip playbackActive back to false and reset the button, without ever
+    // stopping or resetting Tone.Transport itself. Transport kept running (and its
+    // position kept advancing) past the end of this sequence, so the very next play
+    // attempt scheduled its notes relative to a position already adrift from 0 — some or
+    // all of them landed at a Transport time already in the past and silently never
+    // fired. Confirmed directly: play one sequence to the end, then immediately play a
+    // different one, and it produced no sound at all. stopPlayback() properly calls
+    // Transport.stop() (which also rewinds position to 0), so every subsequent play
+    // starts from a clean, correctly-zeroed Transport.
+    Tone.Draw.schedule(()=> stopPlayback(), Tone.now());
   }, totalDuration);
 }
 
@@ -6645,12 +6670,21 @@ function renderRagaDirTable(){
   });
   document.querySelectorAll('.raga-dir-play-btn').forEach(btn=>{
     btn.onclick = ()=>{
-      if(playbackActive){ stopPlayback(); return; }
+      const wasThisOne = btn.classList.contains('playing-active');
+      if(playbackActive) stopPlayback();
+      if(wasThisOne) return; // clicking the button that's already playing just stops it
       const entry = ragaDatabase[Number(btn.dataset.idx)];
       if(!entry) return;
       const field = btn.dataset.field;
-      const text = field === 'both' ? [entry.arohanam, entry.avarohanam].filter(Boolean).join(' ') : entry[field];
-      playSwaraSequenceString(text, entry, btn);
+      // Each direction gets its own boundary-Sa correction (see parseSwaraSequenceString)
+      // before combining — parsing the two texts already concatenated as one string would
+      // only fix the very first and very last note of the whole thing, missing the actual
+      // join point in the middle where the arohanam's ending Sa and the avarohanam's
+      // starting Sa both need it.
+      const notes = field === 'both'
+        ? parseSwaraSequenceString(entry.arohanam, 'arohanam').concat(parseSwaraSequenceString(entry.avarohanam, 'avarohanam'))
+        : parseSwaraSequenceString(entry[field], field);
+      playSwaraNotes(notes, entry, btn);
     };
   });
 }
