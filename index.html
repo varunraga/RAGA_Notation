@@ -708,6 +708,9 @@
   .raga-dir-mela-name{ font-style:italic; color:var(--indigo-deep); font-size:13px; }
   .raga-dir-dim{ color:var(--ink-soft); opacity:.5; }
   .raga-dir-mono{ font-family:'Inter',sans-serif; font-size:13.5px; color:var(--ink); }
+  .raga-dir-play-cell{ display:flex; align-items:center; gap:7px; }
+  .raga-dir-play-cell .raga-dir-play-btn{ flex:none; width:26px; height:26px; padding:0; }
+  .raga-dir-play-cell .raga-dir-play-btn svg{ width:11px; height:11px; }
   .raga-dir-actions{ white-space:nowrap; text-align:right; }
   .raga-dir-mela-preview{ font-size:11.5px; color:var(--indigo-deep); font-weight:600; margin-top:4px; min-height:14px; }
   .raga-dir-sortable{ cursor:pointer; user-select:none; white-space:nowrap; }
@@ -1043,8 +1046,15 @@
   .file-viewer-body iframe{ width:100%; height:100%; border:none; display:block; }
   .file-viewer-doc{ font-family:'Inter',sans-serif; font-size:14px; line-height:1.65; color:var(--ink); padding:16px 20px; }
   .file-viewer-doc p{ margin:0 0 10px; }
-  .file-viewer-doc table{ border-collapse:collapse; margin:12px 0; width:100%; font-family:'Courier Prime',monospace; font-size:13px; }
-  .file-viewer-doc td{ border:none; padding:4px 8px; vertical-align:top; }
+  /* No width:100% here on purpose — a notation table's real columns (read from Word's own
+     widths, see renderDocxItemsAsHtml) are often much wider than a phone screen, and forcing
+     them to compress into 100% of a narrow container is exactly what caused cramped,
+     overlapping, multi-line-wrapped cells on mobile. Left to size naturally, the table can
+     simply be wider than its container — .file-viewer-body above already scrolls, so it's
+     reachable by swiping sideways, the same way you'd pan a wide table in any document
+     viewer, rather than forcing it to fit and losing readability. */
+  .file-viewer-doc table{ border-collapse:collapse; margin:12px 0; font-family:'Courier Prime',monospace; font-size:13px; }
+  .file-viewer-doc td{ border:none; padding:4px 8px; vertical-align:top; white-space:nowrap; }
   .my-files-list{ max-height:60vh; overflow-y:auto; }
   .my-file-row{
     display:flex; align-items:center; gap:10px; padding:10px 8px; border-radius:var(--radius-sm);
@@ -4512,6 +4522,67 @@ async function playKriti(song){
   await playCellSequence(cellDivs, song, document.getElementById('playKritiBtn'));
 }
 
+/* Splits a plain arohanam/avarohanam string ("S R2 G3 P N3 S'") into playable notes — much
+   simpler than tokenizeCellForPlayback above since there's no rhythm to interpret here (no
+   commas/semicolons for sustain, no speed-grouping markup): just a plain, steady sequence
+   of swara letters, each optionally followed by a variant digit (already consumed by
+   getRagaVariantMap below, not needed again here) and/or an octave mark. */
+function parseSwaraSequenceString(text){
+  const notes = [];
+  const re = /([A-Za-z])[0-9]?([\'\.]?)/g;
+  let m;
+  while((m = re.exec(text || '')) !== null) notes.push({ letter: m[1].toUpperCase(), octave: m[2] || '' });
+  return notes;
+}
+/* Plays a raga's arohanam or avarohanam (or any other plain swara-letter string) at a
+   fixed, steady pace — there's no rhythm of its own to preserve, unlike a kriti line, so
+   this doesn't need playCellSequence's tempo/weight machinery at all. Reuses the exact
+   same instrument, frequency mapping, and stop/state handling as kriti playback, so it
+   sounds identical and the two can never run at once — starting this while a kriti (or
+   another raga entry) is already playing just stops that first, same as every other play
+   button in the app already behaves. `ragaLike` only needs .arohanam/.avarohanam/
+   .variantDefaults — a raw Raga Directory entry works directly, same shape a real song
+   object would need for getRagaVariantMap. */
+async function playSwaraSequenceString(text, ragaLike, startBtn){
+  if(!window.Tone){ showToast('Playback engine failed to load — check your connection and reload'); return; }
+  if(playbackActive) return;
+  const notes = parseSwaraSequenceString(text);
+  if(!notes.length) return;
+  playbackGeneration++;
+  const myGeneration = playbackGeneration;
+  const variantMap = getRagaVariantMap(ragaLike);
+  await Tone.start();
+  const instrument = await getPlaybackInstrument();
+  if(myGeneration !== playbackGeneration) return; // superseded by a Stop/new play while the above was resolving
+
+  const NOTE_SECONDS = 0.42;
+  const events = notes.map((n, i) => ({
+    time: i * NOTE_SECONDS,
+    freq: swaraToFrequency(n.letter, n.octave, variantMap, PLAYBACK_SA_FREQ),
+  }));
+  playbackActive = true;
+  setPlayButtonState(startBtn, true);
+  setFloatingStopVisible(true);
+  const part = new Tone.Part((time, ev) => {
+    // Raw frequency, not a quantized note name — swaraToFrequency already accounts for the
+    // raga's specific variant (e.g. R1 vs R2), and snapping that to the nearest equal-
+    // tempered note name would throw that precision away.
+    instrument.triggerAttackRelease(ev.freq, NOTE_SECONDS * 0.9, time);
+  }, events.map(ev => [ev.time, ev]));
+  part.start(0);
+  playbackPart = part;
+  Tone.Transport.start();
+
+  const totalDuration = notes.length * NOTE_SECONDS;
+  Tone.Transport.scheduleOnce(()=>{
+    Tone.Draw.schedule(()=>{
+      playbackActive = false;
+      setPlayButtonState(startBtn, false);
+      setFloatingStopVisible(false);
+    }, Tone.now());
+  }, totalDuration);
+}
+
 /* The shared playback core — takes any flat, ordered list of cells
    (whether from one line, one section, or the whole kriti) and handles
    everything: pitch/duration computation, scheduling, highlighting, and
@@ -6537,11 +6608,11 @@ function ragaDirTableHTML(){
           const melaName = melakartaNameForNumber(r.melakarta);
           return `
           <tr>
-            <td class="raga-dir-name">${escapeHtml(r.name)}</td>
+            <td class="raga-dir-name"><div class="raga-dir-play-cell"><button class="btn small icon-only raga-dir-play-btn" data-idx="${i}" data-field="both" title="Play arohanam, then avarohanam (prototype — synthesized/sampled tone, not a real instrument)">${PLAY_ICON_SVG}</button><span>${escapeHtml(r.name)}</span></div></td>
             <td>${r.melakarta ? escapeHtml(ordinalSuffix(r.melakarta)) : ''}</td>
             <td class="raga-dir-mela-name">${melaName ? escapeHtml(melaName) : '<span class="raga-dir-dim">—</span>'}</td>
-            <td class="raga-dir-mono">${escapeHtml(r.arohanam)}</td>
-            <td class="raga-dir-mono">${escapeHtml(r.avarohanam)}</td>
+            <td class="raga-dir-mono"><div class="raga-dir-play-cell"><button class="btn small icon-only raga-dir-play-btn" data-idx="${i}" data-field="arohanam" title="Play arohanam (prototype — synthesized/sampled tone, not a real instrument)">${PLAY_ICON_SVG}</button><span>${escapeHtml(r.arohanam)}</span></div></td>
+            <td class="raga-dir-mono"><div class="raga-dir-play-cell"><button class="btn small icon-only raga-dir-play-btn" data-idx="${i}" data-field="avarohanam" title="Play avarohanam (prototype — synthesized/sampled tone, not a real instrument)">${PLAY_ICON_SVG}</button><span>${escapeHtml(r.avarohanam)}</span></div></td>
             <td class="raga-dir-actions">
               <button class="btn small icon-only" data-act="ragaDirEdit" data-idx="${i}" title="Edit"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3l3 3-9 9-4 1 1-4 9-9z"/></svg></button>
               <button class="btn small icon-only danger" data-act="ragaDirDelete" data-idx="${i}" title="Delete"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h12M8 6V4a1 1 0 011-1h2a1 1 0 011 1v2M6 6l.6 10a1 1 0 001 .9h4.8a1 1 0 001-.9L14 6"/></svg></button>
@@ -6570,6 +6641,16 @@ function renderRagaDirTable(){
       if(!confirm(`Remove "${ragaDatabase[idx].name}" from the directory?`)) return;
       deleteRagaEntry(idx);
       renderRagaDirTable();
+    };
+  });
+  document.querySelectorAll('.raga-dir-play-btn').forEach(btn=>{
+    btn.onclick = ()=>{
+      if(playbackActive){ stopPlayback(); return; }
+      const entry = ragaDatabase[Number(btn.dataset.idx)];
+      if(!entry) return;
+      const field = btn.dataset.field;
+      const text = field === 'both' ? [entry.arohanam, entry.avarohanam].filter(Boolean).join(' ') : entry[field];
+      playSwaraSequenceString(text, entry, btn);
     };
   });
 }
@@ -8468,16 +8549,23 @@ function renderDocxItemsAsHtml(items){
       const style = item.align ? ` style="text-align:${item.align};"` : '';
       return html.trim() ? `<p${style}>${html}</p>` : '';
     }
-    // Explicit column widths (from Word's own <w:gridCol>, converted to percentages) with
-    // table-layout:fixed — without this, each column auto-sizes purely from its own cell's
-    // content, so a column holding just one short swara letter shrinks far below a column
-    // holding a longer syllable, even though Word laid every column in the row out at the
-    // same width. colgroup is only emitted when Word actually specified widths; otherwise
-    // this falls back to ordinary auto-sizing rather than guessing.
+    // Explicit column widths from Word's own <w:gridCol>, converted to ABSOLUTE pixels (1
+    // dxa = 1/20 pt = 1/20 * 4/3 px) — deliberately NOT percentages. Percentages looked
+    // right on desktop but broke badly on a narrow phone: the same proportions squeezed
+    // into a ~350px-wide viewer forced every column down to a sliver, wrapping cell text
+    // across multiple stacked lines and making the whole table look congested and
+    // overlapping. Absolute pixels keep the table's real width constant regardless of
+    // screen size — narrower than the table, it now scrolls sideways instead (via
+    // .file-viewer-body's own overflow), exactly like panning a wide table in any normal
+    // document viewer, rather than forcing it to compress and lose readability.
+    // table-layout is left at its default (auto), not fixed, so these widths act as
+    // strong hints rather than a hard cap — if some particular cell's content genuinely
+    // needs more room than Word's original column, that column can still grow to fit it,
+    // instead of clipping or spilling into its neighbor.
     let colgroupHtml = '';
     if(item.colWidths && item.colWidths.length){
-      const total = item.colWidths.reduce((a,b)=>a+b, 0) || 1;
-      colgroupHtml = '<colgroup>' + item.colWidths.map(w => `<col style="width:${(w/total*100).toFixed(3)}%;">`).join('') + '</colgroup>';
+      const DXA_TO_PX = 4 / 3 / 20;
+      colgroupHtml = '<colgroup>' + item.colWidths.map(w => `<col style="width:${Math.max(18, Math.round(w * DXA_TO_PX))}px;">`).join('') + '</colgroup>';
     }
     const rowsHtml = item.rows.map(row=>
       `<tr>${row.map(cell=>{
@@ -8486,7 +8574,7 @@ function renderDocxItemsAsHtml(items){
         return `<td${style}${span}>${runsToHtml(cell.runs) || '&nbsp;'}</td>`;
       }).join('')}</tr>`
     ).join('');
-    return `<table style="table-layout:fixed;">${colgroupHtml}${rowsHtml}</table>`;
+    return `<table>${colgroupHtml}${rowsHtml}</table>`;
   }).join('');
 }
 
