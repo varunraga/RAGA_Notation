@@ -2634,6 +2634,12 @@ async function syncLibraryToDrive(auto){
       const payload = await driveDownloadLibraryJSON();
       library = payload.library;
       tombstones = payload.tombstones;
+      if(payload.ragaDatabase !== null) ragaDatabase = payload.ragaDatabase;
+      // A brand-new device (this is what silent-adopt means) has no theme preference of its
+      // own yet to protect, so it's safe — and expected — to pick up whatever this Drive
+      // account already uses elsewhere.
+      if(payload.theme) applyTheme(payload.theme);
+      if(payload.notationTheme) applyNotationTheme(payload.notationTheme);
       try{ localStorage.setItem(LOCAL_STORAGE_KEY, serializeLibraryPayload()); }catch(e){}
       setDriveDirtyCount(0);
       setDriveLibraryChecksum(conflict.checksum);
@@ -2647,6 +2653,7 @@ async function syncLibraryToDrive(auto){
       // rendering against an id that's no longer there.
       if(currentId && !library.some(s=>s.id===currentId)) currentId = library.length ? library[0].id : null;
       renderAll();
+      if(dashboardSubView === 'ragaDirectory') renderRagaDirTable();
       updateSyncStatusText();
       showToast('Loaded your existing library from Google Drive');
       return;
@@ -2722,7 +2729,7 @@ async function openConflictModal(){
       driveDownloadLibraryJSON(),
       driveFetch(`https://www.googleapis.com/drive/v3/files/${driveLibraryFileId}?fields=md5Checksum`).then(r=>r.json()),
     ]);
-    driveConflictRemote = { library: remotePayload.library, tombstones: remotePayload.tombstones, checksum: metaRes.md5Checksum };
+    driveConflictRemote = { library: remotePayload.library, tombstones: remotePayload.tombstones, ragaDatabase: remotePayload.ragaDatabase, theme: remotePayload.theme, notationTheme: remotePayload.notationTheme, checksum: metaRes.md5Checksum };
     const localCount = library.length, remoteCount = remotePayload.library.length;
     body.innerHTML = `
       <div class="quota-text" style="margin-bottom:14px;">
@@ -2795,12 +2802,40 @@ function mergeLibraries(localPayload, remotePayload){
   return { merged, tombstones: mergedTombstones, added, updated, removed };
 }
 
+/* Raga Directory entries have no id and no updatedAt (unlike songs), so they can't be
+   merged the same way — there's no way to tell which side is "newer" if the same raga name
+   somehow has different details on each side. Deliberately conservative: union by name
+   (case-insensitive) — anything present on only one side is kept, and a name that exists on
+   both sides keeps the LOCAL version rather than silently overwriting it with remote. This
+   still directly fixes the reported problem (a raga added on one device now reaches the
+   other), without risking a local edit getting quietly clobbered by an older/different
+   remote copy with no timestamp to arbitrate by. `remoteDb === null` means the remote
+   payload predates the Raga Directory being included in sync at all — nothing to merge in. */
+function mergeRagaDatabases(localDb, remoteDb){
+  if(!remoteDb) return { merged: localDb, added: 0 };
+  const localNames = new Set(localDb.map(r => (r.name||'').trim().toLowerCase()));
+  let added = 0;
+  const merged = localDb.slice();
+  remoteDb.forEach(r=>{
+    const key = (r.name||'').trim().toLowerCase();
+    if(key && !localNames.has(key)){ merged.push(r); localNames.add(key); added++; }
+  });
+  return { merged, added };
+}
+
 async function resolveDriveConflict(choice){
   const remote = driveConflictRemote;
   if(!remote) return;
+  let ragaAdded = 0;
   if(choice === 'use-drive'){
     library = remote.library;
     tombstones = remote.tombstones || [];
+    if(remote.ragaDatabase !== null && remote.ragaDatabase !== undefined) ragaDatabase = remote.ragaDatabase;
+    // "Use Drive's version" is explicitly "give me everything from Drive" — theme included,
+    // unlike Merge/Keep Local below, which are about combining or keeping DATA and
+    // deliberately leave this device's own display preference alone.
+    if(remote.theme) applyTheme(remote.theme);
+    if(remote.notationTheme) applyNotationTheme(remote.notationTheme);
     showToast('Using Drive\u2019s version');
   } else if(choice === 'merge'){
     const { merged, tombstones: mergedTombstones, added, updated, removed } = mergeLibraries(
@@ -2809,11 +2844,14 @@ async function resolveDriveConflict(choice){
     );
     library = merged;
     tombstones = mergedTombstones;
-    showToast(`Merged — ${added} added, ${updated} updated${removed ? `, ${removed} removed` : ''}`);
+    const ragaResult = mergeRagaDatabases(ragaDatabase, remote.ragaDatabase);
+    ragaDatabase = ragaResult.merged;
+    ragaAdded = ragaResult.added;
+    showToast(`Merged — ${added} added, ${updated} updated${removed ? `, ${removed} removed` : ''}${ragaAdded ? `, ${ragaAdded} raga${ragaAdded===1?'':'s'} added` : ''}`);
   } else if(choice === 'keep-local'){
     showToast('Keeping this browser\u2019s version');
   }
-  // 'keep-local': library and tombstones are left exactly as-is; the push below overwrites Drive with them.
+  // 'keep-local': library, tombstones, and ragaDatabase are left exactly as-is; the push below overwrites Drive with them.
 
   try{ localStorage.setItem(LOCAL_STORAGE_KEY, serializeLibraryPayload()); }catch(e){}
   setDriveDirtyCount(0);
@@ -2822,6 +2860,12 @@ async function resolveDriveConflict(choice){
   document.getElementById('conflictOverlay').classList.remove('show');
   currentId = library.length ? library[0].id : null;
   renderAll();
+  // renderAll()/renderDashboard() skip rebuilding a sub-view's content when its root
+  // element already exists (an optimization for the common case of nothing relevant
+  // having changed) — but the Raga Directory table needs an explicit refresh here since
+  // the whole point of this path is that its data just changed, and staying on that page
+  // through a merge/adopt is a completely normal thing to be doing.
+  if(dashboardSubView === 'ragaDirectory') renderRagaDirTable();
   // Pushes directly, deliberately WITHOUT going back through syncLibraryToDrive()'s own
   // checkDriveConflict() first. Routing through it used to mean: pick an option here, and
   // its immediate re-check — using Drive state that's already a network round-trip or two
@@ -2963,26 +3007,55 @@ function migrateRowUl(r){
    (added in the next step) layers on top of this as backup/cross-device
    sync; localStorage remains the fast, offline-first local copy. */
 const LOCAL_STORAGE_KEY = 'kriti-notation-studio.library';
-/* Both localStorage and Drive store the SAME payload shape now: {library, tombstones}
-   instead of a bare library array — needed so a deletion actually travels between devices
-   (see the tombstones declaration above). parseLibraryPayload migrates transparently from
-   the old bare-array format (whatever's already sitting in localStorage or Drive from
-   before this existed): no tombstones, nothing lost, just nothing to delete-sync yet. */
+/* Both localStorage and Drive store the SAME payload shape now: {library, tombstones,
+   ragaDatabase, theme, notationTheme} instead of a bare library array — tombstones so a
+   deletion actually travels between devices (see the tombstones declaration above),
+   ragaDatabase so the Raga Directory does too (confirmed it never had before — entries
+   added on one device simply never showed up on another, since it only ever lived in that
+   one browser's own localStorage, completely outside every part of the sync system), and
+   theme/notationTheme (dark mode, the four grid color themes) for the same reason — a full
+   audit of every localStorage key this app writes turned up these as the only other
+   pieces of user-chosen data/preference that were never part of sync either. Everything
+   else localStorage holds (DRIVE_* keys) is this device's own connection bookkeeping —
+   which Drive file/folder id it resolved, when it last synced — and deliberately stays
+   local; syncing those would be nonsensical, each device does its own connection.
+   ragaDatabase/theme/notationTheme use `null`, not their "unset" value, to mean "this
+   payload predates including this field at all" — genuinely distinct from "synced fine,
+   just happens to be the default" — parseLibraryPayload and loadLibrary below both rely on
+   that distinction to decide whether to fall back to old standalone storage. */
 function serializeLibraryPayload(){
-  return JSON.stringify({ library, tombstones });
+  return JSON.stringify({
+    library, tombstones, ragaDatabase,
+    theme: localStorage.getItem('kriti-theme') || 'light',
+    notationTheme: localStorage.getItem('kriti-notation-theme') || 'default',
+  });
 }
 function parseLibraryPayload(text){
   const parsed = JSON.parse(text);
-  if(Array.isArray(parsed)) return { library: parsed, tombstones: [] };
-  return { library: parsed.library || [], tombstones: parsed.tombstones || [] };
+  if(Array.isArray(parsed)) return { library: parsed, tombstones: [], ragaDatabase: null, theme: null, notationTheme: null };
+  return {
+    library: parsed.library || [], tombstones: parsed.tombstones || [], ragaDatabase: parsed.ragaDatabase || null,
+    theme: parsed.theme || null, notationTheme: parsed.notationTheme || null,
+  };
 }
 async function loadLibrary(){
   try{
     const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
-    const payload = raw ? parseLibraryPayload(raw) : { library: [], tombstones: [] };
+    const payload = raw ? parseLibraryPayload(raw) : { library: [], tombstones: [], ragaDatabase: null };
     library = payload.library;
     tombstones = payload.tombstones;
-  }catch(e){ library = []; tombstones = []; }
+    if(payload.ragaDatabase !== null){
+      ragaDatabase = payload.ragaDatabase;
+    } else {
+      // Migrating from before the Raga Directory was part of this payload — read its old
+      // standalone key once. Every save from here on goes through the unified payload
+      // above, so this fallback only ever matters this one time per device.
+      try{
+        const oldRaw = localStorage.getItem(RAGA_DB_KEY);
+        ragaDatabase = oldRaw ? JSON.parse(oldRaw) : [];
+      }catch(e2){ ragaDatabase = []; }
+    }
+  }catch(e){ library = []; tombstones = []; ragaDatabase = []; }
   library.forEach(s=>{
     if(s.kalai === undefined) s.kalai = 1;
     if(s.melakarta === undefined) s.melakarta = '';
@@ -3099,16 +3172,15 @@ function searchComposerDatabase(query){
   return [...starts.sort(byName), ...contains.sort(byName)];
 }
 
-const RAGA_DB_KEY = 'kriti-notation-studio.ragaDatabase';
+const RAGA_DB_KEY = 'kriti-notation-studio.ragaDatabase'; // old standalone key — read once by
+  // loadLibrary's migration fallback above; no longer written to going forward.
 let ragaDatabase = []; // [{name, melakarta, arohanam, avarohanam}, ...]
-function loadRagaDatabase(){
-  try{
-    const raw = localStorage.getItem(RAGA_DB_KEY);
-    ragaDatabase = raw ? JSON.parse(raw) : [];
-  }catch(e){ ragaDatabase = []; }
-}
 function saveRagaDatabase(){
-  try{ localStorage.setItem(RAGA_DB_KEY, JSON.stringify(ragaDatabase)); }catch(e){}
+  // Now travels through the exact same sync system as the kriti library (see
+  // serializeLibraryPayload) — this used to only ever write to this device's own
+  // localStorage, which is exactly why a raga added on one device never appeared on
+  // another: nothing about the Drive sync system had ever touched this data at all.
+  persist();
 }
 /* Reads File -> parsed rows via SheetJS, positionally (column A/B/C/D),
    skipping a header row if the first row's first cell doesn't look like a
@@ -9150,7 +9222,6 @@ function attemptAutoConnectDrive(retriesLeft){
   await loadLibrary();
   driveLastSyncedLibraryJSON = JSON.stringify(library); // baseline: "have I changed anything
     // locally this session" is judged from this exact loaded state onward.
-  loadRagaDatabase();
   if(library.length) currentId = library[0].id;
   renderAll();
   updateSyncButton();
