@@ -1321,6 +1321,55 @@
   </div>
 </div>
 
+<div class="quota-overlay" id="fillSahityaModeOverlay">
+  <div class="quota-modal">
+    <div class="quota-modal-head">
+      <div class="quota-modal-title">Fill sahitya cells from text</div>
+      <button class="btn small icon-btn" id="closeFillSahityaModeBtn"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 5l10 10M15 5L5 15"/></svg></button>
+    </div>
+    <div class="quota-text" id="fillSahityaModeIntro" style="margin-bottom:12px;"></div>
+    <div class="fieldwrap">
+      <label>Which line?</label>
+      <select id="fillSahityaLineSelect"></select>
+    </div>
+    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:14px;">
+      <button class="btn small" id="fillSahityaCancelBtn">Cancel</button>
+      <button class="btn small primary" id="fillSahityaSubmitBtn">Fill</button>
+    </div>
+  </div>
+</div>
+
+<div class="quota-overlay" id="fillSwaraOverlay">
+  <div class="quota-modal">
+    <div class="quota-modal-head">
+      <div class="quota-modal-title">Fill swara for a line</div>
+      <button class="btn small icon-btn" id="closeFillSwaraBtn"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 5l10 10M15 5L5 15"/></svg></button>
+    </div>
+    <div class="quota-text" style="margin-bottom:10px;">
+      Type the whole avartanam's swara in one go, or recite it by voice a few short phrases at a time — either way, it'll be split across the chosen line's cells by each cell's own capacity once you click Fill. Sahitya is untouched.
+    </div>
+    <div class="fieldwrap" style="margin-bottom:10px;">
+      <label>Which line?</label>
+      <select id="fillSwaraLineSelect"></select>
+    </div>
+    <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
+      <button class="btn small" id="fillSwaraMicBtn" type="button">
+        <svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3a2.5 2.5 0 00-2.5 2.5v4a2.5 2.5 0 005 0v-4A2.5 2.5 0 0010 3z"/><path d="M5.5 9.5a4.5 4.5 0 009 0M10 14v3"/></svg>
+        Recite a phrase
+      </button>
+      <span class="quota-text" id="fillSwaraMicStatus" style="font-size:12px;"></span>
+    </div>
+    <textarea id="fillSwaraInput" placeholder="e.g. S R G M P D N S' S' N D P M G R" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off" style="width:100%; min-height:70px; padding:9px 11px; border:1px solid var(--line); border-radius:var(--radius-sm); font-family:'Courier Prime',monospace; font-size:14px; resize:vertical;"></textarea>
+    <div class="quota-text" style="margin-top:6px; font-size:11.5px;">
+      Voice recitation is a best-effort draft, not a sure thing — say each swara name clearly (sa, ri, ga, ma, pa, da, ni), review what lands here, and fix anything wrong before clicking Fill. Reciting again adds on to what's already here rather than replacing it, so you can build up a full avartanam a short phrase at a time.
+    </div>
+    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:14px;">
+      <button class="btn small" id="fillSwaraCancelBtn">Cancel</button>
+      <button class="btn small primary" id="fillSwaraSubmitBtn">Fill</button>
+    </div>
+  </div>
+</div>
+
 <div class="quota-overlay" id="editFileDetailsOverlay">
   <div class="quota-modal conflict-modal">
     <div class="quota-modal-head">
@@ -1352,6 +1401,26 @@
     <div class="quota-text" style="margin-bottom:12px;" id="spreadPatternIntro"></div>
     <div id="spreadPatternList" style="display:flex; flex-direction:column; gap:8px; margin-bottom:16px;"></div>
     <button class="btn primary" id="spreadPatternApplyBtn">Copy swara to selected sections</button>
+  </div>
+</div>
+
+<div class="quota-overlay" id="newKritiFormOverlay">
+  <div class="quota-modal">
+    <div class="quota-modal-head">
+      <div class="quota-modal-title">Start a new Kriti</div>
+      <button class="btn small icon-btn" id="closeNewKritiFormBtn"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 5l10 10M15 5L5 15"/></svg></button>
+    </div>
+    <div class="quota-text" style="margin-bottom:14px;">
+      Pick a starting structure — sections can still be renamed, added, or removed freely afterward, this just saves rebuilding the usual skeleton by hand every time.
+    </div>
+    <div style="display:flex; flex-direction:column; gap:8px;">
+      <button class="btn" data-form="kriti">Kriti — Pallavi, Anupallavi, Charanam</button>
+      <button class="btn" data-form="kritiSamashti">Kriti — Pallavi, Samashti Charana, Madhyama Kala Sahitya</button>
+      <button class="btn" data-form="kritiChitteswara">Kriti — Pallavi, Anupallavi, Chitteswara, Charana</button>
+      <button class="btn" data-form="varnam">Varnam — Pallavi, Anupallavi, Muktayi Swara, Charana, Chitte Swara</button>
+      <button class="btn" data-form="geetham">Geetham — a single continuous section</button>
+      <button class="btn" data-form="blank">Blank — no sections, I'll add my own</button>
+    </div>
   </div>
 </div>
 
@@ -2957,7 +3026,56 @@ function applySpreadPattern(){
   renderSections();
   showToast(`Swara pattern copied to ${targetIndices.length} section${targetIndices.length===1?'':'s'}`);
 }
-function newSong(tala, kalai){
+/* Starter structures for "New Kriti" — saves rebuilding the same standard skeleton by hand
+   every time. Deliberately only offers forms verified directly against real files handled
+   earlier (Varnam's Pallavi/Anupallavi/Muktayi Swaram/Charanam/Chittaswaram structure came
+   straight from actual imported Varnam documents, not a guess), plus a plain Kriti (the
+   existing default) and a blank slate — rather than guessing at the conventions of forms
+   without that same direct evidence (Swarajathi, Thillana, Padam, etc.). Everything here
+   stays fully editable afterward regardless — sections can be renamed, added, or removed
+   freely — so a starting point that's slightly off is never a dead end, just a head start. */
+function sectionsForForm(form, cfg, kalai){
+  if(form === 'varnam'){
+    // Pallavi, Anupallavi, Muktayi Swara, Charana, Chitte Swara — corrected order/naming
+    // per explicit request (differs slightly from the "Mukthayi Swaram"/"Chittai Swaras"
+    // spelling seen directly in the real Varnam files handled earlier — spelling genuinely
+    // varies between real documents, and this is the wording actually wanted here).
+    return [
+      blankSection('Pallavi', cfg, kalai, true),
+      blankSection('Anupallavi', cfg, kalai, false),
+      Object.assign(blankSection('Muktayi Swara', cfg, kalai, false), { noSahitya: true }),
+      blankSection('Charana', cfg, kalai, false),
+      Object.assign(blankSection('Chitte Swara', cfg, kalai, false), { noSahitya: true }),
+    ];
+  }
+  if(form === 'kritiSamashti'){
+    // Matches the real structure found in the Swaminatha Paripalayashu kriti handled
+    // earlier: no separate Anupallavi — Samashti Charanam covers that ground instead —
+    // plus a closing Madhyama Kala Sahitya section (faster-pace sahitya, no separate
+    // swara of its own, same as Chitte Swara/Mukthayi Swaram above).
+    return [
+      blankSection('Pallavi', cfg, kalai, true),
+      blankSection('Samashti Charana', cfg, kalai, false),
+      blankSection('Madhyama Kala Sahitya', cfg, kalai, false),
+    ];
+  }
+  if(form === 'kritiChitteswara'){
+    return [
+      blankSection('Pallavi', cfg, kalai, true),
+      blankSection('Anupallavi', cfg, kalai, false),
+      Object.assign(blankSection('Chitteswara', cfg, kalai, false), { noSahitya: true }),
+      blankSection('Charana', cfg, kalai, false),
+    ];
+  }
+  if(form === 'geetham'){
+    return [ blankSection('Pallavi', cfg, kalai, true) ];
+  }
+  if(form === 'blank'){
+    return [];
+  }
+  return [ blankSection('Pallavi', cfg, kalai, true), blankSection('Anupallavi', cfg, kalai, false), blankSection('Charanam', cfg, kalai, false) ];
+}
+function newSong(tala, kalai, form){
   tala = tala && TALAS[tala] ? tala : 'adi';
   kalai = (kalai === 2 && TALAS[tala].kalaiAware) ? 2 : 1;
   const cfg = TALAS[tala];
@@ -2966,7 +3084,7 @@ function newSong(tala, kalai){
     title: 'Untitled Kriti',
     raga: '', melakarta: '', arohanam: '', avarohanam: '',
     tala, kalai, composer: '',
-    sections: [ blankSection('Pallavi', cfg, kalai, true), blankSection('Anupallavi', cfg, kalai, false), blankSection('Charanam', cfg, kalai, false) ]
+    sections: sectionsForForm(form || 'kriti', cfg, kalai),
   };
 }
 
@@ -5112,6 +5230,71 @@ function splitHalfAvartanamIntoCells(tokens, cellCaps){
    Deliberately proportional, not note-matched (see module header). The last
    cell always absorbs any rounding remainder, so no word is ever dropped or
    duplicated. */
+/* Splits a romanized word into syllables the way real Carnatic notation actually aligns
+   sahitya to swara — one syllable per cell, not one whole word per cell — confirmed
+   directly against real files handled earlier ("sharadE" landing as "sha"/"ra"/"dE" across
+   three separate cells, never as one "sharadE" chunk). The rule that reproduces that: each
+   vowel (or a run of adjacent vowels, treated as one nucleus — "aa", "ee", "ai") starts a
+   new syllable together with the SINGLE consonant immediately before it; if MORE than one
+   consonant sits between two vowels, only the last of that cluster joins the new syllable
+   as its onset, and the rest stay behind to close out the PREVIOUS syllable. Trailing
+   consonants at the very end of a word (nothing left to attach to) stay with the last
+   syllable. Common aspirated-consonant digraphs (sh, th, dh, bh, gh, kh, ch, ph, jh) count
+   as ONE consonant, not two, since they represent a single sound in these transliterations
+   — without that, "nishamaham" would wrongly split as "nis"/"ha..." instead of the correct
+   "ni"/"sha"/"ma"/"ham" (verified: both examples trace through this exact algorithm to the
+   correct real-file result by hand). A second set of common Sanskrit consonant CLUSTERS
+   (pr, kr, dy, sv, shr, tv, etc.) get the same one-unit treatment for a different reason —
+   these are two distinct sounds, but conventionally stay together as a single syllable
+   onset ("vidyApradE" splits as "vi-dyA-pra-dE", not "vid-yAp-ra-dE" — confirmed this
+   specific case needed the fix, since the plain single-consonant rule alone got it wrong).
+   Best-effort like everything else in this pipeline — real transliteration has exceptions
+   this simple a rule won't catch — which is exactly why the result still lands somewhere
+   reviewable rather than being applied silently. */
+const SYLLABLE_DIGRAPHS = [
+  'th','dh','bh','gh','kh','ch','ph','jh','sh','ng','ny', // aspirated/nasal digraphs — one phoneme, not two
+  'pr','kr','gr','tr','dr','br','vr','fr','kl','gl','pl','bl','fl','sv','dy','ty','sy','shr','shl','sr','hr','tv','dv', // common consonant clusters that conventionally stay together as one syllable onset (e.g. "vidyApradE" -> "vi-dyA-pra-dE", not "vid-yAp-ra-dE")
+];
+const SYLLABLE_VOWELS = new Set(['a','e','i','o','u']);
+function syllabifyWord(word){
+  if(!word) return [];
+  const lower = word.toLowerCase();
+  const units = [];
+  let i = 0;
+  while(i < lower.length){
+    const two = lower.slice(i, i+2);
+    if(SYLLABLE_DIGRAPHS.includes(two)){
+      units.push({ text: word.slice(i, i+2), vowel: false });
+      i += 2;
+    } else {
+      units.push({ text: word[i], vowel: SYLLABLE_VOWELS.has(lower[i]) });
+      i += 1;
+    }
+  }
+  const merged = [];
+  for(const u of units){
+    if(u.vowel && merged.length && merged[merged.length-1].vowel) merged[merged.length-1].text += u.text;
+    else merged.push({ text: u.text, vowel: u.vowel });
+  }
+  const syllables = [];
+  let current = '';
+  let consonantBuffer = [];
+  for(const u of merged){
+    if(!u.vowel){ consonantBuffer.push(u.text); continue; }
+    if(consonantBuffer.length > 1){
+      current += consonantBuffer.slice(0, -1).join('');
+      if(current) syllables.push(current);
+      current = consonantBuffer[consonantBuffer.length-1] + u.text;
+    } else {
+      if(current) syllables.push(current);
+      current = (consonantBuffer[0] || '') + u.text;
+    }
+    consonantBuffer = [];
+  }
+  if(consonantBuffer.length) current += consonantBuffer.join('');
+  if(current) syllables.push(current);
+  return syllables.length ? syllables : [word];
+}
 function distributeImportWordsByWeight(words, cellCaps){
   const totalCap = cellCaps.reduce((a,b)=>a+b, 0);
   const totalWords = words.length;
@@ -5146,9 +5329,13 @@ function distributeImportWordsByWeight(words, cellCaps){
    The existing "X/Y syl ⚠" badge already flags exactly the cells that need that manual
    touch-up, the same way it already does for imported content. */
 function fillLineLyricsFromWords(line, words, cfg){
+  // Syllabified here, at the shared point every fill path ultimately goes through — one
+  // syllable per cell (see syllabifyWord above), matching real Carnatic notation, rather
+  // than one whole word per cell.
+  const syllables = words.flatMap(w => syllabifyWord(w));
   const perRowCaps = line.rows.map(()=> cfg.rowCells);
   const flatCaps = perRowCaps.flat();
-  const flatLyrics = distributeImportWordsByWeight(words, flatCaps);
+  const flatLyrics = distributeImportWordsByWeight(syllables, flatCaps);
   let idx = 0;
   line.rows.forEach(row=>{
     const n = cfg.rowCells.length;
@@ -5156,16 +5343,166 @@ function fillLineLyricsFromWords(line, words, cfg){
     idx += n;
   });
 }
+/* "Fill swara for this line" — types a whole avartanam's swara as one continuous phrase
+   and splits it across the line's cells by capacity, rather than typing each cell one at
+   a time. Deliberately a distinct, deliberate action (this modal) rather than live-while-
+   typing: an earlier version auto-advanced to the next cell the instant a cell went over
+   capacity as you typed, but that meant a single mistyped extra letter could immediately
+   cascade into the following cell before you'd even noticed the mistake. As one explicit
+   step over the whole line instead, a typo is just sitting there to review and fix before
+   anything is actually written to the cells, not something that already jumped ahead.
+   Greedy left-to-right fill using the exact same akshara-weight computation
+   (computeCellAkshara) the rest of the app already uses to judge a cell "full" — so this
+   produces the same result filling each cell by hand would have. Whitespace in the typed
+   text is ignored entirely; it's there only for your own readability while typing "S R G
+   M" rather than "SRGM", and doesn't affect where the split falls. */
+/* Splits typed text into atomic swara units first, rather than character by character —
+   crucial for octave marks and 2nd/3rd-speed groups: a *...* or **...** group must stay
+   whole inside one cell (it's meaningless split across two), and a letter with its octave
+   mark (like "S'") is one unit too. Splitting character-by-character (an earlier version
+   of this did) could easily land a cell boundary in the middle of an unclosed group,
+   silently breaking the markup apart across two cells. Comma/semicolon holds are their own
+   units too, matching how a cell's content is actually built up by hand. */
+function tokenizeSwaraUnits(text){
+  const cleaned = (text || '').replace(/\s+/g, ''); // whitespace is just for readability while typing, not meaningful to the split
+  const units = [];
+  const re = /\*\*(.+?)\*\*|\*(.+?)\*|[A-Za-z][\'\.]?|,|;/g;
+  let m;
+  while((m = re.exec(cleaned)) !== null) units.push(m[0]);
+  return units;
+}
+function fillLineSwaraFromText(line, text, cfg){
+  const perRowCaps = line.rows.map(()=> cfg.rowCells);
+  const flatCaps = perRowCaps.flat();
+  const units = tokenizeSwaraUnits(text);
+  const cellTexts = [];
+  let buffer = '';
+  let capIdx = 0;
+  for(const unit of units){
+    const testBuffer = buffer + unit;
+    const { total } = computeCellAkshara(testBuffer);
+    if(capIdx < flatCaps.length && buffer && total > flatCaps[capIdx] + 1e-9){
+      cellTexts.push(buffer);
+      capIdx++;
+      buffer = unit;
+    } else {
+      buffer = testBuffer;
+    }
+  }
+  if(buffer) cellTexts.push(buffer);
+  let idx = 0;
+  line.rows.forEach(row=>{
+    const n = cfg.rowCells.length;
+    row.swara = row.swara.map((old, i) => cellTexts[idx+i] !== undefined ? cellTexts[idx+i] : old);
+    idx += n;
+  });
+  return cellTexts.length;
+}
+/* Best-effort speech-to-swara decoder — NOT a general speech-to-text feature, deliberately
+   narrow: it only ever tries to recognize the 7 swara names (sa/ri/ga/ma/pa/da/ni) and a
+   handful of their common mishearings, scanning the recognized text as one continuous
+   stream rather than trusting the recognizer's own word boundaries (browser speech
+   recognition segments words for normal English sentences, not a repeated 7-syllable set
+   recited rhythmically — "sa ri ga ma" can easily come back as one glued-together word).
+   Each swara's patterns are checked longest-first so e.g. "dha" matches before a shorter
+   overlapping pattern could eat into it. All 7 swara names start with a distinct
+   consonant (S/R/G/M/P/D/N — the same 7 letters used in the notation itself), which is
+   what makes this tractable at all: there's no cross-swara ambiguity to resolve, only
+   each swara's own handful of spelling variants. Characters that don't match anything are
+   simply skipped rather than guessed at — better to drop an unrecognized fragment than
+   insert a wrong note silently. This is exactly why the result lands in an editable box
+   for review before anything is actually written to a cell, not applied automatically. */
+const SWARA_SPEECH_PATTERNS = [
+  ['S', ['sa','saa','saw','sir']],
+  ['R', ['ri','re','ree','rhi','rey']],
+  ['G', ['ga','gaa','gah']],
+  ['M', ['ma','maa','mah']],
+  ['P', ['pa','paa','paw']],
+  ['D', ['dha','da','daa','duh']],
+  ['N', ['nee','ni','knee','nih']],
+].map(([letter, patterns]) => [letter, patterns.slice().sort((a,b)=>b.length-a.length)]);
+function decodeSpeechPhraseToSwara(transcript){
+  const normalized = (transcript || '').toLowerCase().replace(/[^a-z]/g, '');
+  const letters = [];
+  let i = 0;
+  outer:
+  while(i < normalized.length){
+    for(const [letter, patterns] of SWARA_SPEECH_PATTERNS){
+      for(const p of patterns){ // sorted longest-first above, so "daa"/"dha" never lose to a shorter overlapping match like "da"
+        if(normalized.startsWith(p, i)){
+          letters.push(letter);
+          i += p.length;
+          continue outer;
+        }
+      }
+    }
+    i++; // nothing matched at this position — skip one character and keep scanning
+  }
+  return letters.join(' ');
+}
+
+let fillSwaraTargetLine = null;
+function openFillSwaraModal(sec, cfg){
+  if(!sec.lines.length){ showToast('Add a line first'); return; }
+  const sel = document.getElementById('fillSwaraLineSelect');
+  sel.innerHTML = sec.lines.map((line, li) => `<option value="${li}">${escapeHtml(line.label ? line.label : 'Line ' + (li+1))}</option>`).join('');
+  fillSwaraTargetLine = sec.lines[0];
+  sel.value = '0';
+  sel.onchange = () => { fillSwaraTargetLine = sec.lines[Number(sel.value)]; };
+  document.getElementById('fillSwaraInput').value = '';
+  setFillSwaraMicStatus('');
+  document.getElementById('fillSwaraOverlay').classList.add('show');
+  document.getElementById('fillSwaraInput').focus();
+}
+/* Splits one section's plain lyrics across ALL of its lines at once, treating every line's
+   cells as ONE continuous capacity sequence spanning the whole section — for when the
+   lyrics genuinely continue across multiple avartanams (a Charanam with several lines of
+   DIFFERENT sahitya, not the same phrase sung several ways). This is the other real case
+   fillSectionFromPlainLyricsPrompt has to choose between: sangati variants (below) all
+   share one phrase and each get the FULL text; a multi-avartanam passage instead needs the
+   text divided BETWEEN the lines, in order, or every line would end up with everything. */
+function fillSectionLyricsSequentially(sec, words, cfg){
+  const syllables = words.flatMap(w => syllabifyWord(w));
+  const allCaps = [];
+  sec.lines.forEach(line => { line.rows.forEach(()=> allCaps.push(...cfg.rowCells)); });
+  const flatLyrics = distributeImportWordsByWeight(syllables, allCaps);
+  let idx = 0;
+  sec.lines.forEach(line=>{
+    line.rows.forEach(row=>{
+      const n = cfg.rowCells.length;
+      row.lyric = flatLyrics.slice(idx, idx+n);
+      idx += n;
+    });
+  });
+}
 function fillSectionFromPlainLyricsPrompt(sec, cfg){
   const words = (sec.sahitya || '').trim().split(/\s+/).filter(Boolean);
   if(!words.length){ showToast('Type the plain lyrics above first'); return; }
   if(!sec.lines.length){ showToast('Add a line first'); return; }
-  const n = sec.lines.length;
-  if(!confirm(`Fill ${n} line${n===1?'':'s'} in "${sec.name || 'this section'}" from the plain lyrics above?\n\nEach line gets the same words, split by its own rhythm — this replaces that line's current sahitya cells (swara is untouched). You can still touch up individual cells afterward, and Undo works per line as usual.`)) return;
-  sec.lines.forEach(line => fillLineLyricsFromWords(line, words, cfg));
-  queueSave();
-  renderSections();
-  showToast('Filled \u2014 check the \u26A0 badges for any cell that needs a held-note dash added');
+  const sel = document.getElementById('fillSahityaLineSelect');
+  const options = [];
+  if(sec.lines.length > 1){
+    options.push('<option value="__repeat__">All lines \u2014 repeat this text (sangati variants)</option>');
+    options.push('<option value="__sequential__">All lines \u2014 split this text across them in order</option>');
+  }
+  sec.lines.forEach((line, li) => {
+    options.push(`<option value="${li}">${escapeHtml(line.label ? line.label : 'Line ' + (li+1))} only</option>`);
+  });
+  sel.innerHTML = options.join('');
+  document.getElementById('fillSahityaModeIntro').textContent = sec.lines.length > 1
+    ? `"${sec.name || 'This section'}" has ${sec.lines.length} lines. Choose how the plain lyrics above should be applied.`
+    : `Fill "${sec.name || 'this section'}"'s one line from the plain lyrics above?`;
+  document.getElementById('fillSahityaModeOverlay').classList.add('show');
+  document.getElementById('fillSahityaSubmitBtn').onclick = () => {
+    const choice = sel.value;
+    document.getElementById('fillSahityaModeOverlay').classList.remove('show');
+    if(choice === '__repeat__') sec.lines.forEach(line => fillLineLyricsFromWords(line, words, cfg));
+    else if(choice === '__sequential__') fillSectionLyricsSequentially(sec, words, cfg);
+    else fillLineLyricsFromWords(sec.lines[Number(choice)], words, cfg);
+    queueSave();
+    renderSections();
+    showToast('Filled \u2014 check the \u26A0 badges for any cell that needs a held-note dash added');
+  };
 }
 
 /* Combined entry point for Step 2: classified tokens + tala cell caps for
@@ -7295,7 +7632,10 @@ function renderSections(){
       <div class="fieldwrap secSahityaWrap" data-si="${si}" style="${sec.noSahitya ? 'display:none;' : ''}">
         <label>Sahitya (plain lyrics)</label>
         <textarea data-si="${si}" class="secSahitya" placeholder="Plain lyric lines, as in your original template…" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off">${escapeHtml(sec.sahitya)}</textarea>
-        <button class="btn small" data-si="${si}" data-act="fillFromPlain" style="margin-top:8px;" title="Splits this text across every line below, by each line's own rhythm — the same word-distribution the importer uses">Fill cells from this text</button>
+        <div style="display:flex; gap:8px; margin-top:8px;">
+          <button class="btn small" data-si="${si}" data-act="fillFromPlain" title="Splits this text across every line below, by each line's own rhythm — the same word-distribution the importer uses">Fill sahitya cells from text</button>
+          <button class="btn small" data-si="${si}" data-act="fillSwaraForLine" title="Type or recite a whole avartanam's swara and split it across one line's cells, by that line's own rhythm">Fill swara for a line</button>
+        </div>
       </div>
       <div class="linesHost" data-si="${si}"></div>
       <button class="btn small add-line-btn" data-si="${si}" data-act="addLine">+ Add line (avartanam / sangati)</button>
@@ -7361,6 +7701,7 @@ function renderSections(){
       sec.lines.push(blankLine(cfg, kalai)); queueSave(); renderSections();
     };
     card.querySelector('[data-act="fillFromPlain"]').onclick = ()=> fillSectionFromPlainLyricsPrompt(sec, cfg);
+    card.querySelector('[data-act="fillSwaraForLine"]').onclick = ()=> openFillSwaraModal(sec, cfg);
 
     renderLines(card.querySelector('.linesHost'), sec, cfg, kalai);
   });
@@ -8404,8 +8745,8 @@ async function renderAll(){
 }
 
 document.getElementById('syncBtn').onclick = onSyncButtonClick;
-function createNewSong(tala, kalai){
-  const s = newSong(tala, kalai);
+function createNewSong(tala, kalai, form){
+  const s = newSong(tala, kalai, form);
   library.unshift(s);
   currentId = s.id;
   currentView = 'editor';
@@ -8413,7 +8754,14 @@ function createNewSong(tala, kalai){
   persist();
   renderAll();
 }
-document.getElementById('newSongBtn').onclick = () => createNewSong();
+document.getElementById('newSongBtn').onclick = () => document.getElementById('newKritiFormOverlay').classList.add('show');
+document.getElementById('closeNewKritiFormBtn').onclick = () => document.getElementById('newKritiFormOverlay').classList.remove('show');
+document.querySelectorAll('#newKritiFormOverlay [data-form]').forEach(btn=>{
+  btn.onclick = () => {
+    document.getElementById('newKritiFormOverlay').classList.remove('show');
+    createNewSong(undefined, undefined, btn.dataset.form);
+  };
+});
 document.getElementById('closePreviewBtn').onclick = closePreview;
 document.getElementById('closePrintReadyBtn').onclick = closePrintReadyView;
 document.getElementById('printReadyPrintBtn').onclick = ()=> window.print();
@@ -9001,6 +9349,74 @@ function openEditFileDetailsModal(fileId){
   document.getElementById('efdComposer').value = p.composer || '';
   document.getElementById('editFileDetailsOverlay').classList.add('show');
 }
+/* Web Speech API — one short recognition session per mic click, not continuous listening,
+   matching the intended workflow of reciting a few short phrases one at a time rather than
+   a whole avartanam in one breath. Each result APPENDS to whatever's already in the
+   textarea instead of replacing it, specifically so several short recitations can build up
+   one full line without earlier ones getting wiped out by a later one. */
+const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
+let fillSwaraRecognizer = null;
+let fillSwaraListening = false;
+function setFillSwaraMicStatus(text){
+  const el = document.getElementById('fillSwaraMicStatus');
+  if(el) el.textContent = text;
+}
+function stopFillSwaraListening(){
+  fillSwaraListening = false;
+  document.getElementById('fillSwaraMicBtn').classList.remove('playing-active');
+  if(fillSwaraRecognizer){ try{ fillSwaraRecognizer.stop(); }catch(e){} }
+}
+document.getElementById('fillSwaraMicBtn').onclick = () => {
+  if(!SpeechRecognitionCtor){
+    setFillSwaraMicStatus('Voice recitation isn\u2019t supported in this browser \u2014 try Chrome or Edge, or just type instead.');
+    return;
+  }
+  if(fillSwaraListening){ stopFillSwaraListening(); return; }
+  fillSwaraRecognizer = new SpeechRecognitionCtor();
+  fillSwaraRecognizer.lang = 'en-IN';
+  fillSwaraRecognizer.continuous = false;
+  fillSwaraRecognizer.interimResults = false;
+  fillSwaraRecognizer.maxAlternatives = 1;
+  fillSwaraListening = true;
+  document.getElementById('fillSwaraMicBtn').classList.add('playing-active');
+  setFillSwaraMicStatus('Listening\u2026 say one short phrase');
+  fillSwaraRecognizer.onresult = (event) => {
+    const transcript = event.results[0][0].transcript;
+    const decoded = decodeSpeechPhraseToSwara(transcript);
+    const inputEl = document.getElementById('fillSwaraInput');
+    if(decoded){
+      inputEl.value = (inputEl.value.trim() ? inputEl.value.trim() + ' ' : '') + decoded;
+      setFillSwaraMicStatus(`Heard "${transcript}" \u2192 added: ${decoded}`);
+    } else {
+      setFillSwaraMicStatus(`Heard "${transcript}" \u2014 couldn\u2019t make out any swara names in that, nothing added.`);
+    }
+  };
+  fillSwaraRecognizer.onerror = (event) => {
+    setFillSwaraMicStatus(event.error === 'not-allowed' ? 'Microphone permission was denied.' : `Couldn\u2019t hear that (${event.error}) \u2014 try again.`);
+  };
+  fillSwaraRecognizer.onend = () => { stopFillSwaraListening(); };
+  try{ fillSwaraRecognizer.start(); }catch(e){ stopFillSwaraListening(); setFillSwaraMicStatus('Could not start listening \u2014 try again.'); }
+};
+
+document.getElementById('closeFillSahityaModeBtn').onclick = document.getElementById('fillSahityaCancelBtn').onclick = () => document.getElementById('fillSahityaModeOverlay').classList.remove('show');
+document.getElementById('closeFillSwaraBtn').onclick = document.getElementById('fillSwaraCancelBtn').onclick = () => {
+  stopFillSwaraListening();
+  document.getElementById('fillSwaraOverlay').classList.remove('show');
+  fillSwaraTargetLine = null;
+};
+document.getElementById('fillSwaraSubmitBtn').onclick = () => {
+  if(!fillSwaraTargetLine) return;
+  stopFillSwaraListening();
+  const text = document.getElementById('fillSwaraInput').value;
+  if(!text.trim()){ showToast('Type some swara first'); return; }
+  const cfg = TALAS[getSong().tala] || TALAS.adi;
+  fillLineSwaraFromText(fillSwaraTargetLine, text, cfg);
+  document.getElementById('fillSwaraOverlay').classList.remove('show');
+  fillSwaraTargetLine = null;
+  queueSave();
+  renderSections();
+  showToast('Filled \u2014 check the \u26A0 badges for anything that needs adjusting');
+};
 document.getElementById('closeEditFileDetailsBtn').onclick = document.getElementById('efdCancelBtn').onclick = () => {
   document.getElementById('editFileDetailsOverlay').classList.remove('show');
   editingFileId = null;
