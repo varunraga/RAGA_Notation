@@ -1350,7 +1350,7 @@
       <button class="btn small icon-btn" id="closeFillSwaraBtn"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 5l10 10M15 5L5 15"/></svg></button>
     </div>
     <div class="quota-text" style="margin-bottom:10px;">
-      Type the whole avartanam's swara in one go, or recite it by voice a few short phrases at a time — either way, it'll be split across this line's cells by each cell's own capacity once you click Fill. Sahitya is untouched.
+      Type the whole avartanam's swara in one go, or recite it by voice a few short phrases at a time — either way, it'll be split across this line's cells by each cell's own capacity once you click Fill. Sahitya is untouched. Voice recitation only ever matches this kriti's own raga (its arohanam/avarohanam in Song Details) — a swara that raga never uses is never added, even if something sounds a bit like it.
     </div>
     <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
       <button class="btn small" id="fillSwaraMicBtn" type="button">
@@ -5438,7 +5438,7 @@ const SWARA_SPEECH_PATTERNS = [
   ['D', ['dha','da','daa','duh','tha']],
   ['N', ['nee','ni','knee','nih']],
 ].map(([letter, patterns]) => [letter, patterns.slice().sort((a,b)=>b.length-a.length)]);
-function decodeSpeechPhraseToSwara(transcript){
+function decodeSpeechPhraseToSwara(transcript, scale){
   const normalized = (transcript || '').toLowerCase().replace(/[^a-z]/g, '');
   const letters = [];
   let matchedChars = 0;
@@ -5447,6 +5447,12 @@ function decodeSpeechPhraseToSwara(transcript){
   outer:
   while(i < normalized.length){
     for(const [letter, patterns] of SWARA_SPEECH_PATTERNS){
+      // If this raga's arohanam/avarohanam is known and never uses this letter at all,
+      // don't even try to match it here — a raga without N should never let a stray "ni"
+      // sneak in just because it sounded similar to something. Restricting the candidate
+      // set to only this raga's own notes also means what lands in the box is already the
+      // set you'd actually check against the raga, so review/correction is quicker.
+      if(scale && scale.size && !scale.has(letter)) continue;
       for(const p of patterns){ // sorted longest-first above, so "daa"/"dha" never lose to a shorter overlapping match like "da"
         if(normalized.startsWith(p, i)){
           letters.push(letter);
@@ -9464,6 +9470,7 @@ document.getElementById('fillSwaraMicBtn').onclick = () => {
   }
   if(fillSwaraListening){ stopFillSwaraListening(); return; }
   fillSwaraStopRequested = false;
+  const ragaScale = getRagaScale(getSong());
   fillSwaraRecognizer = new SpeechRecognitionCtor();
   fillSwaraRecognizer.lang = 'en-IN';
   fillSwaraRecognizer.continuous = true;
@@ -9471,7 +9478,9 @@ document.getElementById('fillSwaraMicBtn').onclick = () => {
   fillSwaraRecognizer.maxAlternatives = 1;
   fillSwaraListening = true;
   document.getElementById('fillSwaraMicBtn').classList.add('playing-active');
-  setFillSwaraMicStatus('Listening\u2026 try 2\u20134 swara at a time \u2014 it keeps listening through pauses, click the mic again when you\u2019re done');
+  setFillSwaraMicStatus(ragaScale.size
+    ? `Listening\u2026 only matching this raga's own notes (${Array.from(ragaScale).sort().join(' ')}) \u2014 it keeps listening through pauses, click the mic again when you\u2019re done`
+    : 'Listening\u2026 this kriti has no arohanam/avarohanam set yet, so every swara is accepted \u2014 fill those in Song Details to narrow recitation to just this raga\u2019s notes \u2014 click the mic again when you\u2019re done');
   fillSwaraRecognizer.onresult = (event) => {
     // event.resultIndex marks where the NEW results in this batch start — continuous mode
     // can accumulate several recognized phrases over one listening session, so this avoids
@@ -9485,17 +9494,17 @@ document.getElementById('fillSwaraMicBtn').onclick = () => {
         setFillSwaraMicStatus(`Hearing\u2026 "${transcript}"`);
         continue;
       }
-      const { swara: decoded, skippedChars } = decodeSpeechPhraseToSwara(transcript);
+      const { swara: decoded, skippedChars } = decodeSpeechPhraseToSwara(transcript, ragaScale);
       const inputEl = document.getElementById('fillSwaraInput');
       if(decoded){
         inputEl.value = (inputEl.value.trim() ? inputEl.value.trim() + ' ' : '') + decoded;
         // A run of characters that never matched any swara name is a real signal something
         // in the middle of what you said didn't come through cleanly — surfaced immediately
         // rather than only becoming obvious later when a cell count looks short.
-        const note = skippedChars > 2 ? ' \u2014 part of that didn\u2019t sound like a swara name; check nothing\u2019s missing before filling' : '';
+        const note = skippedChars > 2 ? ' \u2014 part of that didn\u2019t sound like a swara name in this raga; check nothing\u2019s missing before filling' : '';
         setFillSwaraMicStatus(`Heard "${transcript}" \u2192 added: ${decoded}${note} \u2014 still listening\u2026`);
       } else {
-        setFillSwaraMicStatus(`Heard "${transcript}" \u2014 didn\u2019t sound like swara names, nothing added \u2014 still listening\u2026`);
+        setFillSwaraMicStatus(`Heard "${transcript}" \u2014 didn\u2019t sound like this raga's swara names, nothing added \u2014 still listening\u2026`);
       }
     }
   };
