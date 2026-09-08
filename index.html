@@ -1361,7 +1361,7 @@
     </div>
     <textarea id="fillSwaraInput" placeholder="e.g. S R G M P D N S' S' N D P M G R" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off" style="width:100%; min-height:70px; padding:9px 11px; border:1px solid var(--line); border-radius:var(--radius-sm); font-family:'Courier Prime',monospace; font-size:14px; resize:vertical;"></textarea>
     <div class="quota-text" style="margin-top:6px; font-size:11.5px;">
-      Voice recitation is a best-effort draft, not a sure thing — say each swara name clearly (sa, ri, ga, ma, pa, da, ni). Shorter phrases (2\u20134 swara) are heard more reliably than a long continuous run — the live "Hearing…" text shows what's being picked up as you speak, so you can tell right away if something got dropped and just redo that bit. Review what lands here and fix anything wrong before clicking Fill. Reciting again adds on to what's already here rather than replacing it, so you can build up a full avartanam a short phrase at a time.
+      Voice recitation is a best-effort draft, not a sure thing — say each swara name clearly (sa, ri, ga, ma, pa, da, ni), pausing naturally between phrases; it keeps listening through those pauses until you click the mic again, so you don't need to restart it after every short phrase. The live "Hearing…" text shows what's being picked up as you speak, so you can tell right away if something got dropped and just redo that bit — if a phrase doesn't sound like swara names at all, nothing gets added rather than guessing. Review what lands here and fix anything wrong before clicking Fill. Reciting again adds on to what's already here rather than replacing it, so you can build up a full avartanam a short phrase at a time.
     </div>
     <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:14px;">
       <button class="btn small" id="fillSwaraCancelBtn">Cancel</button>
@@ -5441,6 +5441,7 @@ const SWARA_SPEECH_PATTERNS = [
 function decodeSpeechPhraseToSwara(transcript){
   const normalized = (transcript || '').toLowerCase().replace(/[^a-z]/g, '');
   const letters = [];
+  let matchedChars = 0;
   let skippedChars = 0;
   let i = 0;
   outer:
@@ -5449,6 +5450,7 @@ function decodeSpeechPhraseToSwara(transcript){
       for(const p of patterns){ // sorted longest-first above, so "daa"/"dha" never lose to a shorter overlapping match like "da"
         if(normalized.startsWith(p, i)){
           letters.push(letter);
+          matchedChars += p.length;
           i += p.length;
           continue outer;
         }
@@ -5456,6 +5458,15 @@ function decodeSpeechPhraseToSwara(transcript){
     }
     skippedChars++; // nothing matched at this position — skip one character and keep scanning
     i++;
+  }
+  // If less than half of what was heard actually matched a swara sound, this was very
+  // likely the recognizer completely mishearing an unrelated sentence rather than swara
+  // names with a few dropped syllables — accepting the handful of coincidental substring
+  // matches buried in that (e.g. a stray "ma" inside some other word) would silently inject
+  // wrong notes, which is worse than adding nothing. Treat the whole phrase as not
+  // understood instead of returning a partial guess in that case.
+  if(normalized.length > 0 && matchedChars / normalized.length < 0.5){
+    return { swara: '', skippedChars: normalized.length };
   }
   return { swara: letters.join(' '), skippedChars };
 }
@@ -9423,19 +9434,25 @@ function openEditFileDetailsModal(fileId){
   document.getElementById('efdComposer').value = p.composer || '';
   document.getElementById('editFileDetailsOverlay').classList.add('show');
 }
-/* Web Speech API — one short recognition session per mic click, not continuous listening,
-   matching the intended workflow of reciting a few short phrases one at a time rather than
-   a whole avartanam in one breath. Each result APPENDS to whatever's already in the
-   textarea instead of replacing it, specifically so several short recitations can build up
-   one full line without earlier ones getting wiped out by a later one. */
+/* Web Speech API — continuous listening while the mic button is toggled on, so you can
+   recite several short phrases with natural pauses between them without the session
+   cutting out after the first one; matching the intended workflow of building up a whole
+   avartanam a few swara at a time. Each finalized phrase APPENDS to whatever's already in
+   the textarea instead of replacing it. Several browsers still end a "continuous" session
+   on their own after a pause or a transient hiccup even though continuous=true was
+   requested — onend below tells apart that unwanted auto-stop from a real stop (you
+   clicking the mic again, or a hard error like permission denied) and silently restarts
+   listening in the former case, so recitation doesn't quietly go deaf mid-line. */
 const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
 let fillSwaraRecognizer = null;
 let fillSwaraListening = false;
+let fillSwaraStopRequested = false; // true once the user clicks the mic to stop, or on a hard error — tells onend not to auto-restart
 function setFillSwaraMicStatus(text){
   const el = document.getElementById('fillSwaraMicStatus');
   if(el) el.textContent = text;
 }
 function stopFillSwaraListening(){
+  fillSwaraStopRequested = true;
   fillSwaraListening = false;
   document.getElementById('fillSwaraMicBtn').classList.remove('playing-active');
   if(fillSwaraRecognizer){ try{ fillSwaraRecognizer.stop(); }catch(e){} }
@@ -9446,40 +9463,68 @@ document.getElementById('fillSwaraMicBtn').onclick = () => {
     return;
   }
   if(fillSwaraListening){ stopFillSwaraListening(); return; }
+  fillSwaraStopRequested = false;
   fillSwaraRecognizer = new SpeechRecognitionCtor();
   fillSwaraRecognizer.lang = 'en-IN';
-  fillSwaraRecognizer.continuous = false;
+  fillSwaraRecognizer.continuous = true;
   fillSwaraRecognizer.interimResults = true;
   fillSwaraRecognizer.maxAlternatives = 1;
   fillSwaraListening = true;
   document.getElementById('fillSwaraMicBtn').classList.add('playing-active');
-  setFillSwaraMicStatus('Listening\u2026 try 2\u20134 swara at a time \u2014 shorter phrases are heard more reliably than a long continuous run');
+  setFillSwaraMicStatus('Listening\u2026 try 2\u20134 swara at a time \u2014 it keeps listening through pauses, click the mic again when you\u2019re done');
   fillSwaraRecognizer.onresult = (event) => {
-    const last = event.results[event.results.length - 1];
-    const transcript = last[0].transcript;
-    if(!last.isFinal){
-      // Live feedback while you're still speaking — lets you hear-what-it's-hearing in
-      // real time rather than only finding out after the fact.
-      setFillSwaraMicStatus(`Hearing\u2026 "${transcript}"`);
-      return;
-    }
-    const { swara: decoded, skippedChars } = decodeSpeechPhraseToSwara(transcript);
-    const inputEl = document.getElementById('fillSwaraInput');
-    if(decoded){
-      inputEl.value = (inputEl.value.trim() ? inputEl.value.trim() + ' ' : '') + decoded;
-      // A run of characters that never matched any swara name is a real signal something
-      // in the middle of what you said didn't come through cleanly — surfaced immediately
-      // rather than only becoming obvious later when a cell count looks short.
-      const note = skippedChars > 2 ? ' \u2014 part of that didn\u2019t sound like a swara name; check nothing\u2019s missing before filling' : '';
-      setFillSwaraMicStatus(`Heard "${transcript}" \u2192 added: ${decoded}${note}`);
-    } else {
-      setFillSwaraMicStatus(`Heard "${transcript}" \u2014 couldn\u2019t make out any swara names in that, nothing added.`);
+    // event.resultIndex marks where the NEW results in this batch start — continuous mode
+    // can accumulate several recognized phrases over one listening session, so this avoids
+    // re-processing ones already handled by an earlier onresult call.
+    for(let ri = event.resultIndex; ri < event.results.length; ri++){
+      const result = event.results[ri];
+      const transcript = result[0].transcript;
+      if(!result.isFinal){
+        // Live feedback while you're still speaking — lets you hear-what-it's-hearing in
+        // real time rather than only finding out after the fact.
+        setFillSwaraMicStatus(`Hearing\u2026 "${transcript}"`);
+        continue;
+      }
+      const { swara: decoded, skippedChars } = decodeSpeechPhraseToSwara(transcript);
+      const inputEl = document.getElementById('fillSwaraInput');
+      if(decoded){
+        inputEl.value = (inputEl.value.trim() ? inputEl.value.trim() + ' ' : '') + decoded;
+        // A run of characters that never matched any swara name is a real signal something
+        // in the middle of what you said didn't come through cleanly — surfaced immediately
+        // rather than only becoming obvious later when a cell count looks short.
+        const note = skippedChars > 2 ? ' \u2014 part of that didn\u2019t sound like a swara name; check nothing\u2019s missing before filling' : '';
+        setFillSwaraMicStatus(`Heard "${transcript}" \u2192 added: ${decoded}${note} \u2014 still listening\u2026`);
+      } else {
+        setFillSwaraMicStatus(`Heard "${transcript}" \u2014 didn\u2019t sound like swara names, nothing added \u2014 still listening\u2026`);
+      }
     }
   };
   fillSwaraRecognizer.onerror = (event) => {
-    setFillSwaraMicStatus(event.error === 'not-allowed' ? 'Microphone permission was denied.' : `Couldn\u2019t hear that (${event.error}) \u2014 try again.`);
+    if(event.error === 'not-allowed' || event.error === 'service-not-allowed' || event.error === 'audio-capture'){
+      // Hard failures — retrying won't help, so stop for real and say why.
+      fillSwaraStopRequested = true;
+      setFillSwaraMicStatus(event.error === 'not-allowed' ? 'Microphone permission was denied.' : `Couldn\u2019t hear that (${event.error}) \u2014 try again.`);
+    } else if(event.error !== 'no-speech' && event.error !== 'aborted'){
+      setFillSwaraMicStatus(`Hiccup (${event.error}) \u2014 still listening, go ahead.`);
+    }
+    // 'no-speech' and 'aborted' are routine pauses, not real problems — say nothing and let
+    // onend's auto-restart below keep the session going without interrupting you.
   };
-  fillSwaraRecognizer.onend = () => { stopFillSwaraListening(); };
+  fillSwaraRecognizer.onend = () => {
+    if(fillSwaraListening && !fillSwaraStopRequested){
+      // The browser ended the session on its own (a pause, or a transient hiccup) even
+      // though continuous listening was requested and you haven't clicked Stop — resume
+      // right away instead of silently going quiet.
+      try{ fillSwaraRecognizer.start(); }catch(e){
+        fillSwaraListening = false;
+        document.getElementById('fillSwaraMicBtn').classList.remove('playing-active');
+        setFillSwaraMicStatus('Listening stopped \u2014 click the mic to start again.');
+      }
+    } else {
+      fillSwaraListening = false;
+      document.getElementById('fillSwaraMicBtn').classList.remove('playing-active');
+    }
+  };
   try{ fillSwaraRecognizer.start(); }catch(e){ stopFillSwaraListening(); setFillSwaraMicStatus('Could not start listening \u2014 try again.'); }
 };
 
