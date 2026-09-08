@@ -1350,19 +1350,9 @@
       <button class="btn small icon-btn" id="closeFillSwaraBtn"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 5l10 10M15 5L5 15"/></svg></button>
     </div>
     <div class="quota-text" style="margin-bottom:10px;">
-      Type the whole avartanam's swara in one go, or recite it by voice a few short phrases at a time — either way, it'll be split across this line's cells by each cell's own capacity once you click Fill. Sahitya is untouched. Voice recitation only ever matches this kriti's own raga (its arohanam/avarohanam in Song Details) — a swara that raga never uses is never added, even if something sounds a bit like it.
-    </div>
-    <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
-      <button class="btn small" id="fillSwaraMicBtn" type="button">
-        <svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3a2.5 2.5 0 00-2.5 2.5v4a2.5 2.5 0 005 0v-4A2.5 2.5 0 0010 3z"/><path d="M5.5 9.5a4.5 4.5 0 009 0M10 14v3"/></svg>
-        Recite a phrase
-      </button>
-      <span class="quota-text" id="fillSwaraMicStatus" style="font-size:12px;"></span>
+      Type the whole avartanam's swara in one go — it'll be split across this line's cells by each cell's own capacity once you click Fill. Sahitya is untouched.
     </div>
     <textarea id="fillSwaraInput" placeholder="e.g. S R G M P D N S' S' N D P M G R" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off" style="width:100%; min-height:70px; padding:9px 11px; border:1px solid var(--line); border-radius:var(--radius-sm); font-family:'Courier Prime',monospace; font-size:14px; resize:vertical;"></textarea>
-    <div class="quota-text" style="margin-top:6px; font-size:11.5px;">
-      Voice recitation is a best-effort draft, not a sure thing — say each swara name clearly (sa, ri, ga, ma, pa, da, ni), pausing naturally between phrases; it keeps listening through those pauses until you click the mic again, so you don't need to restart it after every short phrase. The live "Hearing…" text shows what's being picked up as you speak, so you can tell right away if something got dropped and just redo that bit — if a phrase doesn't sound like swara names at all, nothing gets added rather than guessing. Review what lands here and fix anything wrong before clicking Fill. Reciting again adds on to what's already here rather than replacing it, so you can build up a full avartanam a short phrase at a time.
-    </div>
     <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:14px;">
       <button class="btn small" id="fillSwaraCancelBtn">Cancel</button>
       <button class="btn small primary" id="fillSwaraSubmitBtn">Fill</button>
@@ -5415,73 +5405,10 @@ function fillLineSwaraFromText(line, text, cfg){
   });
   return cellTexts.length;
 }
-/* Best-effort speech-to-swara decoder — NOT a general speech-to-text feature, deliberately
-   narrow: it only ever tries to recognize the 7 swara names (sa/ri/ga/ma/pa/da/ni) and a
-   handful of their common mishearings, scanning the recognized text as one continuous
-   stream rather than trusting the recognizer's own word boundaries (browser speech
-   recognition segments words for normal English sentences, not a repeated 7-syllable set
-   recited rhythmically — "sa ri ga ma" can easily come back as one glued-together word).
-   Each swara's patterns are checked longest-first so e.g. "dha" matches before a shorter
-   overlapping pattern could eat into it. All 7 swara names start with a distinct
-   consonant (S/R/G/M/P/D/N — the same 7 letters used in the notation itself), which is
-   what makes this tractable at all: there's no cross-swara ambiguity to resolve, only
-   each swara's own handful of spelling variants. Characters that don't match anything are
-   simply skipped rather than guessed at — better to drop an unrecognized fragment than
-   insert a wrong note silently. This is exactly why the result lands in an editable box
-   for review before anything is actually written to a cell, not applied automatically. */
-const SWARA_SPEECH_PATTERNS = [
-  ['S', ['sa','saa','saw','sir','suh']],
-  ['R', ['ri','re','ree','rhi','rey','rhee','wri','ray','rii']],
-  ['G', ['ga','gaa','gah','guh']],
-  ['M', ['ma','maa','mah','muh']],
-  ['P', ['pa','paa','paw','pah','puh']],
-  ['D', ['dha','da','daa','duh','tha']],
-  ['N', ['nee','ni','knee','nih']],
-].map(([letter, patterns]) => [letter, patterns.slice().sort((a,b)=>b.length-a.length)]);
-function decodeSpeechPhraseToSwara(transcript, scale){
-  const normalized = (transcript || '').toLowerCase().replace(/[^a-z]/g, '');
-  const letters = [];
-  let matchedChars = 0;
-  let skippedChars = 0;
-  let i = 0;
-  outer:
-  while(i < normalized.length){
-    for(const [letter, patterns] of SWARA_SPEECH_PATTERNS){
-      // If this raga's arohanam/avarohanam is known and never uses this letter at all,
-      // don't even try to match it here — a raga without N should never let a stray "ni"
-      // sneak in just because it sounded similar to something. Restricting the candidate
-      // set to only this raga's own notes also means what lands in the box is already the
-      // set you'd actually check against the raga, so review/correction is quicker.
-      if(scale && scale.size && !scale.has(letter)) continue;
-      for(const p of patterns){ // sorted longest-first above, so "daa"/"dha" never lose to a shorter overlapping match like "da"
-        if(normalized.startsWith(p, i)){
-          letters.push(letter);
-          matchedChars += p.length;
-          i += p.length;
-          continue outer;
-        }
-      }
-    }
-    skippedChars++; // nothing matched at this position — skip one character and keep scanning
-    i++;
-  }
-  // If less than half of what was heard actually matched a swara sound, this was very
-  // likely the recognizer completely mishearing an unrelated sentence rather than swara
-  // names with a few dropped syllables — accepting the handful of coincidental substring
-  // matches buried in that (e.g. a stray "ma" inside some other word) would silently inject
-  // wrong notes, which is worse than adding nothing. Treat the whole phrase as not
-  // understood instead of returning a partial guess in that case.
-  if(normalized.length > 0 && matchedChars / normalized.length < 0.5){
-    return { swara: '', skippedChars: normalized.length };
-  }
-  return { swara: letters.join(' '), skippedChars };
-}
-
 let fillSwaraTargetLine = null;
 function openFillSwaraModal(line, cfg){
   fillSwaraTargetLine = line;
   document.getElementById('fillSwaraInput').value = '';
-  setFillSwaraMicStatus('');
   document.getElementById('fillSwaraOverlay').classList.add('show');
   document.getElementById('fillSwaraInput').focus();
 }
@@ -9440,102 +9367,6 @@ function openEditFileDetailsModal(fileId){
   document.getElementById('efdComposer').value = p.composer || '';
   document.getElementById('editFileDetailsOverlay').classList.add('show');
 }
-/* Web Speech API — continuous listening while the mic button is toggled on, so you can
-   recite several short phrases with natural pauses between them without the session
-   cutting out after the first one; matching the intended workflow of building up a whole
-   avartanam a few swara at a time. Each finalized phrase APPENDS to whatever's already in
-   the textarea instead of replacing it. Several browsers still end a "continuous" session
-   on their own after a pause or a transient hiccup even though continuous=true was
-   requested — onend below tells apart that unwanted auto-stop from a real stop (you
-   clicking the mic again, or a hard error like permission denied) and silently restarts
-   listening in the former case, so recitation doesn't quietly go deaf mid-line. */
-const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
-let fillSwaraRecognizer = null;
-let fillSwaraListening = false;
-let fillSwaraStopRequested = false; // true once the user clicks the mic to stop, or on a hard error — tells onend not to auto-restart
-function setFillSwaraMicStatus(text){
-  const el = document.getElementById('fillSwaraMicStatus');
-  if(el) el.textContent = text;
-}
-function stopFillSwaraListening(){
-  fillSwaraStopRequested = true;
-  fillSwaraListening = false;
-  document.getElementById('fillSwaraMicBtn').classList.remove('playing-active');
-  if(fillSwaraRecognizer){ try{ fillSwaraRecognizer.stop(); }catch(e){} }
-}
-document.getElementById('fillSwaraMicBtn').onclick = () => {
-  if(!SpeechRecognitionCtor){
-    setFillSwaraMicStatus('Voice recitation isn\u2019t supported in this browser \u2014 try Chrome or Edge, or just type instead.');
-    return;
-  }
-  if(fillSwaraListening){ stopFillSwaraListening(); return; }
-  fillSwaraStopRequested = false;
-  const ragaScale = getRagaScale(getSong());
-  fillSwaraRecognizer = new SpeechRecognitionCtor();
-  fillSwaraRecognizer.lang = 'en-IN';
-  fillSwaraRecognizer.continuous = true;
-  fillSwaraRecognizer.interimResults = true;
-  fillSwaraRecognizer.maxAlternatives = 1;
-  fillSwaraListening = true;
-  document.getElementById('fillSwaraMicBtn').classList.add('playing-active');
-  setFillSwaraMicStatus(ragaScale.size
-    ? `Listening\u2026 only matching this raga's own notes (${Array.from(ragaScale).sort().join(' ')}) \u2014 it keeps listening through pauses, click the mic again when you\u2019re done`
-    : 'Listening\u2026 this kriti has no arohanam/avarohanam set yet, so every swara is accepted \u2014 fill those in Song Details to narrow recitation to just this raga\u2019s notes \u2014 click the mic again when you\u2019re done');
-  fillSwaraRecognizer.onresult = (event) => {
-    // event.resultIndex marks where the NEW results in this batch start — continuous mode
-    // can accumulate several recognized phrases over one listening session, so this avoids
-    // re-processing ones already handled by an earlier onresult call.
-    for(let ri = event.resultIndex; ri < event.results.length; ri++){
-      const result = event.results[ri];
-      const transcript = result[0].transcript;
-      if(!result.isFinal){
-        // Live feedback while you're still speaking — lets you hear-what-it's-hearing in
-        // real time rather than only finding out after the fact.
-        setFillSwaraMicStatus(`Hearing\u2026 "${transcript}"`);
-        continue;
-      }
-      const { swara: decoded, skippedChars } = decodeSpeechPhraseToSwara(transcript, ragaScale);
-      const inputEl = document.getElementById('fillSwaraInput');
-      if(decoded){
-        inputEl.value = (inputEl.value.trim() ? inputEl.value.trim() + ' ' : '') + decoded;
-        // A run of characters that never matched any swara name is a real signal something
-        // in the middle of what you said didn't come through cleanly — surfaced immediately
-        // rather than only becoming obvious later when a cell count looks short.
-        const note = skippedChars > 2 ? ' \u2014 part of that didn\u2019t sound like a swara name in this raga; check nothing\u2019s missing before filling' : '';
-        setFillSwaraMicStatus(`Heard "${transcript}" \u2192 added: ${decoded}${note} \u2014 still listening\u2026`);
-      } else {
-        setFillSwaraMicStatus(`Heard "${transcript}" \u2014 didn\u2019t sound like this raga's swara names, nothing added \u2014 still listening\u2026`);
-      }
-    }
-  };
-  fillSwaraRecognizer.onerror = (event) => {
-    if(event.error === 'not-allowed' || event.error === 'service-not-allowed' || event.error === 'audio-capture'){
-      // Hard failures — retrying won't help, so stop for real and say why.
-      fillSwaraStopRequested = true;
-      setFillSwaraMicStatus(event.error === 'not-allowed' ? 'Microphone permission was denied.' : `Couldn\u2019t hear that (${event.error}) \u2014 try again.`);
-    } else if(event.error !== 'no-speech' && event.error !== 'aborted'){
-      setFillSwaraMicStatus(`Hiccup (${event.error}) \u2014 still listening, go ahead.`);
-    }
-    // 'no-speech' and 'aborted' are routine pauses, not real problems — say nothing and let
-    // onend's auto-restart below keep the session going without interrupting you.
-  };
-  fillSwaraRecognizer.onend = () => {
-    if(fillSwaraListening && !fillSwaraStopRequested){
-      // The browser ended the session on its own (a pause, or a transient hiccup) even
-      // though continuous listening was requested and you haven't clicked Stop — resume
-      // right away instead of silently going quiet.
-      try{ fillSwaraRecognizer.start(); }catch(e){
-        fillSwaraListening = false;
-        document.getElementById('fillSwaraMicBtn').classList.remove('playing-active');
-        setFillSwaraMicStatus('Listening stopped \u2014 click the mic to start again.');
-      }
-    } else {
-      fillSwaraListening = false;
-      document.getElementById('fillSwaraMicBtn').classList.remove('playing-active');
-    }
-  };
-  try{ fillSwaraRecognizer.start(); }catch(e){ stopFillSwaraListening(); setFillSwaraMicStatus('Could not start listening \u2014 try again.'); }
-};
 
 document.getElementById('closeFillSahityaModeBtn').onclick = () => document.getElementById('fillSahityaModeOverlay').classList.remove('show');
 document.getElementById('closeFillLineSahityaBtn').onclick = document.getElementById('fillLineSahityaCancelBtn').onclick = () => {
@@ -9555,13 +9386,11 @@ document.getElementById('fillLineSahityaSubmitBtn').onclick = () => {
   showToast('Filled \u2014 check the \u26A0 badges for any cell that needs a held-note dash added');
 };
 document.getElementById('closeFillSwaraBtn').onclick = document.getElementById('fillSwaraCancelBtn').onclick = () => {
-  stopFillSwaraListening();
   document.getElementById('fillSwaraOverlay').classList.remove('show');
   fillSwaraTargetLine = null;
 };
 document.getElementById('fillSwaraSubmitBtn').onclick = () => {
   if(!fillSwaraTargetLine) return;
-  stopFillSwaraListening();
   const text = document.getElementById('fillSwaraInput').value;
   if(!text.trim()){ showToast('Type some swara first'); return; }
   const cfg = TALAS[getSong().tala] || TALAS.adi;
