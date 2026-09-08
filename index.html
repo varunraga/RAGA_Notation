@@ -1328,9 +1328,17 @@
       <button class="btn small icon-btn" id="closeFillSahityaModeBtn"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 5l10 10M15 5L5 15"/></svg></button>
     </div>
     <div class="quota-text" id="fillSahityaModeIntro" style="margin-bottom:14px;"></div>
-    <div style="display:flex; flex-direction:column; gap:8px;">
-      <button class="btn" id="fillSahityaRepeatBtn">Repeat for every line — sangati variants of the same phrase</button>
-      <button class="btn" id="fillSahityaSequentialBtn">Split across lines in order — lyrics continue over multiple avartanams</button>
+    <div class="fieldwrap">
+      <label>From — typed lyric line</label>
+      <select id="fillSahityaFromPicker"></select>
+    </div>
+    <div class="fieldwrap">
+      <label>To — notation line</label>
+      <select id="fillSahityaLinePicker"></select>
+    </div>
+    <div style="display:flex; flex-direction:column; gap:8px; margin-top:10px;">
+      <button class="btn" id="fillSahityaRepeatBtn">Fill one line — just the From line into just the To line</button>
+      <button class="btn" id="fillSahityaSequentialBtn">Fill line-by-line — From line onward, one typed line per notation line in order</button>
     </div>
   </div>
 </div>
@@ -5460,52 +5468,101 @@ function openFillSwaraModal(line, cfg){
   document.getElementById('fillSwaraOverlay').classList.add('show');
   document.getElementById('fillSwaraInput').focus();
 }
-/* Splits one section's plain lyrics across ALL of its lines at once, treating every line's
-   cells as ONE continuous capacity sequence spanning the whole section — for when the
-   lyrics genuinely continue across multiple avartanams (a Charanam with several lines of
-   DIFFERENT sahitya, not the same phrase sung several ways). This is the other real case
-   fillSectionFromPlainLyricsPrompt has to choose between: sangati variants (below) all
-   share one phrase and each get the FULL text; a multi-avartanam passage instead needs the
-   text divided BETWEEN the lines, in order, or every line would end up with everything. */
-function fillSectionLyricsSequentially(sec, words, cfg){
-  const syllables = words.flatMap(w => syllabifyWord(w));
-  const allCaps = [];
-  sec.lines.forEach(line => { line.rows.forEach(()=> allCaps.push(...cfg.rowCells)); });
-  const flatLyrics = distributeImportWordsByWeight(syllables, allCaps);
-  let idx = 0;
-  sec.lines.forEach(line=>{
-    line.rows.forEach(row=>{
-      const n = cfg.rowCells.length;
-      row.lyric = flatLyrics.slice(idx, idx+n);
-      idx += n;
-    });
+/* Splits the section's plain-lyrics textarea into its own typed lines (by newline) — each
+   typed line is treated as ONE complete avartanam's own lyrics, belonging entirely to one
+   notation line. This is the fix for the real bug reported: filling "notation line 1" used
+   to pull from the ENTIRE textarea's words with newlines ignored, so a short first typed
+   line would run out and silently continue eating words typed on the next line down.
+   fillSectionFromPlainLyricsPrompt below sources words from exactly one typed line ("Fill
+   one line") or maps a run of typed lines onto a run of notation lines one-to-one ("Fill
+   line-by-line") — never a flattened pool spanning multiple typed lines. */
+function sectionPlainLyricLines(sec){
+  return (sec.sahitya || '').split('\n').map(l => l.trim()).filter(Boolean);
+}
+// Maps typed lyric lines onto notation lines strictly one-to-one, in order: typed line
+// `fromIdx` -> notation line `toIdx`, `fromIdx+1` -> `toIdx+1`, and so on — NOT a shared
+// pool of words distributed by capacity across all the target lines combined. This matches
+// how lines actually get typed in practice: each typed line is one complete avartanam's
+// own lyrics, so it belongs entirely in one notation line, never blended with its
+// neighbors. Returns how many typed lines had no notation line left to receive them (0 if
+// everything fit), so the caller can warn instead of silently dropping text.
+function fillLinesOneToOne(sec, plainLines, fromIdx, cfg, toIdx){
+  const src = plainLines.slice(fromIdx);
+  let placed = 0;
+  src.forEach((text, offset)=>{
+    const targetLine = sec.lines[toIdx + offset];
+    if(!targetLine) return;
+    fillLineLyricsFromWords(targetLine, text.split(/\s+/).filter(Boolean), cfg);
+    placed++;
   });
+  return src.length - placed; // count of typed lines left over with no line to go in
+}
+// True only when every cell in every row of the line is blank — used to pick a sensible
+// default target line in the picker below (the first line that hasn't been filled yet),
+// matching the way lines actually get typed in practice: one at a time, top to bottom.
+function isLineLyricsEmpty(line){
+  return line.rows.every(row => (row.lyric || []).every(c => !String(c || '').trim()));
 }
 function fillSectionFromPlainLyricsPrompt(sec, cfg){
-  const words = (sec.sahitya || '').trim().split(/\s+/).filter(Boolean);
-  if(!words.length){ showToast('Type the plain lyrics above first'); return; }
+  const plainLines = sectionPlainLyricLines(sec);
+  if(!plainLines.length){ showToast('Type the plain lyrics above first'); return; }
   if(!sec.lines.length){ showToast('Add a line first'); return; }
   const finish = (msg) => { queueSave(); renderSections(); showToast(msg); };
-  if(sec.lines.length === 1){
-    // Only one line — "repeat" and "split across lines" produce the exact same result, so
-    // there's nothing to choose; and for just one specific line generally, that line's own
-    // "Fill sahitya" button (see fillSahityaLine wiring) is the more direct route anyway.
+  if(plainLines.length === 1 && sec.lines.length === 1){
+    // Nothing to pick in either direction — one typed line, one notation line.
     if(!confirm(`Fill this line in "${sec.name || 'this section'}" from the plain lyrics above? This replaces its current sahitya cells (swara is untouched).`)) return;
-    fillLineLyricsFromWords(sec.lines[0], words, cfg);
+    fillLineLyricsFromWords(sec.lines[0], plainLines[0].split(/\s+/).filter(Boolean), cfg);
     finish('Filled \u2014 check the \u26A0 badges for any cell that needs a held-note dash added');
     return;
   }
+  // Re-read sec.sahitya / sec.lines fresh every time this modal opens (never cached from an
+  // earlier open), so both counts and both pickers below always reflect exactly what's typed
+  // and what notation lines exist right now — deleting a typed line or a notation line and
+  // reopening this immediately shows the new counts.
   document.getElementById('fillSahityaModeIntro').textContent =
-    `"${sec.name || 'This section'}" has ${sec.lines.length} lines. Repeat this text on every one (sangati variants), or split it across them in sequence (lyrics that continue over multiple avartanams)? To fill just one specific line instead, use that line's own "Fill sahitya" button.`;
+    `"${sec.name || 'This section'}" currently has ${plainLines.length} line${plainLines.length===1?'':'s'} of lyrics typed above, and ${sec.lines.length} notation line${sec.lines.length===1?'':'s'} below. Pick a typed line (From) and a notation line (To): "Fill one line" puts just that typed line into just that notation line; "Fill line-by-line" places that typed line and every typed line after it into that notation line and every notation line after it, matched one-to-one in order.`;
+
+  const fromPicker = document.getElementById('fillSahityaFromPicker');
+  fromPicker.innerHTML = '';
+  const toPicker = document.getElementById('fillSahityaLinePicker');
+  toPicker.innerHTML = '';
+  toPicker.appendChild(new Option('All lines (repeat the same typed line on every one)', 'all'));
+
+  let defaultToIdx = sec.lines.findIndex(isLineLyricsEmpty);
+  if(defaultToIdx === -1) defaultToIdx = sec.lines.length - 1;
+  const defaultFromIdx = Math.min(defaultToIdx, plainLines.length - 1);
+
+  plainLines.forEach((text, i)=>{
+    const preview = text.length > 42 ? text.slice(0, 42) + '\u2026' : text;
+    const opt = new Option(`Typed line ${i+1}: "${preview}"`, String(i));
+    if(i === defaultFromIdx) opt.selected = true;
+    fromPicker.appendChild(opt);
+  });
+  sec.lines.forEach((line, li)=>{
+    const label = `Line ${li+1}${line.label ? ' — ' + line.label : ''}${isLineLyricsEmpty(line) ? ' (empty)' : ''}`;
+    const opt = new Option(label, String(li));
+    if(li === defaultToIdx) opt.selected = true;
+    toPicker.appendChild(opt);
+  });
+
   document.getElementById('fillSahityaModeOverlay').classList.add('show');
   document.getElementById('fillSahityaRepeatBtn').onclick = () => {
     document.getElementById('fillSahityaModeOverlay').classList.remove('show');
-    sec.lines.forEach(line => fillLineLyricsFromWords(line, words, cfg));
+    const fromIdx = Number(fromPicker.value);
+    const words = plainLines[fromIdx].split(/\s+/).filter(Boolean);
+    const sel = toPicker.value;
+    if(sel === 'all') sec.lines.forEach(line => fillLineLyricsFromWords(line, words, cfg));
+    else fillLineLyricsFromWords(sec.lines[Number(sel)], words, cfg);
     finish('Filled \u2014 check the \u26A0 badges for any cell that needs a held-note dash added');
   };
   document.getElementById('fillSahityaSequentialBtn').onclick = () => {
     document.getElementById('fillSahityaModeOverlay').classList.remove('show');
-    fillSectionLyricsSequentially(sec, words, cfg);
+    const fromIdx = Number(fromPicker.value);
+    const sel = toPicker.value;
+    const leftover = fillLinesOneToOne(sec, plainLines, fromIdx, cfg, sel === 'all' ? 0 : Number(sel));
+    finish(leftover > 0
+      ? `Filled \u2014 ${leftover} typed line${leftover===1?' had':'s had'} no notation line left to go in; add ${leftover===1?'a line':'more lines'} and run this again to place ${leftover===1?'it':'them'}.`
+      : 'Filled \u2014 check the \u26A0 badges for any cell that needs a held-note dash added');
     finish('Filled \u2014 check the \u26A0 badges for any cell that needs a held-note dash added');
   };
 }
@@ -7863,8 +7920,8 @@ function renderLines(host, sec, cfg, kalai){
       <div class="line-top">
         <input class="label" placeholder="1)" value="${escapeHtml(line.label)}" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off">
         <button class="btn small icon-only" data-act="play" title="Play this line (prototype — synthesized/sampled tone, not a real instrument)" data-play-title="Play this line (prototype — synthesized/sampled tone, not a real instrument)"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4.5v11l9-5.5-9-5.5z"/></svg></button>
-        <button class="btn small icon-only" data-act="fillSwaraLine" title="Fill swara for this line — type or recite a whole avartanam and split it across this line's cells"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h9M4 10h5M4 15h7"/><path d="M14 13l3 3 4-4" stroke-width="2"/></svg></button>
-        <button class="btn small icon-only" data-act="fillSahityaLine" title="Fill sahitya for this line — type the words and split them across this line's cells, syllable by syllable"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h12M4 10h8M4 14h10"/></svg></button>
+        <button class="btn small" data-act="fillSwaraLine" title="Fill swara for this line — type or recite a whole avartanam and split it across this line's cells"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h9M4 10h5M4 15h7"/><path d="M14 13l3 3 4-4" stroke-width="2"/></svg> Fill Swara</button>
+        <button class="btn small" data-act="fillSahityaLine" title="Fill sahitya for this line — type the words and split them across this line's cells, syllable by syllable"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h12M4 10h8M4 14h10"/></svg> Fill Sahitya</button>
         <div class="spacer"></div>
         <button class="btn small icon-only" data-act="undo" title="Undo (Ctrl+Z)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg></button>
         <button class="btn small icon-only" data-act="redo" title="Redo (Ctrl+Y)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg></button>
