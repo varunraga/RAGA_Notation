@@ -953,6 +953,26 @@
   }
   .floating-stop-btn:hover{ filter:brightness(0.94); }
 
+  /* Multi-line selection bar — top-center specifically because both bottom corners are
+     already claimed (playback bottom-right, raga-variant nav bottom-left), and unlike
+     those two this needs to stay reachable no matter how far down the page a long kriti's
+     lines scroll. */
+  .line-select-bar{
+    position:fixed; top:14px; left:50%; transform:translateX(-50%); z-index:70;
+    display:flex; align-items:center; gap:8px; padding:8px 14px; border-radius:999px;
+    background:var(--ink); color:var(--paper); box-shadow:0 6px 20px rgba(0,0,0,0.28);
+    font-size:12.5px; font-weight:700; font-family:'Inter',sans-serif; flex-wrap:wrap; justify-content:center;
+  }
+  .line-select-bar button{
+    display:flex; align-items:center; gap:5px; padding:6px 11px; border-radius:999px; border:none;
+    background:rgba(255,255,255,0.16); color:var(--paper); font-size:12px; font-weight:700;
+    cursor:pointer; font-family:'Inter',sans-serif; white-space:nowrap;
+  }
+  .line-select-bar button:hover:not(:disabled){ background:rgba(255,255,255,0.28); }
+  .line-select-bar button:disabled{ opacity:0.35; cursor:not-allowed; }
+  .lineSelectCheck{ width:16px; height:16px; cursor:pointer; accent-color:var(--brand-blue); flex-shrink:0; margin-right:2px; }
+  .line-row.line-row-selected{ box-shadow:0 0 0 2px var(--brand-blue); border-radius:var(--radius-sm); }
+
   /* Bottom-LEFT, not bottom-right — the floating playback bar already
      occupies that corner during active playback, and this needs to stay
      visible independently of that (unlike playback, which is transient,
@@ -1276,6 +1296,14 @@
   <main class="main" id="main"></main>
 </div>
 <div class="toast" id="toast"></div>
+<div class="line-select-bar" id="lineSelectBar" style="display:none;">
+  <span id="lineSelectCount">0 lines selected</span>
+  <button id="lineSelMoveUpBtn" title="Move the selected lines up — only works for one unbroken block within a single section">&#8593; Move up</button>
+  <button id="lineSelMoveDownBtn" title="Move the selected lines down — only works for one unbroken block within a single section">&#8595; Move down</button>
+  <button id="lineSelCopyBtn" title="Copy the selected lines — paste them into any section from that section's Other actions menu">Copy</button>
+  <button id="lineSelCutBtn" title="Cut the selected lines out — paste them into any section (including a new one) from that section's Other actions menu">Cut</button>
+  <button id="lineSelClearBtn" title="Clear this selection">Clear</button>
+</div>
 <div class="floating-playback-bar" id="floatingPlaybackBar" style="display:none;">
   <div class="floating-tempo">
     <span id="floatingTempoLabel">120</span>/min
@@ -1373,6 +1401,24 @@
     <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:14px;">
       <button class="btn small" id="fillLineSahityaCancelBtn">Cancel</button>
       <button class="btn small primary" id="fillLineSahityaSubmitBtn">Fill</button>
+    </div>
+  </div>
+</div>
+
+<div class="quota-overlay" id="splitSectionOverlay">
+  <div class="quota-modal">
+    <div class="quota-modal-head">
+      <div class="quota-modal-title">Split section here</div>
+      <button class="btn small icon-btn" id="closeSplitSectionBtn"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 5l10 10M15 5L5 15"/></svg></button>
+    </div>
+    <div class="quota-text" id="splitSectionIntro" style="margin-bottom:14px;"></div>
+    <div class="fieldwrap">
+      <label>New section name</label>
+      <input type="text" id="splitSectionNameInput" placeholder="e.g. Anupallavi" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off">
+    </div>
+    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:14px;">
+      <button class="btn small" id="splitSectionCancelBtn">Cancel</button>
+      <button class="btn small primary" id="splitSectionSubmitBtn">Split</button>
     </div>
   </div>
 </div>
@@ -2260,6 +2306,31 @@ function initDriveTokenClient(){
       // needs the token renewed, not the whole setup flow repeated.
       if(!hadTokenAlready) setupDriveFolder();
     },
+    // Catches the OTHER failure shape GIS can produce: the popup itself never opened, or
+    // got closed before finishing — NOT an OAuth error, so it never reaches the callback
+    // above at all. Without this, that case fails completely silently: no toast, no
+    // console entry, nothing — which is exactly what "the Connect/Sync button just doesn't
+    // do anything" on iPad/iOS Safari looks like, since Safari (especially its default
+    // pop-up blocking, and even more so inside an installed home-screen web app, where
+    // window.open() has no popup to open into at all) is the browser most likely to block
+    // this popup outright.
+    error_callback: (err)=>{
+      driveConnectInFlight = false;
+      const pendingResolvers = drivePendingRefreshResolvers;
+      drivePendingRefreshResolvers = [];
+      pendingResolvers.forEach(resolve=> resolve(false));
+      console.error('[drive auth] popup error:', err);
+      if(!driveConnectAttemptWasInteractive) return; // same rule as above — never alarm anyone over a silent background attempt
+      if(err && err.type === 'popup_failed_to_open'){
+        showToast(isStandaloneIOSApp()
+          ? 'Google Drive can\u2019t open its sign-in window from the home-screen app icon on iOS \u2014 open this site in Safari itself once to connect, then it\u2019ll keep working from the home-screen app too.'
+          : 'Google couldn\u2019t open its sign-in window \u2014 check Safari isn\u2019t blocking pop-ups for this site (Settings \u2192 Safari \u2192 Block Pop-ups, or the \"aA\" menu \u2192 Website Settings here), then try again.');
+      } else if(err && err.type === 'popup_closed'){
+        showToast('Sign-in window closed before finishing \u2014 try again and complete the Google sign-in.');
+      } else {
+        showToast('Google Drive sign-in failed \u2014 try again');
+      }
+    },
   });
 }
 
@@ -2283,9 +2354,30 @@ function initDriveTokenClient(){
    from another device at all, regardless of how correct the actual sync
    logic is). */
 let driveConnectInFlight = false; // hard lock — see connectDrive() below
+// iOS's "Add to Home Screen" apps run in a stripped-down browser context (no tabs, no
+// window management), so window.open() — which is what GIS's popup sign-in flow uses
+// internally — has nothing to open into and just does nothing at all. Detected via the
+// classic navigator.standalone flag (iOS Safari) or the display-mode media query (covers
+// the same case more portably). This is a genuine WebKit platform limitation, not a bug
+// in this app's code: the very first Drive connection has to happen from an ordinary
+// Safari tab, where a popup can actually appear; after that, the saved token/refresh cycle
+// works fine from the home-screen icon too, since it's the same underlying browser engine
+// and storage.
+function isStandaloneIOSApp(){
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isStandalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+  return isIOS && isStandalone;
+}
 function connectDrive(interactive){
   if(!window.google || !google.accounts || !google.accounts.oauth2){
     if(interactive) showToast('Google sign-in library not loaded yet — try again in a moment');
+    return;
+  }
+  if(interactive && isStandaloneIOSApp()){
+    // Don't even attempt requestAccessToken() here — on this exact platform/mode
+    // combination it's guaranteed to silently fail (see isStandaloneIOSApp above), so
+    // saying so up front beats waiting for a vague failure.
+    showToast('Google Drive can\u2019t open its sign-in window from the home-screen app icon on iOS \u2014 open this site in Safari itself once to connect, then it\u2019ll keep working from the home-screen app too.');
     return;
   }
   // Structurally prevents two token requests from ever being in flight at
@@ -2977,6 +3069,144 @@ function blankLine(cfg, kalai){
 function blankSection(name, cfg, kalai, isFirst){
   return { name, sahitya: '', lines: [ blankLine(cfg, kalai), blankLine(cfg, kalai) ], showPallaviRef: !isFirst, pallaviOverride: '', noSahitya: false };
 }
+/* Splits an existing section into two right at a chosen line — for when you realize partway
+   through typing (e.g. a Charanam that actually starts a new named part, or a Pallavi that
+   turns out to need its own Anupallavi break) that a new section should have started here.
+   Everything from the chosen line onward moves into a brand-new section, inserted directly
+   after the original in song.sections; everything above stays exactly where it is. Shares
+   the same section shape blankSection() above uses so the new section behaves identically
+   to one made via "+ Add section" — just pre-populated with the lines being moved instead
+   of starting blank. */
+let splitSectionTarget = null; // { sec, li } while the modal is open
+function openSplitSectionModal(sec, li){
+  if(li === 0){
+    // Nothing above this line to keep in the original section — that's not a split, it's
+    // just renaming the whole section, so point at the more direct route instead.
+    showToast('This is already the first line \u2014 rename the section itself instead of splitting here.');
+    return;
+  }
+  splitSectionTarget = { sec, li };
+  const movedCount = sec.lines.length - li;
+  document.getElementById('splitSectionIntro').textContent =
+    `This line and everything below it (${movedCount} line${movedCount===1?'':'s'}) will move into a brand-new section placed right after "${sec.name || 'this section'}". The lines above stay right where they are.`;
+  document.getElementById('splitSectionNameInput').value = '';
+  document.getElementById('splitSectionOverlay').classList.add('show');
+  document.getElementById('splitSectionNameInput').focus();
+}
+function closeSplitSectionModal(){
+  document.getElementById('splitSectionOverlay').classList.remove('show');
+  splitSectionTarget = null;
+}
+function applySplitSection(){
+  if(!splitSectionTarget) return;
+  const { sec, li } = splitSectionTarget;
+  const song = getSong();
+  const si = song.sections.indexOf(sec);
+  if(si === -1){ closeSplitSectionModal(); return; } // section no longer exists (shouldn't happen, but don't act on a stale reference)
+  const name = document.getElementById('splitSectionNameInput').value.trim() || 'New section';
+  const movedLines = sec.lines.splice(li);
+  const newSection = { name, sahitya: '', lines: movedLines, showPallaviRef: false, pallaviOverride: '', noSahitya: sec.noSahitya };
+  song.sections.splice(si+1, 0, newSection);
+  closeSplitSectionModal();
+  queueSave();
+  renderSections();
+  showToast(`Split \u2014 "${name}" created with ${movedLines.length} line${movedLines.length===1?'':'s'}`);
+}
+
+/* Multi-line select / move / cut / copy / paste — lets several lines (each one's full
+   swara AND sahitya, they're just properties of the same line object, never handled
+   separately) be moved as a block or relocated to a different section, including a brand
+   new one made via "+ Add section". selectedLines holds the actual line OBJECT references
+   (not indexes or ids, since none exist) — this is what makes selection survive a
+   renderSections() rebuild: splice/reinsert moves the same objects around without ever
+   cloning them, so `selectedLines.has(line)` still resolves correctly after a full
+   re-render, and the checkboxes redraw themselves checked in the right place automatically. */
+let selectedLines = new Set();
+let lineClipboard = []; // deep-cloned line objects, ready to paste into any section — survives across sections and renders until the next Cut/Copy overwrites it
+function toggleLineSelection(line, checked){
+  if(checked) selectedLines.add(line); else selectedLines.delete(line);
+  updateLineSelectBar();
+}
+function clearLineSelection(){
+  selectedLines.clear();
+  updateLineSelectBar();
+  document.querySelectorAll('.line-row.line-row-selected').forEach(el=> el.classList.remove('line-row-selected'));
+  document.querySelectorAll('.lineSelectCheck').forEach(cb=>{ cb.checked = false; });
+}
+/* Move only ever makes sense for ONE unbroken run of lines within a SINGLE section — "move
+   up/down" is inherently a same-array, same-order operation. A selection spanning more than
+   one section, or with a gap in the middle, still supports Cut/Copy (which don't care about
+   contiguity) but not Move; this returns null in either of those cases so the Move buttons
+   know to disable themselves rather than doing something the selection doesn't support. */
+function getSelectionMoveContext(){
+  const song = getSong();
+  if(!song || !selectedLines.size) return null;
+  let ownerSec = null;
+  for(const sec of song.sections){
+    const hasAny = sec.lines.some(l => selectedLines.has(l));
+    if(hasAny){
+      if(ownerSec) return null; // selection spans more than one section
+      ownerSec = sec;
+    }
+  }
+  if(!ownerSec) return null;
+  const idxs = ownerSec.lines.map((l,i)=>i).filter(i=> selectedLines.has(ownerSec.lines[i]));
+  for(let i=1;i<idxs.length;i++){ if(idxs[i] !== idxs[i-1]+1) return null; } // gap — not one unbroken block
+  return { sec: ownerSec, start: idxs[0], end: idxs[idxs.length-1] };
+}
+function updateLineSelectBar(){
+  const bar = document.getElementById('lineSelectBar');
+  const n = selectedLines.size;
+  bar.style.display = n ? 'flex' : 'none';
+  if(!n) return;
+  document.getElementById('lineSelectCount').textContent = `${n} line${n===1?'':'s'} selected`;
+  const ctx = getSelectionMoveContext();
+  document.getElementById('lineSelMoveUpBtn').disabled = !ctx || ctx.start === 0;
+  document.getElementById('lineSelMoveDownBtn').disabled = !ctx || ctx.end === ctx.sec.lines.length - 1;
+}
+function moveSelectedLines(dir){ // dir: -1 up, +1 down
+  const ctx = getSelectionMoveContext();
+  if(!ctx){ showToast('Select one unbroken block of lines within a single section to move them \u2014 for a scattered selection, use Cut/Copy and Paste instead.'); return; }
+  const { sec, start, end } = ctx;
+  if(dir < 0 && start === 0) return;
+  if(dir > 0 && end === sec.lines.length - 1) return;
+  const block = sec.lines.splice(start, end - start + 1);
+  sec.lines.splice(dir < 0 ? start - 1 : start + 1, 0, ...block);
+  queueSave(); renderSections();
+}
+function cutSelectedLines(){
+  if(!selectedLines.size) return;
+  const song = getSong();
+  const cut = [];
+  song.sections.forEach(sec=>{
+    const idxs = sec.lines.map((l,i)=>i).filter(i=> selectedLines.has(sec.lines[i]));
+    idxs.slice().sort((a,b)=>b-a).forEach(i=>{ cut.push(sec.lines[i]); sec.lines.splice(i,1); }); // descending so earlier splices don't shift later indexes
+  });
+  lineClipboard = cut.map(l=> JSON.parse(JSON.stringify(l)));
+  clearLineSelection();
+  queueSave(); renderSections();
+  showToast(`Cut ${lineClipboard.length} line${lineClipboard.length===1?'':'s'} \u2014 open any section's Other actions menu (including a brand-new one) and choose Paste to move ${lineClipboard.length===1?'it':'them'} there`);
+}
+function copySelectedLines(){
+  if(!selectedLines.size) return;
+  const song = getSong();
+  const copied = [];
+  song.sections.forEach(sec=> sec.lines.forEach(l=>{ if(selectedLines.has(l)) copied.push(l); }));
+  lineClipboard = copied.map(l=> JSON.parse(JSON.stringify(l)));
+  clearLineSelection();
+  showToast(`Copied ${lineClipboard.length} line${lineClipboard.length===1?'':'s'} \u2014 open any section's Other actions menu and choose Paste to add ${lineClipboard.length===1?'it':'them'} there`);
+}
+// Deep-clones fresh copies on every paste (rather than reusing lineClipboard's own objects)
+// specifically so pasting the same clipboard into several different sections never leaves
+// two sections silently sharing the same underlying line object.
+function pasteLinesIntoSection(sec){
+  if(!lineClipboard.length) return;
+  const pasted = lineClipboard.map(l=> JSON.parse(JSON.stringify(l)));
+  sec.lines.push(...pasted);
+  queueSave(); renderSections();
+  showToast(`Pasted ${pasted.length} line${pasted.length===1?'':'s'} into "${sec.name || 'this section'}"`);
+}
+
 
 /* "Spread swara pattern" — many kritis repeat the same swara skeleton across
    multiple charanams with only the sahitya changing line to line. This lets
@@ -3763,7 +3993,7 @@ function filterCaseLive(inp, mode, allowed){
    same as before), plus "*" (speed markup), ";", "," (symbols), "'" and "."
    (octave marks), and space (used e.g. to visually group an underlined run into
    syllable-pairs, per the notation convention). Everything else is blocked. */
-const SWARA_ALLOWED = /[SRGMPDN*;,'. ]/;
+const SWARA_ALLOWED = /[SRGMPDN*;,'.| ]/;
 function sanitizeSwaraLive(inp){ return filterCaseLive(inp, 'upper', SWARA_ALLOWED); }
 /* Per-cell sahitya (aligned lyric) inputs: letters unrestricted (any, lowercased
    as before), plus only "-" and "." as symbols, and space (needed for splitting
@@ -5083,6 +5313,14 @@ function classifySourceLine(runs, caseSensitive, opts){
     const text = run.text || '';
     for(let i = 0; i < text.length; i++){
       const ch = text[i];
+      // A dash in the swara text — hyphen, en dash, or em dash — is NOT a
+      // hold: confirmed directly, it marks where to take a breath between
+      // sahitya words and carries no rhythmic meaning of its own on the
+      // swara side. It's correctly skipped here, contributing no token and
+      // no akshara weight — same as any other punctuation this classifier
+      // doesn't recognize. (An earlier version of this comment mapped it
+      // onto a comma-hold based on a wrong guess; confirmed wrong and
+      // reverted — don't reintroduce that without checking again first.)
       if(ch === '|' || ch === '\u2503'){
         // "||" (avartanam-end marker, two pipe characters) must collapse to
         // ONE divider, not two — otherwise it spuriously creates an extra,
@@ -5880,10 +6118,41 @@ function isImportPageArtifact(text){
   return false;
 }
 
+/* Whether THIS particular docx's swara notation actually follows the PDF-
+   style case-sensitive convention (capital=1st speed, lowercase=2nd/3rd)
+   rather than this app's own assumed docx convention (everything typed
+   uppercase, underline alone carries all speed meaning). Not every prepared
+   Word file follows the same house style — confirmed directly: a batch of
+   20 real files from one author showed heavy, consistent lowercase usage
+   throughout their swara lines (e.g. "pdns", "rg-", "mg"), which is simply
+   impossible under the "always uppercase" assumption. That assumption
+   entering silently wrong for a file like that would drop every 2nd/3rd
+   speed distinction it encodes via case, while dutifully preserving
+   whatever sparse, inconsistent underline happens to be in the file — the
+   opposite of what's actually intended.
+   Deliberately conservative: a handful of stray lowercase letters (a typo,
+   a stray formatting leftover) shouldn't flip a genuinely uppercase
+   document into case-sensitive mode, so this requires a real, substantial
+   share of swara letters to be lowercase, not just a nonzero count. */
+function docxUsesCaseSensitiveConvention(fileResult){
+  if(fileResult.kind !== 'docx') return false;
+  let lowerCount = 0, totalSwaraLetters = 0;
+  fileResult.lines.forEach(runs=>{
+    const text = runs.map(r=>r.text||'').join('');
+    if(classifyImportLineKind(text).kind !== 'swara') return;
+    (text.match(/[A-Za-z]/g) || []).forEach(ch=>{
+      if(!/[SRGMPDN]/i.test(ch)) return;
+      totalSwaraLetters++;
+      if(ch === ch.toLowerCase()) lowerCount++;
+    });
+  });
+  return totalSwaraLetters > 0 && (lowerCount / totalSwaraLetters) > 0.05;
+}
+
 function assembleImportedSong(fileResult, opts){
   opts = opts || {};
   const sourceKind = fileResult.kind;
-  const caseSensitive = sourceKind === 'pdf';
+  const caseSensitive = sourceKind === 'pdf' || !!opts.forceCaseSensitive;
   const warnings = [];
   let rawLines = fileResult.lines;
   if(sourceKind === 'pdf'){
@@ -6105,33 +6374,50 @@ function assembleImportedSong(fileResult, opts){
    coincidentally-lower warning count under some other interpretation isn't
    evidence it's musically correct, just that the arithmetic happened to
    also work out — not worth risking a silently wrong reinterpretation of a
-   document that already checks out. Docx sources never need this: Word's
-   own underline levels are read directly, no guessing involved. */
+   document that already checks out. Most docx sources never need this —
+   Word's own underline levels are read directly, no guessing involved —
+   but a docx detected as using the PDF-style case-sensitive convention
+   (see docxUsesCaseSensitiveConvention above) has exactly the same
+   comma/underline ambiguity a PDF does, for the same reason: case is doing
+   the speed work, so what underline (if anything) means here is genuinely
+   up for grabs the same way it is in a PDF. */
 /* A low akshara-warning count doesn't necessarily mean underline detection
    worked — confirmed against real data: stripping every underline flag from
    a document that genuinely uses it still only produced 1 warning, because
    2nd speed here comes from letter case, not underline, so most of the
    arithmetic still happens to reconcile even with 3rd-speed information
    silently gone. This checks for that specific failure mode directly rather
-   than relying on the warning count to reveal it. */
-function pdfHasNoRecoverableUnderline(fileResult){
-  if(fileResult.kind !== 'pdf') return false;
+   than relying on the warning count to reveal it. Applies to a PDF, or a
+   docx already detected as using the same case-sensitive convention —
+   never to an ordinary docx, where underline is trusted outright. */
+function importHasNoRecoverableUnderline(fileResult, caseSensitiveDocx){
+  if(fileResult.kind !== 'pdf' && !caseSensitiveDocx) return false;
   let sawSwaraLine = false;
   for(const line of fileResult.lines){
-    const text = line.runs.map(r=>r.text).join('');
+    // PDF's raw lines already come as {runs: [...]}; a docx's raw lines are
+    // bare runs arrays (see the {runs} wrap in assembleImportedSong) — same
+    // underlying shape, just wrapped one level differently at this point.
+    const runs = fileResult.kind === 'pdf' ? line.runs : line;
+    const text = runs.map(r=>r.text).join('');
     if(classifyImportLineKind(text).kind !== 'swara') continue;
     sawSwaraLine = true;
-    if(line.runs.some(r => r.underline)) return false;
+    if(runs.some(r => r.underline)) return false;
   }
   return sawSwaraLine;
 }
 
 function assembleImportedSongBestFit(fileResult, forcedTala, forcedKalai){
   const baseOpts = { ...(forcedTala ? { forcedTala } : {}), ...(forcedKalai ? { forcedKalai } : {}) };
+  // Detected once per file (not per candidate below) — a docx using the
+  // PDF-style case-sensitive convention (see docxUsesCaseSensitiveConvention)
+  // needs forceCaseSensitive threaded through every combination tried here,
+  // exactly like an actual PDF already does.
+  const forceCaseSensitive = docxUsesCaseSensitiveConvention(fileResult);
+  if(forceCaseSensitive) baseOpts.forceCaseSensitive = true;
   const defaultResult = assembleImportedSong(fileResult, { ...baseOpts, commaWeight: 1, underlineMeaning: 'speed' });
   let chosen = defaultResult;
 
-  if(fileResult.kind === 'pdf' && defaultResult.warnings.length > 0){
+  if((fileResult.kind === 'pdf' || forceCaseSensitive) && defaultResult.warnings.length > 0){
     let best = defaultResult;
     [
       { commaWeight: 2, underlineMeaning: 'speed' },
@@ -6144,9 +6430,10 @@ function assembleImportedSongBestFit(fileResult, forcedTala, forcedKalai){
     if(best !== defaultResult && best.warnings.length <= defaultResult.warnings.length / 2) chosen = best;
   }
 
-  if(pdfHasNoRecoverableUnderline(fileResult)){
+  if(importHasNoRecoverableUnderline(fileResult, forceCaseSensitive)){
     chosen.warnings.unshift('No underline was found anywhere in this document\u2019s swara notation. If the source marks 2nd/3rd speed (or octave) with underline, that signal may not have survived extraction — every note here was read at face value from case alone. Worth checking a few passages you know should be underlined before trusting this import as-is.');
   }
+  chosen.caseSensitive = fileResult.kind === 'pdf' || forceCaseSensitive;
   return chosen;
 }
 
@@ -6685,7 +6972,7 @@ function tokenizeSwaraForAlign(raw){
   // a new group, and the exact typed count is kept (gapBefore) so the
   // spacing rules below can tell "just the grouping marker" (1 space) apart
   // from "a deliberate wider gap request" (2+ spaces).
-  function pushSpan(text, underline){
+  function pushPlainSpan(text, underline){
     tokenRe.lastIndex = 0;
     const matches = [...text.matchAll(tokenRe)];
     if(!matches.length) return;
@@ -6711,6 +6998,63 @@ function tokenizeSwaraForAlign(raw){
       if(cur.length) items.push(makeItem(cur, underline, curGapBefore));
     } else {
       raw2.forEach(t => items.push(makeItem([t], underline, 0)));
+    }
+  }
+  // "|...|" inside swara text forces every note between the pipes into ONE alignment item,
+  // no matter how many notes it holds — the swara-side counterpart to the sahitya "|word|"
+  // forced-unbreakable-syllable marker (see buildAlignedColumns below), for grouping several
+  // notes under one wide sahitya word (e.g. "|MDPM|" under "veena") without pulling in the
+  // space-triggers-grouping rule above and its 2nd/3rd-speed styling side effects — a pipe
+  // group applies inside plain text or inside a *...*/**...** span exactly the same way,
+  // since this is called per underline-level segment already. The pipe characters, and any
+  // whitespace typed inside them, are stripped and never printed — only the note letters
+  // themselves are kept, joined with no gap between them.
+  function pushSpan(text, underline){
+    if(!text.includes('|')){ pushPlainSpan(text, underline); return; }
+    const partRe = /\|([^|]*)\||([^|]+)/g;
+    let pm, pendingGap = 0;
+    while((pm = partRe.exec(text)) !== null){
+      if(pm[1] !== undefined){
+        tokenRe.lastIndex = 0;
+        const toks = [...pm[1].matchAll(tokenRe)];
+        items.push(makeItem(toks.map(tm=>({display: octaveDisplay(tm[0])})), underline, pendingGap));
+        pendingGap = 0;
+        continue;
+      }
+      // A literal (non-piped) stretch sandwiched between pipe groups, or at either end of
+      // the text — reuses the exact same token/gap logic as pushPlainSpan above, just
+      // seeded with whatever gap carried over from a preceding pipe group instead of
+      // always starting from 0, so the gap right after a pipe group is never lost.
+      const literal = pm[2];
+      tokenRe.lastIndex = 0;
+      const matches = [...literal.matchAll(tokenRe)];
+      if(!matches.length){ pendingGap += (literal.match(/ /g) || []).length; continue; }
+      const raw2 = matches.map((tm, idx) => {
+        let gapLen;
+        if(idx === 0) gapLen = pendingGap + (literal.slice(0, tm.index).match(/ /g) || []).length;
+        else {
+          const prevEnd = matches[idx-1].index + matches[idx-1][0].length;
+          gapLen = (literal.slice(prevEnd, tm.index).match(/ /g) || []).length;
+        }
+        return { display: octaveDisplay(tm[0]), gapLen };
+      });
+      if(cellHasAnyBreak){
+        let cur = [];
+        let curGapBefore = raw2[0].gapLen;
+        raw2.forEach((t, idx)=>{
+          if(idx > 0 && t.gapLen > 0 && cur.length){
+            items.push(makeItem(cur, underline, curGapBefore));
+            cur = [];
+            curGapBefore = t.gapLen;
+          }
+          cur.push(t);
+        });
+        if(cur.length) items.push(makeItem(cur, underline, curGapBefore));
+      } else {
+        raw2.forEach(t => items.push(makeItem([t], underline, t.gapLen)));
+      }
+      const lastEnd = matches[matches.length-1].index + matches[matches.length-1][0].length;
+      pendingGap = (literal.slice(lastEnd).match(/ /g) || []).length;
     }
   }
   let last = 0, m;
@@ -6747,7 +7091,17 @@ function tokenizeSwaraForAlign(raw){
    rendered text (never printed), the content is treated as ONE syllable
    even if it contains internal spaces, and the normal token-count-vs-
    syllable-count mismatch check is skipped entirely for that cell, since
-   the pipes are the user's explicit signal that this is intentional. */
+   the pipes are the user's explicit signal that this is intentional.
+   Swara wrapped in |...| (e.g. "|MDPM|", see tokenizeSwaraForAlign above)
+   is the mirror-image marker: several notes forced into ONE alignment
+   item instead of one-per-note, so a wide sahitya word gets ONE matching
+   swara column to sit under instead of only lining up with the group's
+   first note while the rest trail off with nothing underneath them. Using
+   both together (a swara group paired with a same-cell forced syllable)
+   is what actually equalizes tokens.length and syllables.length and
+   clears the mismatch warning; using just the swara-side marker still
+   helps whenever the sahitya side is already naturally one word (no
+   internal spaces), since no sahitya-side pipes are needed just for that. */
 /* A held syllable's continuation dashes sometimes get typed glued onto the syllable with no
    space ("dya--"), sometimes with spaces between each one ("sha- -") — confirmed both forms
    in the same real document. Only the spaced form was ever splitting into separate pieces
@@ -7635,6 +7989,7 @@ function renderSections(){
               </div>
               <button class="btn small" data-si="${si}" data-act="spreadPattern" title="Copy this section's swara (not sahitya) into other sections"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10h8m0 0l-3-3m3 3l-3 3M16 5v10"/></svg> Spread pattern</button>
               <button class="btn small" data-si="${si}" data-act="renumberSangatis" title="Renumber this section's purely-numbered line labels (1, 2, 3…) back into order — labels with a letter are left untouched"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h9M4 10h6M4 15h9"/><path d="M15 13l2 2 2-2M17 15V6"/></svg> Renumber sangatis</button>
+              ${lineClipboard.length ? `<button class="btn small" data-si="${si}" data-act="pasteLines" title="Add the ${lineClipboard.length} cut/copied line(s) to the end of this section"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="3" width="8" height="4" rx="1"/><rect x="4" y="6" width="12" height="11" rx="1.2"/></svg> Paste ${lineClipboard.length} line${lineClipboard.length===1?'':'s'} here</button>` : ''}
             </div>
           </div>
           <div class="toolbar-divider"></div>
@@ -7709,6 +8064,8 @@ function renderSections(){
     };
     card.querySelector('[data-act="spreadPattern"]').onclick = ()=> openSpreadPatternPicker(si);
     card.querySelector('[data-act="renumberSangatis"]').onclick = ()=> renumberSectionSangatis(sec);
+    const pasteBtn = card.querySelector('[data-act="pasteLines"]');
+    if(pasteBtn) pasteBtn.onclick = ()=> pasteLinesIntoSection(sec);
     card.querySelector('[data-act="delSec"]').onclick = ()=>{
       if(confirm('Remove this section?')){ song.sections.splice(si,1); queueSave(); renderSections(); }
     };
@@ -7862,6 +8219,7 @@ function renderLines(host, sec, cfg, kalai){
 
     row.innerHTML = `
       <div class="line-top">
+        <input type="checkbox" class="lineSelectCheck" title="Select this line for move/cut/copy">
         <input class="label" placeholder="1)" value="${escapeHtml(line.label)}" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off">
         <button class="btn small icon-only" data-act="play" title="Play this line (prototype — synthesized/sampled tone, not a real instrument)" data-play-title="Play this line (prototype — synthesized/sampled tone, not a real instrument)"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4.5v11l9-5.5-9-5.5z"/></svg></button>
         <button class="btn small" data-act="fillSwaraLine" title="Fill swara for this line — type or recite a whole avartanam and split it across this line's cells"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h9M4 10h5M4 15h7"/><path d="M14 13l3 3 4-4" stroke-width="2"/></svg> Fill Swara</button>
@@ -7876,6 +8234,7 @@ function renderLines(host, sec, cfg, kalai){
           <div class="actions-dd-menu">
             <button class="btn small" data-act="dup"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="10" height="10" rx="1.2"/><path d="M7 6V4a1 1 0 011-1h8a1 1 0 011 1v8a1 1 0 01-1 1h-2"/></svg> Duplicate</button>
             <button class="btn small" data-act="clear"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3l4 4-8.5 8.5H4v-4.5z"/><path d="M9 17H4"/></svg> Clear</button>
+            <button class="btn small" data-act="splitSectionHere" title="Move this line and every line below it into a brand-new section, right here"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h14M3 14h14" stroke-dasharray="2.5 2.5"/><path d="M7 3l-3 3 3 3M13 11l3 3-3 3" stroke-dasharray="none"/></svg> Split section here</button>
             <button class="btn small danger" data-act="del"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 5l10 10M15 5L5 15"/></svg> Remove line</button>
           </div>
         </div>
@@ -7887,6 +8246,13 @@ function renderLines(host, sec, cfg, kalai){
 
     const labelInput = row.querySelector('.label');
     labelInput.oninput = e=>{ line.label = e.target.value; queueSave(); updatePreview(row, line, noSahitya, cfg, kalai); };
+    const selectCheck = row.querySelector('.lineSelectCheck');
+    selectCheck.checked = selectedLines.has(line);
+    if(selectedLines.has(line)) row.classList.add('line-row-selected');
+    selectCheck.onchange = e=>{
+      toggleLineSelection(line, e.target.checked);
+      row.classList.toggle('line-row-selected', e.target.checked);
+    };
     row.querySelector('[data-act="undo"]').onclick = performUndo;
     row.querySelector('[data-act="redo"]').onclick = performRedo;
     row.querySelector('[data-act="play"]').onclick = ()=>{
@@ -7925,6 +8291,7 @@ function renderLines(host, sec, cfg, kalai){
     row.querySelector('[data-act="del"]').onclick = ()=>{
       sec.lines.splice(li,1); queueSave(); renderSections();
     };
+    row.querySelector('[data-act="splitSectionHere"]').onclick = ()=> openSplitSectionModal(sec, li);
 
     row.querySelectorAll('.phys-row').forEach(physEl=>{
       const ri = Number(physEl.dataset.ri);
@@ -8820,8 +9187,8 @@ async function openImportPreview(file, forcedTala, forcedKalai){
   try{
     const fileResult = await readImportFile(file);
     body.innerHTML = '<div class="quota-loading">Parsing notation…</div>';
-    const { song, warnings } = assembleImportedSongBestFit(fileResult, forcedTala, forcedKalai);
-    importPendingResult = { song, warnings, sourceKind: fileResult.kind, fileResult, forcedTala, forcedKalai };
+    const { song, warnings, caseSensitive } = assembleImportedSongBestFit(fileResult, forcedTala, forcedKalai);
+    importPendingResult = { song, warnings, sourceKind: fileResult.kind, caseSensitive, fileResult, forcedTala, forcedKalai };
     renderImportPreviewBody();
   }catch(e){
     console.error('[import] failed:', e);
@@ -8841,16 +9208,16 @@ async function openImportPreview(file, forcedTala, forcedKalai){
    parsing, so editing them just updates the pending song directly. */
 function renderImportPreviewBody(){
   const body = document.getElementById('importBody');
-  const { song, warnings, sourceKind } = importPendingResult;
+  const { song, warnings, sourceKind, caseSensitive } = importPendingResult;
   const lineCount = song.sections.reduce((a,s)=>a+s.lines.length, 0);
   const sectionRows = song.sections.map(s =>
     `<div>${escapeHtml(s.name)} — ${s.lines.length} line${s.lines.length===1?'':'s'}${s.noSahitya?' (no sahitya)':''}</div>`
   ).join('');
   const cellWarnings = warnings.filter(w => /^Cell \d+:/.test(w));
   const structuralNotes = warnings.filter(w => !/^Cell \d+:/.test(w));
-  const badgeCaveat = sourceKind === 'pdf'
+  const badgeCaveat = caseSensitive
     ? `<div class="quota-text" style="margin-top:10px; font-size:12px;">
-         This is a PDF import: 3rd-speed cells were split using the source's own note-by-note
+         This ${sourceKind === 'pdf' ? 'is a PDF' : 'document uses a case-sensitive'} import: 3rd-speed cells were split using the source's own note-by-note
          weighting, which can differ slightly from this app's own akshara badge (which weighs every
          note in a group the same). A cell's badge not showing ✓ doesn't necessarily mean it's wrong —
          check it against the source before changing it.
@@ -9385,6 +9752,13 @@ document.getElementById('fillLineSahityaSubmitBtn').onclick = () => {
   renderSections();
   showToast('Filled \u2014 check the \u26A0 badges for any cell that needs a held-note dash added');
 };
+document.getElementById('closeSplitSectionBtn').onclick = document.getElementById('splitSectionCancelBtn').onclick = closeSplitSectionModal;
+document.getElementById('splitSectionSubmitBtn').onclick = applySplitSection;
+document.getElementById('lineSelMoveUpBtn').onclick = ()=> moveSelectedLines(-1);
+document.getElementById('lineSelMoveDownBtn').onclick = ()=> moveSelectedLines(1);
+document.getElementById('lineSelCutBtn').onclick = cutSelectedLines;
+document.getElementById('lineSelCopyBtn').onclick = copySelectedLines;
+document.getElementById('lineSelClearBtn').onclick = clearLineSelection;
 document.getElementById('closeFillSwaraBtn').onclick = document.getElementById('fillSwaraCancelBtn').onclick = () => {
   document.getElementById('fillSwaraOverlay').classList.remove('show');
   fillSwaraTargetLine = null;
