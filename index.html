@@ -5576,13 +5576,32 @@ function syllabifyWord(word){
 function distributeImportWordsByWeight(words, cellCaps){
   const totalCap = cellCaps.reduce((a,b)=>a+b, 0);
   const totalWords = words.length;
-  let wordIdx = 0, cumCap = 0;
-  return cellCaps.map((cap, i)=>{
-    cumCap += cap;
-    const isLast = i === cellCaps.length - 1;
-    const targetCum = isLast ? totalWords : Math.round((cumCap / totalCap) * totalWords);
-    const slice = words.slice(wordIdx, targetCum);
-    wordIdx = targetCum;
+  if(totalCap <= 0){
+    // No weight anywhere to distribute against (every cell came out with zero weight —
+    // e.g. a fully empty/silent segment) — dump everything in the last cell rather than
+    // divide by zero, so nothing silently vanishes.
+    return cellCaps.map((_, i) => i === cellCaps.length - 1 ? words.join(' ') : '');
+  }
+  // Largest-remainder allocation: give every cell floor(its exact share) first, then hand
+  // out whatever whole words are left over (lost to flooring) to the cells with the
+  // largest fractional remainder. This is what actually guarantees zero local drift when
+  // the grand total genuinely matches (e.g. total sahitya words == total swara items for
+  // this segment) — rounding each cumulative boundary independently (the previous
+  // approach) can still land an individual cell's own count 1 short or long even when the
+  // overall total is exact, because each boundary gets rounded on its own without
+  // checking against the others.
+  const exact = cellCaps.map(cap => (cap / totalCap) * totalWords);
+  const counts = exact.map(Math.floor);
+  const allocated = counts.reduce((a,b)=>a+b, 0);
+  const remaining = totalWords - allocated;
+  const remainders = exact.map((e,i) => ({ i, frac: e - counts[i] })).sort((a,b) => b.frac - a.frac);
+  for(let k = 0; k < remaining; k++){
+    counts[remainders[k % remainders.length].i]++;
+  }
+  let wordIdx = 0;
+  return counts.map(c => {
+    const slice = words.slice(wordIdx, wordIdx + c);
+    wordIdx += c;
     return slice.join(' ');
   });
 }
@@ -5800,7 +5819,21 @@ function openFillLineSahityaModal(line, cfg){
    in the Step 5 review screen. */
 function buildImportCellsFromClassifiedSegment(tokens, cellCaps, sahityaWords){
   const { cells, warnings, leftoverTokens } = splitHalfAvartanamIntoCells(tokens, cellCaps);
-  const sahityaPerCell = distributeImportWordsByWeight(sahityaWords || [], cellCaps);
+  // Sahitya words are distributed by how many ALIGNMENT ITEMS each cell's swara actually
+  // ended up holding (the exact same item-count the live "X/Y syl" checker computes via
+  // tokenizeSwaraForAlign) — NOT by raw akshara capacity, which was the original approach
+  // here. Capacity alone says nothing about how many separate notes actually landed in a
+  // cell: a 4-akshara cell might hold 4 separate 1st-speed notes, or 8 tightly-glued
+  // 2nd-speed notes counting as far fewer alignment items, or sit mostly empty because a
+  // hold ate most of its capacity. Distributing sahitya by capacity alone routinely handed
+  // a heavily-loaded cell only 1-2 words while a lightly-loaded neighbor got several —
+  // confirmed directly against real data: 33-70% of cells across a batch of 21 real
+  // imported files showed a syllable-count mismatch immediately after import, before a
+  // single manual edit. Weighting by each cell's own item-count instead means the split
+  // matches what the checker will actually expect once the import lands on screen — using
+  // the identical counting logic, not an approximation of it.
+  const itemWeights = cells.map(c => tokenizeSwaraForAlign(c.swara).length);
+  const sahityaPerCell = distributeImportWordsByWeight(sahityaWords || [], itemWeights);
   cells.forEach((c, i)=>{ c.sahitya = sahityaPerCell[i] || ''; });
   return { cells, warnings, leftoverTokens };
 }
@@ -5822,7 +5855,36 @@ const IMPORT_META_LABELS = [
   ['version','version'],
 ];
 const IMPORT_NO_SAHITYA_SECTION_RE = /chitt[ae]|chittai|muktayi|mukthayi/i;
-const IMPORT_SECTION_NAME_RE = /^(pallavi|anu\s*pallavi|samashti\s+charan(?:a|am)|samasthi\s+charan(?:a|am)|charan(?:a|am)|caran(?:a|am)|chitt(?:a|e|ai)\s*swar(?:a|am)s?(?:\s*[:\-]?\s*\(?\d+\)?)?|mukthayi\s+swaram|muktayi\s+swaram|madhyama\s+kala\s+sahitya|anubandham)\b/i;
+/* Shared sub-patterns so the "detect a section header" regex and the "normalize its
+   spelling into one canonical key" regex (canonicalSectionKey, right below) can never
+   silently drift apart the way they just did in practice: the detector only ever accepted
+   "samashti charan(a|am)" — requiring an "h" after "char" — while the normalizer already
+   accepted the "caran" (no h) spelling too. Real files spelling it "samashTi caraNam" were
+   therefore never recognized as a section header AT ALL, silently dumping every line that
+   should have been its own Samashti Charanam section into whichever section came before —
+   confirmed against 3 real files that came in as a single "Pallavi" section with everything
+   crammed underneath it. Sourcing both regexes from the same fragments here means a future
+   spelling fix only ever has to happen in one place. */
+const SECTION_SAMASHTI_PREFIX_SRC = '(?:samashti|samasthi|samaashti|samaashthi)'; // "samaashti" (double a) confirmed in a real file too
+const SECTION_CHARANAM_WORD_SRC = '(?:charan(?:a|am)|caran(?:a|am))';
+const SECTION_CHITTASWARAM_SRC = 'chitt(?:a|e|ai)\\s*swar(?:a|am)s?';
+// Optional trailing "1", ": 1", "- 1", "(1)" etc. — a numbered section ("caraNam 1",
+// "caraNam 2"...) is a real, common convention for a kriti with several distinct
+// Charanams, each with its own different sahitya; without this, the whole line "caraNam 1"
+// never matched at all (the detector requires the matched text to cover the ENTIRE line,
+// and the trailing number was never part of the pattern) — confirmed missed across 3 real
+// files. Deliberately NOT included in canonicalSectionKey's own charanam/samashti-charanam
+// checks below, so "Charanam 1" and "Charanam 2" still canonicalize to DIFFERENT keys and
+// stay as the separate sections they actually are, rather than merging into one.
+const SECTION_TRAILING_NUM_SRC = '(?:\\s*[:\\-]?\\s*\\(?\\d+\\)?)?';
+const IMPORT_SECTION_NAME_RE = new RegExp(
+  '^(pallavi|anu\\s*pallavi|' +
+  SECTION_SAMASHTI_PREFIX_SRC + '\\s+' + SECTION_CHARANAM_WORD_SRC + SECTION_TRAILING_NUM_SRC + '|' +
+  SECTION_CHARANAM_WORD_SRC + SECTION_TRAILING_NUM_SRC + '|' +
+  SECTION_CHITTASWARAM_SRC + SECTION_TRAILING_NUM_SRC + '|' +
+  'mukthayi\\s+swaram|muktayi\\s+swaram|madhyama\\s+kala\\s+sahitya(?:m)?|anubandham)\\b',
+  'i'
+);
 /* Different mentions of "the same" section in a single document can genuinely spell it
    differently — confirmed against a real file where the plain-text preview heading said
    "CharaNam" while the in-table header said "Charana" (no trailing "m"). Matching sections
@@ -5831,14 +5893,21 @@ const IMPORT_SECTION_NAME_RE = /^(pallavi|anu\s*pallavi|samashti\s+charan(?:a|am
    spelling variant down to one stable key so they always merge into the same section
    regardless of which exact wording showed up where. */
 function canonicalSectionKey(name){
-  const w = (name || '').replace(/[:.]+$/, '').trim().toLowerCase().replace(/\s+/g,' ');
+  let w = (name || '').replace(/[:.]+$/, '').trim();
+  // A header fully wrapped in its own parentheses — e.g. "(madhyama kAla sAhityam)" — is
+  // still the same header, just visually set off; strip one matching pair before testing.
+  // classifyImportLineKind strips these the same way before detection, so a paren-wrapped
+  // header is recognized as a section in the first place, not just normalized correctly
+  // once it already is one.
+  if(/^\(.*\)$/.test(w)) w = w.slice(1, -1).trim();
+  w = w.toLowerCase().replace(/\s+/g,' ');
   if(/^pallavi$/.test(w)) return 'pallavi';
   if(/^anu\s*pallavi$/.test(w)) return 'anupallavi';
-  if(/^(samashti|samasthi)\s+(charan(?:a|am)|caran(?:a|am))$/.test(w)) return 'samashticharanam';
-  if(/^(charan(?:a|am)|caran(?:a|am))$/.test(w)) return 'charanam';
-  if(/^chitt(?:a|e|ai)\s*swar(?:a|am)s?(?:\s*[:\-]?\s*\(?\d+\)?)?$/.test(w)) return 'chittaswaram';
+  if(new RegExp('^' + SECTION_SAMASHTI_PREFIX_SRC + '\\s+' + SECTION_CHARANAM_WORD_SRC + '$').test(w)) return 'samashticharanam';
+  if(new RegExp('^' + SECTION_CHARANAM_WORD_SRC + '$').test(w)) return 'charanam';
+  if(new RegExp('^' + SECTION_CHITTASWARAM_SRC + SECTION_TRAILING_NUM_SRC + '$').test(w)) return 'chittaswaram';
   if(/^(mukthayi|muktayi)\s+swaram$/.test(w)) return 'mukthayiswaram';
-  if(/^madhyama\s+kala\s+sahitya$/.test(w)) return 'madhyamakalasahitya';
+  if(/^madhyama\s+kala\s+sahitya(?:m)?$/.test(w)) return 'madhyamakalasahitya';
   if(/^anubandham$/.test(w)) return 'anubandham';
   return w; // not a recognized section name — fall back to plain normalized text
 }
@@ -5966,9 +6035,14 @@ function classifyImportLineKind(text){
   if(metaFields.length) return { kind: 'meta', fields: metaFields };
 
   const withoutColon = trimmed.replace(/[:.]+$/, '').trim();
-  const sectionMatch = IMPORT_SECTION_NAME_RE.exec(withoutColon);
-  if(trimmed.length < 45 && sectionMatch && sectionMatch[0].length === withoutColon.length){
-    return { kind: 'section', name: withoutColon.replace(/\s+/g,' ') };
+  // A header fully wrapped in its own parentheses — e.g. "(madhyama kAla sAhityam)" — is
+  // still a section header, just visually set off; strip one matching pair before testing,
+  // same as canonicalSectionKey does once a name is already recognized. Confirmed missed
+  // in a real file otherwise: the parens made the match not cover the whole line.
+  const parenStripped = /^\(.*\)$/.test(withoutColon) ? withoutColon.slice(1, -1).trim() : withoutColon;
+  const sectionMatch = IMPORT_SECTION_NAME_RE.exec(parenStripped);
+  if(trimmed.length < 45 && sectionMatch && sectionMatch[0].length === parenStripped.length){
+    return { kind: 'section', name: parenStripped.replace(/\s+/g,' ') };
   }
 
   const letters = trimmed.split('').filter(ch=>/[A-Za-z]/.test(ch));
@@ -6054,12 +6128,48 @@ function buildImportedNotationLine(cfg, swaraText, sahityaText, caseSensitive, w
      repeat-marker) — consumes only as many cells as its own small weight
      needs, rather than being forced across the entire row leaving most of
      it empty (the original bug this replaced). */
+function computeSegmentItemWeights(segments, cfg){
+  // Dry-run mirror of the real cell-splitting loop below (same cellIdx cursor, same
+  // row-overflow handling) — needed to know each segment's TRUE total alignment-item
+  // count BEFORE any sahitya word gets distributed to it. Akshara weight doesn't reflect
+  // how many real notes a segment holds any better at the segment level than it does at
+  // the individual-cell level (see buildImportCellsFromClassifiedSegment above) — a
+  // segment could easily be 25% of a line's total akshara weight while holding 40% (or
+  // 15%) of its real notes, depending on how much of that weight is 2nd/3rd-speed groups
+  // vs holds vs plain 1st-speed notes. Read-only: never touches warnings or builds any
+  // real cells, purely computes a weight number for distributeImportWordsByWeight to use
+  // in place of raw akshara weight.
+  let cellIdx = 0;
+  return segments.map(segTokens=>{
+    let pending = segTokens, total = 0, safety = 0;
+    while(pending.length && safety < 20){
+      safety++;
+      const segWeight = pending.reduce((a,t)=>a+t.weight, 0);
+      let idx = cellIdx, caps = [], consumed = 0;
+      while(consumed < segWeight && idx < cfg.rowCells.length){ caps.push(cfg.rowCells[idx]); consumed += cfg.rowCells[idx]; idx++; }
+      if(caps.reduce((a,c)=>a+c,0) < segWeight && idx >= cfg.rowCells.length){
+        idx = 0; caps = []; consumed = 0;
+        while(consumed < segWeight && idx < cfg.rowCells.length){ caps.push(cfg.rowCells[idx]); consumed += cfg.rowCells[idx]; idx++; }
+      }
+      cellIdx = idx;
+      const { cells, leftoverTokens } = splitHalfAvartanamIntoCells(pending, caps.length ? caps : cfg.rowCells);
+      total += cells.reduce((a,c)=> a + tokenizeSwaraForAlign(c.swara).length, 0);
+      if(cellIdx >= cfg.rowCells.length) cellIdx = 0;
+      if(!leftoverTokens.length) break;
+      pending = leftoverTokens;
+    }
+    return total;
+  });
+}
 function buildImportedNotationLineFromRuns(cfg, swaraRuns, sahityaText, caseSensitive, warnings, opts){
   const tokens = classifySourceLine(swaraRuns, caseSensitive, opts);
   const segments = [[]];
   tokens.forEach(t=>{ t.type === 'divider' ? segments.push([]) : segments[segments.length-1].push(t); });
   const sahityaWords = (sahityaText || '').replace(/[-–]/g,' - ').split(/\s+/).filter(Boolean);
-  const segmentWeights = segments.map(s=>s.reduce((a,t)=>a+t.weight,0));
+  // Same reasoning as the per-cell fix in buildImportCellsFromClassifiedSegment, one level
+  // up: segments should split sahitya between them by how many real alignment items each
+  // one holds, not by raw akshara weight.
+  const segmentWeights = segments.length > 1 ? computeSegmentItemWeights(segments, cfg) : [1];
   const wordsPerSeg = segments.length > 1
     ? distributeImportWordsByWeight(sahityaWords, segmentWeights)
     : [sahityaWords.join(' ')];
@@ -6248,28 +6358,25 @@ function assembleImportedSong(fileResult, opts){
     return sec;
   }
   function finalizeNotationLine(swaraRuns, sahityaText){
-    // A section created early from a plain preview-summary mention (see
-    // ensureSection above) has 0 lines until real notation actually
-    // arrives for it — if THIS is that first real content, move it to the
-    // end of the section order now, so sections end up ordered by where
-    // their real notated content actually falls in the source, not by
-    // wherever their name happened to be first mentioned in a summary.
-    // Confirmed necessary against the real Jalajaksha Varnam PDF: its
-    // preview only lists Pallavi/Anupallavi/Charanam (a Varnam's preview
-    // skips swara-only passages), so without this, "Mukthayi Swaram" —
-    // never mentioned in the preview, only encountered once, in its real,
-    // correct position before Charanam — still ended up sorted AFTER
-    // Charanam, which got an early placeholder from the preview alone.
-    if(currentSection.lines.length === 0){
-      const idx = song.sections.indexOf(currentSection);
-      if(idx !== -1 && idx !== song.sections.length - 1){
-        song.sections.splice(idx, 1);
-        song.sections.push(currentSection);
-      }
+    // Records only WHEN (in overall real-content arrival order) this section first got
+    // real notated content — the actual reordering happens once, in a single final sort
+    // after the whole document has been processed (see sectionSortRank below the main
+    // forEach loop). An earlier version repositioned a section the moment its first real
+    // content arrived, but that broke down for a section mentioned only in the preview
+    // that never receives any real content of its own later — e.g. several Charanams that
+    // share one Charanam's melody and are never separately notated. Whichever OTHER
+    // sections DID receive real content would leapfrog past a stuck one like that,
+    // scrambling the order — confirmed against a real file where Charanams 1-4 (sharing
+    // Charanam 5's tune) ended up sorted BEFORE Pallavi and Anupallavi.
+    if(!realContentOrder.has(currentSection)){
+      realContentCounter++;
+      realContentOrder.set(currentSection, realContentCounter);
     }
     const lines = buildImportedNotationLineFromRuns(cfg, swaraRuns, currentSection.noSahitya ? '' : sahityaText, caseSensitive, warnings, opts);
     lines.forEach(line => currentSection.lines.push(line));
   }
+  let realContentCounter = 0;
+  const realContentOrder = new Map(); // section object -> the Nth section (globally, across the whole document) to receive real notated content
 
   rawLines.forEach(rawLine=>{
     const text = importLineText(rawLine, sourceKind);
@@ -6320,7 +6427,32 @@ function assembleImportedSong(fileResult, opts){
       return;
     }
     // c.kind === 'text'
-    if(/^meanings?\b/i.test(c.text) || /[\u201c\u201d]/.test(c.text) || /^[\u2026.]{2,}/.test(c.text)){
+    // "Sahityam: <line>" is a restatement marker some sources repeat right before a
+    // word-by-word gloss breakdown of that same line — confirmed against a real file where
+    // a section's header reappears a SECOND time (its own preview pass, then later a
+    // detailed line-by-line breakdown pass), and this exact restatement is the first thing
+    // that follows. It doesn't get caught by the "already have this exact line" duplicate
+    // check just below, because the "Sahityam: " prefix makes the text differ from what was
+    // already captured — so without checking for this prefix specifically, accumulation
+    // silently reopens and the ENTIRE gloss breakdown that follows (English definitions,
+    // "word - meaning" pairs) gets appended into the section's plain sahitya as if it were
+    // real lyrics. Checked ahead of the duplicate check for exactly that reason.
+    if(/^meanings?\b/i.test(c.text) || /^sahith?yam\b/i.test(c.text) || /[\u201c\u201d]/.test(c.text) || /^[\u2026.]{2,}/.test(c.text)){
+      sahityaClosed.add(currentSection);
+      mode = 'prose';
+      return;
+    }
+    // Some sources glue an inline English gloss directly onto the end of a real sahitya
+    // line instead of putting it on its own separate "Sahityam:"/"Meaning:" line — e.g.
+    // "rAgAdi rahita hRdaya vibhAvita - O one meditated upon in the hearts..." — confirmed
+    // in a real file. This never has its own trigger word to catch the way the check above
+    // does, and it isn't an exact duplicate of the line captured earlier either (the gloss
+    // text makes it differ), so without this it slips through both existing safety nets
+    // and gets appended whole. A transliterated Sanskrit/Tamil/Telugu sahitya line
+    // essentially never contains several common ENGLISH function words in a row — a real
+    // gloss reliably does — so that's the signal used here instead of any specific marker.
+    const englishStopwordHits = (c.text.match(/\b(the|of|by|who|one|and|or|upon|with|that|is|are|referring|meaning|worshipped|worshiped|devoid)\b/gi) || []).length;
+    if(englishStopwordHits >= 3){
       sahityaClosed.add(currentSection);
       mode = 'prose';
       return;
@@ -6384,6 +6516,32 @@ function assembleImportedSong(fileResult, opts){
     }
     song.sections.forEach(sec => { sec.lines = pairLinesForKalai2(sec.lines); });
   }
+
+  // The single reordering pass finalizeNotationLine's comment describes: sections that
+  // received real content sort by the order that content arrived in. A section that never
+  // got any of its own inherits a rank just before whichever LATER-created section
+  // eventually does get real content, scaled by its own distance from it — so several such
+  // placeholders in a row (Charanam 1-4, all borrowing Charanam 5's melody) keep their own
+  // relative order among themselves rather than collapsing together or sorting after the
+  // section they're musically borrowed from. Verified against the real file this was built
+  // for: restores Pallavi, Anupallavi, Charanam 1, 2, 3, 4, 5 — the correct performance
+  // order — from what otherwise came out as 1, 2, 3, 4, Pallavi, Anupallavi, 5.
+  const creationIdx = new Map(song.sections.map((s,i)=>[s,i]));
+  function sectionSortRank(sec){
+    if(realContentOrder.has(sec)) return realContentOrder.get(sec) * 1000000;
+    const myIdx = creationIdx.get(sec);
+    let next = null;
+    for(let i = myIdx+1; i < song.sections.length; i++){
+      if(realContentOrder.has(song.sections[i])){ next = song.sections[i]; break; }
+    }
+    if(next) return realContentOrder.get(next) * 1000000 - (creationIdx.get(next) - myIdx);
+    // Nothing later ever gets real content either — park after the last section that did
+    // (or at the very front, if NOTHING in the whole document ever got real content),
+    // keeping this one's own creation order as the tiebreaker among any siblings in the
+    // same boat.
+    return (realContentCounter * 1000000) + myIdx;
+  }
+  song.sections.sort((a,b) => sectionSortRank(a) - sectionSortRank(b));
 
   return { song, warnings };
 }
