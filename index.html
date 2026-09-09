@@ -4238,6 +4238,16 @@ function wireCellCopyPaste(host){
   swaraSeq.forEach(inp => wireClick(inp, 'swara'));
   lyricSeq.forEach(inp => wireClick(inp, 'lyric'));
 
+  // A cell's position within its OWN row's beat-cells — swara and lyric inputs are always
+  // paired 1:1 inside the same .beat-cell, so this index means the same "column" for
+  // either type. That's what lets copy/paste treat row/column offsets uniformly across
+  // both cell types below, instead of needing separate same-type and mixed-type paths.
+  function beatCellIndexOf(cell){
+    const beatCell = cell.closest('.beat-cell');
+    const row = cell.closest('.phys-row');
+    if(!beatCell || !row) return -1;
+    return Array.from(row.querySelectorAll('.beat-cell')).indexOf(beatCell);
+  }
   function handleCopy(e){
     if(!selected.length) return;
     const active = document.activeElement;
@@ -4248,61 +4258,49 @@ function wireCellCopyPaste(host){
     // highlighted) triggers copying the whole cell's value.
     if(selected.length === 1 && active.selectionStart !== active.selectionEnd) return;
     e.preventDefault();
-    copiedCells = { values: selected.map(inp => ({ type: cellType(inp), value: inp.value })) };
+    // Record each cell's row/column OFFSET from the first selected cell, not just its flat
+    // position in some sequence — this is what paste below replays, and it's what makes a
+    // mixed swara+lyric block ("a few swara cells and their corresponding sahitya")
+    // transplant as a single rigid shape onto wherever you paste, rather than a step-by-step
+    // walk that can drift once it has to cross from the swara portion into the lyric portion.
+    const anchorRowIdx = physRows.indexOf(selected[0].closest('.phys-row'));
+    const anchorColIdx = beatCellIndexOf(selected[0]);
+    copiedCells = {
+      values: selected.map(inp => ({
+        type: cellType(inp),
+        value: inp.value,
+        rowOffset: physRows.indexOf(inp.closest('.phys-row')) - anchorRowIdx,
+        colOffset: beatCellIndexOf(inp) - anchorColIdx,
+      }))
+    };
     showToast(`Copied ${copiedCells.values.length} cell${copiedCells.values.length===1?'':'s'}`);
   }
   function handlePaste(e){
     if(!copiedCells || !copiedCells.values.length) return; // nothing copied: let normal single-field paste proceed
     const active = document.activeElement;
-    const firstType = copiedCells.values[0].type;
-    const isMixed = copiedCells.values.some(v => v.type !== firstType);
-    if(!isMixed){
-      // Same-type copy (the common case — a plain single cell, or a
-      // Left/Right range) pastes through that type's own sequence, exactly
-      // as before — this is what stops it from ever spilling into the
-      // other field type near a row boundary.
-      const seq = seqFor(firstType);
-      const startIdx = seq.indexOf(active);
-      if(startIdx === -1) return; // focus isn't on a matching-type cell — normal paste proceeds
-      e.preventDefault();
-      let filled = 0;
-      for(let i = 0; i < copiedCells.values.length && startIdx+i < seq.length; i++){
-        const target = seq[startIdx+i];
-        target.value = copiedCells.values[i].value;
-        target.dispatchEvent(new Event('input', { bubbles: true }));
-        filled++;
-      }
-      showToast(filled < copiedCells.values.length
-        ? `Pasted ${filled} of ${copiedCells.values.length} cells (ran out of cells)`
-        : `Pasted ${filled} cell${filled===1?'':'s'}`);
-      return;
-    }
-    // Mixed copy (made via Shift+Up/Down, crossing types): a naive fixed
-    // stride through the flat mixed sequence breaks here, because a
-    // cross-type step (swara -> its own lyric) sits much farther apart in
-    // that flat ordering than a same-type step does. Replay the same
-    // sequence of same-type/cross-type moves that built the original
-    // selection instead, starting from wherever the user pastes.
-    if(mixedSeq.indexOf(active) === -1 || cellType(active) !== firstType) return;
+    if(mixedSeq.indexOf(active) === -1) return; // not a notation cell at all — normal paste proceeds
+    // Paste has to start on the same TYPE the copy started on — pasting a swara-first block
+    // onto a lyric cell would silently mean something different from what was copied.
+    if(cellType(active) !== copiedCells.values[0].type) return;
     e.preventDefault();
-    let target = active, filled = 0;
-    for(let i = 0; i < copiedCells.values.length; i++){
-      if(!target) break;
-      target.value = copiedCells.values[i].value;
+    const anchorRowIdx = physRows.indexOf(active.closest('.phys-row'));
+    const anchorColIdx = beatCellIndexOf(active);
+    let filled = 0;
+    copiedCells.values.forEach(v => {
+      // Every cell is placed independently from its own recorded offset — never derived
+      // from where the previous cell in the loop ended up — so there's no walk to drift
+      // off course when the shape crosses from swara into lyric (or spans several rows).
+      const targetRow = physRows[anchorRowIdx + v.rowOffset];
+      if(!targetRow) return; // this cell's row falls off the top/bottom of the song — skipped, counts toward "ran out of cells"
+      const beatCells = targetRow.querySelectorAll('.beat-cell');
+      const targetBeatCell = beatCells[anchorColIdx + v.colOffset];
+      if(!targetBeatCell) return; // falls off the left/right edge of this row (e.g. a narrower row, Misra Chapu's uneven halves) — skipped
+      const target = targetBeatCell.querySelector(v.type === 'swara' ? 'input.swara' : 'input.lyric');
+      if(!target) return;
+      target.value = v.value;
       target.dispatchEvent(new Event('input', { bubbles: true }));
       filled++;
-      if(i + 1 < copiedCells.values.length){
-        const stepType = copiedCells.values[i].type;
-        const sameTypeNext = copiedCells.values[i+1].type === stepType;
-        if(sameTypeNext){
-          const seq = seqFor(stepType);
-          const idx = seq.indexOf(target);
-          target = (idx !== -1 && idx+1 < seq.length) ? seq[idx+1] : null;
-        } else {
-          target = cellAcrossRow(target, stepType, 1);
-        }
-      }
-    }
+    });
     showToast(filled < copiedCells.values.length
       ? `Pasted ${filled} of ${copiedCells.values.length} cells (ran out of cells)`
       : `Pasted ${filled} cell${filled===1?'':'s'}`);
