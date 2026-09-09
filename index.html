@@ -970,6 +970,8 @@
   }
   .line-select-bar button:hover:not(:disabled){ background:rgba(255,255,255,0.28); }
   .line-select-bar button:disabled{ opacity:0.35; cursor:not-allowed; }
+  .line-select-bar button.danger{ background:rgba(220,80,80,0.4); }
+  .line-select-bar button.danger:hover:not(:disabled){ background:rgba(220,80,80,0.55); }
   .lineSelectCheck{ width:16px; height:16px; cursor:pointer; accent-color:var(--brand-blue); flex-shrink:0; margin-right:2px; }
   .line-row.line-row-selected{ box-shadow:0 0 0 2px var(--brand-blue); border-radius:var(--radius-sm); }
 
@@ -1300,8 +1302,9 @@
   <span id="lineSelectCount">0 lines selected</span>
   <button id="lineSelMoveUpBtn" title="Move the selected lines up — only works for one unbroken block within a single section">&#8593; Move up</button>
   <button id="lineSelMoveDownBtn" title="Move the selected lines down — only works for one unbroken block within a single section">&#8595; Move down</button>
-  <button id="lineSelCopyBtn" title="Copy the selected lines — paste them into any section from that section's Other actions menu">Copy</button>
-  <button id="lineSelCutBtn" title="Cut the selected lines out — paste them into any section (including a new one) from that section's Other actions menu">Cut</button>
+  <button id="lineSelCopyBtn" title="Copy the selected lines — paste them right after any line, from that line's Other actions menu">Copy</button>
+  <button id="lineSelCutBtn" title="Cut the selected lines out — paste them right after any line (in any section, including a new one), from that line's Other actions menu">Cut</button>
+  <button id="lineSelDeleteBtn" class="danger" title="Delete the selected lines outright — not copied anywhere, this can't be pasted back">Delete</button>
   <button id="lineSelClearBtn" title="Clear this selection">Clear</button>
 </div>
 <div class="floating-playback-bar" id="floatingPlaybackBar" style="display:none;">
@@ -3185,7 +3188,23 @@ function cutSelectedLines(){
   lineClipboard = cut.map(l=> JSON.parse(JSON.stringify(l)));
   clearLineSelection();
   queueSave(); renderSections();
-  showToast(`Cut ${lineClipboard.length} line${lineClipboard.length===1?'':'s'} \u2014 open any section's Other actions menu (including a brand-new one) and choose Paste to move ${lineClipboard.length===1?'it':'them'} there`);
+  showToast(`Cut ${lineClipboard.length} line${lineClipboard.length===1?'':'s'} \u2014 open any line's Other actions menu and choose Paste to move ${lineClipboard.length===1?'it':'them'} right after that line`);
+}
+// Unlike Cut, nothing selected here ever lands in lineClipboard — this is an outright
+// removal, not the first half of a move. Reuses the exact same descending-index removal
+// as Cut (splicing from the end backward so an earlier removal never shifts a later index
+// out from under the next one), just without the clone-and-store step.
+function deleteSelectedLines(){
+  if(!selectedLines.size) return;
+  const song = getSong();
+  const count = selectedLines.size;
+  song.sections.forEach(sec=>{
+    const idxs = sec.lines.map((l,i)=>i).filter(i=> selectedLines.has(sec.lines[i]));
+    idxs.slice().sort((a,b)=>b-a).forEach(i=> sec.lines.splice(i,1));
+  });
+  clearLineSelection();
+  queueSave(); renderSections();
+  showToast(`Deleted ${count} line${count===1?'':'s'}`);
 }
 function copySelectedLines(){
   if(!selectedLines.size) return;
@@ -3194,15 +3213,18 @@ function copySelectedLines(){
   song.sections.forEach(sec=> sec.lines.forEach(l=>{ if(selectedLines.has(l)) copied.push(l); }));
   lineClipboard = copied.map(l=> JSON.parse(JSON.stringify(l)));
   clearLineSelection();
-  showToast(`Copied ${lineClipboard.length} line${lineClipboard.length===1?'':'s'} \u2014 open any section's Other actions menu and choose Paste to add ${lineClipboard.length===1?'it':'them'} there`);
+  showToast(`Copied ${lineClipboard.length} line${lineClipboard.length===1?'':'s'} \u2014 open any line's Other actions menu and choose Paste to add ${lineClipboard.length===1?'it':'them'} right after that line`);
 }
 // Deep-clones fresh copies on every paste (rather than reusing lineClipboard's own objects)
 // specifically so pasting the same clipboard into several different sections never leaves
-// two sections silently sharing the same underlying line object.
-function pasteLinesIntoSection(sec){
+// two sections silently sharing the same underlying line object. Inserts right after a
+// specific line (li) rather than always at the end of the section — lives on each line's
+// own Other actions menu now, so "paste here" means exactly the line you clicked it on,
+// no separate move-into-position step needed afterward.
+function pasteLinesAfterLine(sec, li){
   if(!lineClipboard.length) return;
   const pasted = lineClipboard.map(l=> JSON.parse(JSON.stringify(l)));
-  sec.lines.push(...pasted);
+  sec.lines.splice(li + 1, 0, ...pasted);
   queueSave(); renderSections();
   showToast(`Pasted ${pasted.length} line${pasted.length===1?'':'s'} into "${sec.name || 'this section'}"`);
 }
@@ -7989,7 +8011,6 @@ function renderSections(){
               </div>
               <button class="btn small" data-si="${si}" data-act="spreadPattern" title="Copy this section's swara (not sahitya) into other sections"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10h8m0 0l-3-3m3 3l-3 3M16 5v10"/></svg> Spread pattern</button>
               <button class="btn small" data-si="${si}" data-act="renumberSangatis" title="Renumber this section's purely-numbered line labels (1, 2, 3…) back into order — labels with a letter are left untouched"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h9M4 10h6M4 15h9"/><path d="M15 13l2 2 2-2M17 15V6"/></svg> Renumber sangatis</button>
-              ${lineClipboard.length ? `<button class="btn small" data-si="${si}" data-act="pasteLines" title="Add the ${lineClipboard.length} cut/copied line(s) to the end of this section"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="3" width="8" height="4" rx="1"/><rect x="4" y="6" width="12" height="11" rx="1.2"/></svg> Paste ${lineClipboard.length} line${lineClipboard.length===1?'':'s'} here</button>` : ''}
             </div>
           </div>
           <div class="toolbar-divider"></div>
@@ -8064,8 +8085,6 @@ function renderSections(){
     };
     card.querySelector('[data-act="spreadPattern"]').onclick = ()=> openSpreadPatternPicker(si);
     card.querySelector('[data-act="renumberSangatis"]').onclick = ()=> renumberSectionSangatis(sec);
-    const pasteBtn = card.querySelector('[data-act="pasteLines"]');
-    if(pasteBtn) pasteBtn.onclick = ()=> pasteLinesIntoSection(sec);
     card.querySelector('[data-act="delSec"]').onclick = ()=>{
       if(confirm('Remove this section?')){ song.sections.splice(si,1); queueSave(); renderSections(); }
     };
@@ -8235,6 +8254,7 @@ function renderLines(host, sec, cfg, kalai){
             <button class="btn small" data-act="dup"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="10" height="10" rx="1.2"/><path d="M7 6V4a1 1 0 011-1h8a1 1 0 011 1v8a1 1 0 01-1 1h-2"/></svg> Duplicate</button>
             <button class="btn small" data-act="clear"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3l4 4-8.5 8.5H4v-4.5z"/><path d="M9 17H4"/></svg> Clear</button>
             <button class="btn small" data-act="splitSectionHere" title="Move this line and every line below it into a brand-new section, right here"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h14M3 14h14" stroke-dasharray="2.5 2.5"/><path d="M7 3l-3 3 3 3M13 11l3 3-3 3" stroke-dasharray="none"/></svg> Split section here</button>
+            ${lineClipboard.length ? `<button class="btn small" data-act="pasteAfterLine" title="Add the ${lineClipboard.length} cut/copied line(s) right after this one"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="3" width="8" height="4" rx="1"/><rect x="4" y="6" width="12" height="11" rx="1.2"/></svg> Paste ${lineClipboard.length} line${lineClipboard.length===1?'':'s'} after this</button>` : ''}
             <button class="btn small danger" data-act="del"><svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 5l10 10M15 5L5 15"/></svg> Remove line</button>
           </div>
         </div>
@@ -8292,6 +8312,8 @@ function renderLines(host, sec, cfg, kalai){
       sec.lines.splice(li,1); queueSave(); renderSections();
     };
     row.querySelector('[data-act="splitSectionHere"]').onclick = ()=> openSplitSectionModal(sec, li);
+    const pasteAfterBtn = row.querySelector('[data-act="pasteAfterLine"]');
+    if(pasteAfterBtn) pasteAfterBtn.onclick = ()=> pasteLinesAfterLine(sec, li);
 
     row.querySelectorAll('.phys-row').forEach(physEl=>{
       const ri = Number(physEl.dataset.ri);
@@ -9757,6 +9779,7 @@ document.getElementById('splitSectionSubmitBtn').onclick = applySplitSection;
 document.getElementById('lineSelMoveUpBtn').onclick = ()=> moveSelectedLines(-1);
 document.getElementById('lineSelMoveDownBtn').onclick = ()=> moveSelectedLines(1);
 document.getElementById('lineSelCutBtn').onclick = cutSelectedLines;
+document.getElementById('lineSelDeleteBtn').onclick = deleteSelectedLines;
 document.getElementById('lineSelCopyBtn').onclick = copySelectedLines;
 document.getElementById('lineSelClearBtn').onclick = clearLineSelection;
 document.getElementById('closeFillSwaraBtn').onclick = document.getElementById('fillSwaraCancelBtn').onclick = () => {
