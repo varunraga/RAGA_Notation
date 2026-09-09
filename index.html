@@ -3213,6 +3213,12 @@ function copySelectedLines(){
   song.sections.forEach(sec=> sec.lines.forEach(l=>{ if(selectedLines.has(l)) copied.push(l); }));
   lineClipboard = copied.map(l=> JSON.parse(JSON.stringify(l)));
   clearLineSelection();
+  // Copy doesn't remove or move anything, but every line's "Paste" button is only added to
+  // the DOM during a render — without this, lineClipboard would hold the copied lines yet
+  // no Paste option would actually appear anywhere until some unrelated edit happened to
+  // trigger a re-render. Cut already re-renders anyway (it also removes lines), which is
+  // why this was easy to miss: Cut worked, Copy silently didn't.
+  renderSections();
   showToast(`Copied ${lineClipboard.length} line${lineClipboard.length===1?'':'s'} \u2014 open any line's Other actions menu and choose Paste to add ${lineClipboard.length===1?'it':'them'} right after that line`);
 }
 // Deep-clones fresh copies on every paste (rather than reusing lineClipboard's own objects)
@@ -3839,7 +3845,14 @@ function showToast(msg){
   const t = document.getElementById('toast');
   t.textContent = msg; t.classList.add('show');
   clearTimeout(t._hideT);
-  t._hideT = setTimeout(()=>t.classList.remove('show'), 1400);
+  // Duration scales with message length rather than a single flat delay — a short
+  // confirmation ("Filled", "Deleted 3 lines") only needs a moment, but many of this app's
+  // toasts are full explanatory sentences (e.g. what Cut/Paste just did and where to find
+  // the next step), and 1.4s flat wasn't enough time to actually read those before they
+  // vanished. Floor and ceiling keep both ends sane: never gone in a flash, never stuck on
+  // screen indefinitely for a short message.
+  const duration = Math.min(6000, Math.max(1800, msg.length * 45));
+  t._hideT = setTimeout(()=>t.classList.remove('show'), duration);
 }
 /* Small inline "Saved ✓" that fades in beside the Save button and fades back
    out shortly after — used instead of the toast for this specific action
