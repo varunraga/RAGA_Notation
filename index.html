@@ -491,6 +491,13 @@
     color:var(--ink); font-size:12px; font-weight:600; cursor:pointer; font-family:'Inter',sans-serif;
   }
   .section-jumpnav button:hover{ background:var(--surface-deep); }
+  .sangati-jump-select{
+    padding:6px 10px; border-radius:999px; border:1px solid var(--line); background:var(--paper);
+    color:var(--ink); font-size:12px; font-weight:600; cursor:pointer; font-family:'Inter',sans-serif;
+    max-width:220px;
+  }
+  #globalSangatiJump{ margin-bottom:18px; }
+  .sangati-jump-select:hover{ background:var(--surface-deep); }
   .section-head input{ font-family:'Fraunces',serif; font-size:19px; font-weight:600; color:var(--heading); border:none; background:transparent; padding:2px 4px; }
   .section-head input:focus{ outline:1px solid var(--indigo-300); border-radius:var(--radius-sm); }
 
@@ -8383,6 +8390,7 @@ function renderMain(){
     </div>
 
     <div class="section-jumpnav" id="sectionJumpNav"></div>
+    <select class="sangati-jump-select" id="globalSangatiJump" style="display:none;"></select>
 
     <div id="sectionsHost"></div>
 
@@ -8551,6 +8559,10 @@ function renderSections(){
         <input value="${escapeHtml(sec.name)}" data-si="${si}" class="secName" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off">
         <div style="display:flex; align-items:center; gap:10px;">
           <button class="btn small icon-only" data-act="playSection" title="Play this whole section (prototype)" data-play-title="Play this whole section (prototype)"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4.5v11l9-5.5-9-5.5z"/></svg></button>
+          <select class="sangati-jump-select" data-si="${si}" title="Jump to a sangati in this section" style="${sec.lines.some(l=>l.label && l.label.trim())?'':'display:none;'}">
+            <option value="">Jump to sangati…</option>
+            ${sec.lines.map((line, li)=> (line.label && line.label.trim()) ? `<option value="${li}">${escapeHtml(line.label.trim())}</option>` : '').join('')}
+          </select>
           <div class="actions-dd">
             <button class="btn small actions-dd-btn" type="button">Other actions <svg class="chev" width="11" height="11" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7.5l5 5 5-5"/></svg></button>
             <div class="actions-dd-menu">
@@ -8634,6 +8646,12 @@ function renderSections(){
     };
     card.querySelector('[data-act="spreadPattern"]').onclick = ()=> openSpreadPatternPicker(si);
     card.querySelector('[data-act="renumberSangatis"]').onclick = ()=> renumberSectionSangatis(sec);
+    const sangatiJumpEl = card.querySelector('.sangati-jump-select');
+    if(sangatiJumpEl) sangatiJumpEl.onchange = e=>{
+      if(e.target.value === '') return;
+      scrollToLine(si, Number(e.target.value));
+      e.target.value = ''; // resets to the placeholder — this is a one-shot jump, not a persistent "current line" selector
+    };
     card.querySelector('[data-act="delSec"]').onclick = ()=>{
       if(confirm('Remove this section?')){ song.sections.splice(si,1); queueSave(); renderSections(); }
     };
@@ -8658,6 +8676,29 @@ function renderSections(){
       jumpNav.style.display = 'none'; // not useful with only one section
     }
   }
+  // Whole-kriti sangati jump-to, grouped by section (an <optgroup> per section, so the
+  // labels stay unambiguous across sections that reuse the same numbering — two different
+  // sections can both have a line labeled "1)"). Lines with no label typed are skipped
+  // entirely, same as the per-section dropdown.
+  const globalSangatiEl = document.getElementById('globalSangatiJump');
+  if(globalSangatiEl){
+    const groups = song.sections
+      .map((sec, si) => ({ si, name: sec.name || 'Untitled section', lines: sec.lines.map((line, li) => ({ li, label: (line.label||'').trim() })).filter(l => l.label) }))
+      .filter(g => g.lines.length);
+    if(groups.length){
+      globalSangatiEl.style.display = '';
+      globalSangatiEl.innerHTML = '<option value="">Jump to sangati…</option>' +
+        groups.map(g => `<optgroup label="${escapeHtml(g.name)}">${g.lines.map(l=>`<option value="${g.si}|${l.li}">${escapeHtml(l.label)}</option>`).join('')}</optgroup>`).join('');
+      globalSangatiEl.onchange = e=>{
+        if(!e.target.value) return;
+        const [si, li] = e.target.value.split('|').map(Number);
+        scrollToLine(si, li);
+        e.target.value = '';
+      };
+    } else {
+      globalSangatiEl.style.display = 'none';
+    }
+  }
 
   wireGlobalCtrlNavigation(host);
   wireCellCopyPaste(host);
@@ -8673,6 +8714,23 @@ function scrollToSection(si){
   const offset = (jumpNav ? jumpNav.offsetHeight : 0) + 14;
   const top = card.offsetTop - offset;
   main.scrollTo({ top, behavior: 'smooth' });
+}
+// Jumps straight to one specific line (sangati) by its section + line index, rather than
+// just the top of its section — used by both the per-section and global sangati jump-to
+// dropdowns. Reuses the same flash-highlight cue Check Kriti's own issue navigation already
+// uses, so landing on a line reads the same way throughout the app.
+function scrollToLine(si, li){
+  const main = document.getElementById('main');
+  const lineRow = document.querySelector(`.card[data-si="${si}"] .line-row[data-li="${li}"]`);
+  if(!lineRow || !main) return;
+  const jumpNav = document.getElementById('sectionJumpNav');
+  const offset = (jumpNav ? jumpNav.offsetHeight : 0) + 14;
+  const top = lineRow.offsetTop - offset;
+  main.scrollTo({ top, behavior: 'smooth' });
+  lineRow.classList.remove('flash-highlight');
+  void lineRow.offsetWidth;
+  lineRow.classList.add('flash-highlight');
+  setTimeout(()=> lineRow.classList.remove('flash-highlight'), 1500);
 }
 
 function cellWidthPx(capacity){ return Math.max(50, capacity*15+20); }
@@ -8823,11 +8881,37 @@ function renderLines(host, sec, sectionCfg, kalai){
     labelInput.oninput = e=>{ line.label = e.target.value; queueSave(); updatePreview(row, line, noSahitya, cfg, kalai); };
     const selectCheck = row.querySelector('.lineSelectCheck');
     selectCheck.checked = selectedLines.has(line);
+    selectCheck._line = line; // resolves a checkbox back to its own line object — used by the Shift+Up/Down range-select handler below, which only has the DOM element to start from
     if(selectedLines.has(line)) row.classList.add('line-row-selected');
     selectCheck.onchange = e=>{
       toggleLineSelection(line, e.target.checked);
       row.classList.toggle('line-row-selected', e.target.checked);
     };
+    // Shift+Up/Down extends the selection to the adjacent line and moves focus there too, so
+    // repeated presses keep walking further in the same direction — the familiar spreadsheet
+    // "extend selection" gesture. Scoped narrowly on purpose: only acts when focus is
+    // already ON a checkbox (this listener is only ever attached to checkboxes, never
+    // anything else) AND that checkbox is already ticked — so it can never fire from an
+    // ordinary swara/lyric cell, and can't be triggered by an unticked checkbox that merely
+    // has keyboard focus, keeping it well clear of the cell-level Shift+Up/Down range-select
+    // gesture those inputs already use for a completely different purpose (copy/paste).
+    // Walks ALL checkboxes in document order (every section, top to bottom), not just the
+    // current section's own lines, so Shift+Down at a section's last line naturally
+    // continues into the next section's first one.
+    selectCheck.addEventListener('keydown', e=>{
+      if(!e.shiftKey || (e.key !== 'ArrowDown' && e.key !== 'ArrowUp')) return;
+      if(!selectCheck.checked) return;
+      e.preventDefault();
+      const allChecks = Array.from(document.querySelectorAll('.lineSelectCheck'));
+      const idx = allChecks.indexOf(selectCheck);
+      const nextCheck = allChecks[e.key === 'ArrowDown' ? idx + 1 : idx - 1];
+      if(!nextCheck) return;
+      const nextLine = nextCheck._line;
+      toggleLineSelection(nextLine, true);
+      nextCheck.checked = true;
+      nextCheck.closest('.line-row').classList.add('line-row-selected');
+      nextCheck.focus();
+    });
     row.querySelector('[data-act="undo"]').onclick = performUndo;
     row.querySelector('[data-act="redo"]').onclick = performRedo;
     row.querySelector('[data-act="play"]').onclick = ()=>{
