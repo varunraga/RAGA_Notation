@@ -1061,6 +1061,20 @@
   .check-issue:hover{ background:var(--surface); }
   .check-issue .badge-text{ font-family:'Courier Prime',monospace; font-weight:700; color:var(--warn-soft); flex:none; }
   .check-issue .issue-loc{ font-size:12px; color:var(--ink-soft); line-height:1.4; }
+  .check-kriti-tabs{ display:flex; gap:6px; margin-bottom:12px; }
+  .check-kriti-tab{
+    flex:1; display:flex; align-items:center; justify-content:center; gap:6px;
+    padding:8px 10px; border-radius:var(--radius-sm); border:1px solid var(--line);
+    background:var(--paper); font-family:'Inter',sans-serif; font-weight:700; font-size:13px;
+    color:var(--ink-soft); cursor:pointer;
+  }
+  .check-kriti-tab:hover{ background:var(--surface); }
+  .check-kriti-tab.active{ background:var(--indigo-deep); border-color:var(--indigo-deep); color:var(--paper); }
+  .check-kriti-tab-count{
+    display:inline-flex; align-items:center; justify-content:center; min-width:18px; height:18px;
+    padding:0 5px; border-radius:999px; background:rgba(0,0,0,0.08); font-size:11px; font-weight:800;
+  }
+  .check-kriti-tab.active .check-kriti-tab-count{ background:rgba(255,255,255,0.25); }
   .quota-modal{
     background:var(--paper); border-radius:var(--radius-lg); max-width:420px; width:100%;
     box-shadow:0 20px 60px rgba(0,0,0,0.35); padding:22px 24px 24px;
@@ -3880,6 +3894,7 @@ function commitUndoSnapshot(){
 function performUndo(){
   const song = getSong();
   if(!song) return;
+  const focusPos = captureNotationFocusPosition();
   commitUndoSnapshot(); // flush any pending (not-yet-settled) edit as its own step first, so undo never silently drops recent work
   const stack = songUndoStacks.get(song.id);
   if(!stack || !stack.length){ showToast('Nothing to undo'); return; }
@@ -3890,12 +3905,14 @@ function performUndo(){
   library[idx] = restored;
   songLastSettled.set(song.id, deepCopySong(restored));
   persist(); renderAll();
+  restoreNotationFocusPosition(focusPos);
   showToast('Undid last change');
 }
 
 function performRedo(){
   const song = getSong();
   if(!song) return;
+  const focusPos = captureNotationFocusPosition();
   const redoStack = songRedoStacks.get(song.id);
   if(!redoStack || !redoStack.length){ showToast('Nothing to redo'); return; }
   const stack = songUndoStacks.get(song.id);
@@ -3905,6 +3922,7 @@ function performRedo(){
   library[idx] = restored;
   songLastSettled.set(song.id, deepCopySong(restored));
   persist(); renderAll();
+  restoreNotationFocusPosition(focusPos);
   showToast('Redid change');
 }
 
@@ -4268,6 +4286,49 @@ function wireGlobalCtrlNavigation(host){
    replaces whatever was there before. */
 let copiedCells = null; // { type: 'swara'|'lyric', values: string[] }
 let lastFocusedNotationCell = null; // { input, type } — used to determine "this line"/"this section" scope for Find & Replace
+/* Captures exactly where the user's cursor currently is — by structural position
+   (section/line/row/cell/field), not by DOM element reference, since a full re-render
+   (as undo/redo triggers via renderAll) destroys and rebuilds every element. Used so undo
+   and redo can put the cursor back where it actually was instead of leaving it wherever
+   the fresh render happens to land (confirmed as a real, reported problem: undo was
+   jumping all the way back to the first line of the kriti every time, regardless of
+   where the edit being undone actually was). Returns null if nothing notation-related is
+   currently focused, or if the previously-focused element has since left the page. */
+function captureNotationFocusPosition(){
+  const input = lastFocusedNotationCell && lastFocusedNotationCell.input;
+  if(!input || !document.body.contains(input) || document.activeElement !== input) return null;
+  const beatCell = input.closest('.beat-cell');
+  const physRow = input.closest('.phys-row');
+  const lineRow = input.closest('.line-row');
+  const card = input.closest('.card[data-si]');
+  if(!beatCell || !physRow || !lineRow || !card) return null;
+  return {
+    sectionIndex: Number(card.dataset.si),
+    lineIndex: Number(lineRow.dataset.li),
+    physRowIndex: Array.from(lineRow.querySelectorAll('.phys-row')).indexOf(physRow),
+    beatCellIndex: Array.from(physRow.querySelectorAll('.beat-cell')).indexOf(beatCell),
+    fieldType: lastFocusedNotationCell.type,
+    selectionStart: input.selectionStart,
+    selectionEnd: input.selectionEnd,
+  };
+}
+// Restores a position captured above, against the freshly-rendered DOM after an undo/redo.
+// Fails silently (returns false) if the exact section/line/row/cell no longer exists in the
+// restored data — e.g. the change being undone was adding that very line — since there's no
+// sensible cell to land on in that case; the caller just leaves the default render as-is.
+function restoreNotationFocusPosition(pos){
+  if(!pos) return false;
+  const card = document.querySelector(`.card[data-si="${pos.sectionIndex}"]`);
+  const lineRow = card && card.querySelector(`.line-row[data-li="${pos.lineIndex}"]`);
+  const physRow = lineRow && lineRow.querySelectorAll('.phys-row')[pos.physRowIndex];
+  const beatCell = physRow && physRow.querySelectorAll('.beat-cell')[pos.beatCellIndex];
+  const input = beatCell && beatCell.querySelector(pos.fieldType === 'swara' ? 'input.swara' : 'input.lyric');
+  if(!input) return false;
+  input.focus();
+  try{ input.setSelectionRange(pos.selectionStart, pos.selectionEnd); }catch(e){}
+  input.scrollIntoView({ block: 'center' });
+  return true;
+}
 let frMatches = []; // current Find & Replace match list: { el, isTextarea, start, end }
 let frMatchIdx = -1; // index into frMatches of the "current" match for Find Next / Replace
 
@@ -4791,24 +4852,55 @@ function navigateToIssue(issue){
   setTimeout(()=> el.classList.remove('flash-highlight'), 1500);
 }
 
+let checkKritiActiveTab = 'Swara'; // persists across re-opens within the session — reopening the checker after fixing a Swara issue stays on Swara instead of resetting to whatever the default would be
 function openCheckKriti(){
   if(!getSong()) return;
   const issues = scanKritiIssues();
+  renderCheckKritiBody(issues);
+  document.getElementById('checkKritiOverlay').classList.add('show');
+}
+// "Raga scale" issues are grouped under the Swara tab, not a third tab of their own — a
+// scale-flag is fundamentally about whether a SWARA note belongs to the raga, the same
+// category of thing as an akshara-count mismatch, not an independent kind of check the way
+// swara-vs-sahitya syllable alignment is.
+function checkKritiTabForIssue(issue){
+  return issue.type === 'Sahitya' ? 'Sahitya' : 'Swara';
+}
+function renderCheckKritiBody(issues){
   const body = document.getElementById('checkKritiBody');
   if(!issues.length){
     body.innerHTML = `<div class="quota-text" style="color:var(--good-soft);">✓ No issues found — every cell reconciles.</div>`;
-  } else {
-    body.innerHTML = `<div class="quota-text" style="margin-bottom:10px;">${issues.length} issue${issues.length===1?'':'s'} found:</div><div id="checkIssueList"></div>`;
-    const list = document.getElementById('checkIssueList');
-    issues.forEach(issue => {
-      const btn = document.createElement('button');
-      btn.className = 'check-issue';
-      btn.innerHTML = `<span class="badge-text">${escapeHtml(issue.badgeText)}</span><span class="issue-loc">${escapeHtml(issue.type)} — ${escapeHtml(issue.sectionName)}, ${escapeHtml(issue.lineLabel)}${issue.cellPos ? ', cell '+issue.cellPos : ''}</span>`;
-      btn.onclick = () => navigateToIssue(issue);
-      list.appendChild(btn);
-    });
+    return;
   }
-  document.getElementById('checkKritiOverlay').classList.add('show');
+  const swaraIssues = issues.filter(i => checkKritiTabForIssue(i) === 'Swara');
+  const sahityaIssues = issues.filter(i => checkKritiTabForIssue(i) === 'Sahitya');
+  // If the tab remembered from last time has nothing to show anymore (its issues all got
+  // fixed), fall back to whichever tab actually has issues, rather than showing an empty list.
+  if(checkKritiActiveTab === 'Swara' && !swaraIssues.length && sahityaIssues.length) checkKritiActiveTab = 'Sahitya';
+  if(checkKritiActiveTab === 'Sahitya' && !sahityaIssues.length && swaraIssues.length) checkKritiActiveTab = 'Swara';
+  body.innerHTML = `
+    <div class="check-kriti-tabs">
+      <button class="check-kriti-tab${checkKritiActiveTab==='Swara'?' active':''}" data-tab="Swara">Swara check <span class="check-kriti-tab-count">${swaraIssues.length}</span></button>
+      <button class="check-kriti-tab${checkKritiActiveTab==='Sahitya'?' active':''}" data-tab="Sahitya">Sahitya check <span class="check-kriti-tab-count">${sahityaIssues.length}</span></button>
+    </div>
+    <div id="checkIssueList"></div>
+  `;
+  body.querySelectorAll('.check-kriti-tab').forEach(btn=>{
+    btn.onclick = () => { checkKritiActiveTab = btn.dataset.tab; renderCheckKritiBody(scanKritiIssues()); };
+  });
+  const list = document.getElementById('checkIssueList');
+  const shown = checkKritiActiveTab === 'Swara' ? swaraIssues : sahityaIssues;
+  if(!shown.length){
+    list.innerHTML = `<div class="quota-text" style="color:var(--good-soft); padding:10px 2px;">✓ No ${checkKritiActiveTab.toLowerCase()} issues.</div>`;
+    return;
+  }
+  shown.forEach(issue => {
+    const btn = document.createElement('button');
+    btn.className = 'check-issue';
+    btn.innerHTML = `<span class="badge-text">${escapeHtml(issue.badgeText)}</span><span class="issue-loc">${escapeHtml(issue.type)} — ${escapeHtml(issue.sectionName)}, ${escapeHtml(issue.lineLabel)}${issue.cellPos ? ', cell '+issue.cellPos : ''}</span>`;
+    btn.onclick = () => navigateToIssue(issue);
+    list.appendChild(btn);
+  });
 }
 function closeCheckKriti(){
   document.getElementById('checkKritiOverlay').classList.remove('show');
@@ -5578,6 +5670,30 @@ function generateImportCellMarkup(cellTokens){
   });
   return parts.join(' ');
 }
+/* Madhyama Kala Sahityam is always 2nd speed throughout by definition — so a cell that
+   mixes 1st-speed notes with 2nd-speed notes (e.g. "S*RS*": S at 1st speed, RS at 2nd) is
+   really the SAME musical content the source just happened to write with mixed markup, and
+   should come in as one single-underline span covering the whole cell instead, matching
+   how the rest of a Madhyama Kala passage reads. A 1st-speed note carries weight 2 (its
+   akshara-time), but a bare note under a single underline only carries weight 1 — half of
+   what it needs — so each 1st-speed note gets one comma appended right after it purely to
+   make up that difference; a 1st-speed comma (already weight 1) needs no filler. This
+   preserves the cell's total akshara weight exactly: "S*RS*" (2+1+1=4) becomes "*S,RS*"
+   (1+1+1+1=4), not "*SRS*" (which would silently shrink the cell by 1 akshara). 3rd-speed
+   content is deliberately left untouched (and the cell's normal mixed markup used instead)
+   rather than folded in here — collapsing it into 2nd speed can't be done without either
+   dropping notes or changing the cell's total time, since 3rd speed genuinely packs more
+   notes into the same akshara than 2nd speed can hold. */
+function generateMadhyamaKalaCellMarkup(cellTokens){
+  if(!cellTokens.length) return '';
+  if(cellTokens.some(t => t.speed === 3)) return generateImportCellMarkup(cellTokens);
+  const pieces = [];
+  cellTokens.forEach(t=>{
+    pieces.push(t.display);
+    if(t.speed === 1 && t.weight > 1) pieces.push(',');
+  });
+  return `*${pieces.join('')}*`;
+}
 
 /* Walks a half-avartanam's classified tokens in order, accumulating weight
    per cell until each cell's target capacity (cellCaps[i]) is reached, then
@@ -5585,7 +5701,7 @@ function generateImportCellMarkup(cellTokens){
    a cell's remaining capacity, it's still placed in the current cell (never
    silently bumped to the next one instead) and the overshoot is reported as
    a warning for the Step 5 review screen, rather than hidden. */
-function splitHalfAvartanamIntoCells(tokens, cellCaps){
+function splitHalfAvartanamIntoCells(tokens, cellCaps, forceSpeed2){
   const cells = [];
   const warnings = [];
   let idx = 0;
@@ -5598,7 +5714,7 @@ function splitHalfAvartanamIntoCells(tokens, cellCaps){
       acc += t.weight;
       idx++;
     }
-    const cellMarkup = generateImportCellMarkup(cellTokens);
+    const cellMarkup = forceSpeed2 ? generateMadhyamaKalaCellMarkup(cellTokens) : generateImportCellMarkup(cellTokens);
     if(Math.abs(acc - cap) > 1e-9){
       // Include the cell's own content so a reviewer can spot it immediately
       // in the imported grid, rather than hunting through the whole document
@@ -5926,8 +6042,8 @@ function openFillLineSahityaModal(line, cfg){
    ONE half-avartanam + that half-avartanam's flat sahitya word list in ->
    per-cell {swara, sahitya, weight, cap} out, plus any warnings to surface
    in the Step 5 review screen. */
-function buildImportCellsFromClassifiedSegment(tokens, cellCaps, sahityaWords){
-  const { cells, warnings, leftoverTokens } = splitHalfAvartanamIntoCells(tokens, cellCaps);
+function buildImportCellsFromClassifiedSegment(tokens, cellCaps, sahityaWords, forceSpeed2){
+  const { cells, warnings, leftoverTokens } = splitHalfAvartanamIntoCells(tokens, cellCaps, forceSpeed2);
   // Sahitya words are distributed by how many ALIGNMENT ITEMS each cell's swara actually
   // ended up holding (the exact same item-count the live "X/Y syl" checker computes via
   // tokenizeSwaraForAlign) — NOT by raw akshara capacity, which was the original approach
@@ -6262,7 +6378,7 @@ function buildImportedNotationLine(cfg, swaraText, sahityaText, caseSensitive, w
      repeat-marker) — consumes only as many cells as its own small weight
      needs, rather than being forced across the entire row leaving most of
      it empty (the original bug this replaced). */
-function computeSegmentItemWeights(segments, cfg){
+function computeSegmentItemWeights(segments, cfg, forceSpeed2){
   // Dry-run mirror of the real cell-splitting loop below (same cellIdx cursor, same
   // row-overflow handling) — needed to know each segment's TRUE total alignment-item
   // count BEFORE any sahitya word gets distributed to it. Akshara weight doesn't reflect
@@ -6286,7 +6402,7 @@ function computeSegmentItemWeights(segments, cfg){
         while(consumed < segWeight && idx < cfg.rowCells.length){ caps.push(cfg.rowCells[idx]); consumed += cfg.rowCells[idx]; idx++; }
       }
       cellIdx = idx;
-      const { cells, leftoverTokens } = splitHalfAvartanamIntoCells(pending, caps.length ? caps : cfg.rowCells);
+      const { cells, leftoverTokens } = splitHalfAvartanamIntoCells(pending, caps.length ? caps : cfg.rowCells, forceSpeed2);
       total += cells.reduce((a,c)=> a + tokenizeSwaraForAlign(c.swara).length, 0);
       if(cellIdx >= cfg.rowCells.length) cellIdx = 0;
       if(!leftoverTokens.length) break;
@@ -6295,7 +6411,7 @@ function computeSegmentItemWeights(segments, cfg){
     return total;
   });
 }
-function buildImportedNotationLineFromRuns(cfg, swaraRuns, sahityaText, caseSensitive, warnings, opts){
+function buildImportedNotationLineFromRuns(cfg, swaraRuns, sahityaText, caseSensitive, warnings, opts, forceSpeed2){
   const tokens = classifySourceLine(swaraRuns, caseSensitive, opts);
   const segments = [[]];
   tokens.forEach(t=>{ t.type === 'divider' ? segments.push([]) : segments[segments.length-1].push(t); });
@@ -6303,7 +6419,7 @@ function buildImportedNotationLineFromRuns(cfg, swaraRuns, sahityaText, caseSens
   // Same reasoning as the per-cell fix in buildImportCellsFromClassifiedSegment, one level
   // up: segments should split sahitya between them by how many real alignment items each
   // one holds, not by raw akshara weight.
-  const segmentWeights = segments.length > 1 ? computeSegmentItemWeights(segments, cfg) : [1];
+  const segmentWeights = segments.length > 1 ? computeSegmentItemWeights(segments, cfg, forceSpeed2) : [1];
   const wordsPerSeg = segments.length > 1
     ? distributeImportWordsByWeight(sahityaWords, segmentWeights)
     : [sahityaWords.join(' ')];
@@ -6342,7 +6458,7 @@ function buildImportedNotationLineFromRuns(cfg, swaraRuns, sahityaText, caseSens
         flushLine();
         caps = walkCells(segWeight);
       }
-      const { cells, warnings: segWarnings, leftoverTokens } = buildImportCellsFromClassifiedSegment(pendingTokens, caps.length ? caps : cfg.rowCells, words);
+      const { cells, warnings: segWarnings, leftoverTokens } = buildImportCellsFromClassifiedSegment(pendingTokens, caps.length ? caps : cfg.rowCells, words, forceSpeed2);
       cells.forEach(c=>{ rowSwara.push(c.swara); rowLyric.push(c.sahitya); });
       segWarnings.forEach(w => warnings.push(w));
       if(cellIdx >= cfg.rowCells.length) flushLine(); // row exactly full — next pass (if any) starts a new line
@@ -6528,7 +6644,7 @@ function assembleImportedSong(fileResult, opts){
       realContentCounter++;
       realContentOrder.set(currentSection, realContentCounter);
     }
-    const lines = buildImportedNotationLineFromRuns(cfg, swaraRuns, currentSection.noSahitya ? '' : sahityaText, caseSensitive, warnings, opts);
+    const lines = buildImportedNotationLineFromRuns(cfg, swaraRuns, currentSection.noSahitya ? '' : sahityaText, caseSensitive, warnings, opts, canonicalSectionKey(currentSection.name) === 'madhyamakalasahitya');
     lines.forEach(line => currentSection.lines.push(line));
   }
   let realContentCounter = 0;
