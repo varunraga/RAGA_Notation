@@ -4251,7 +4251,7 @@ function wireGlobalCtrlNavigation(host){
   }
   function wire(inp, type){
     inp.addEventListener('keydown', (e)=>{
-      if(!e.ctrlKey) return;
+      if(!e.ctrlKey || e.shiftKey) return; // Ctrl+Shift+Arrow is left alone — see wireCellCopyPaste's own guard for why
       if(e.key === 'ArrowRight'){ e.preventDefault(); focusAt(sequence, seqIndex.get(inp)+1); return; }
       if(e.key === 'ArrowLeft'){ e.preventDefault(); focusAt(sequence, seqIndex.get(inp)-1); return; }
 
@@ -4579,7 +4579,15 @@ function wireCellCopyPaste(host){
       showToast(`Cleared ${selected.length} cell${selected.length===1?'':'s'}`);
       return;
     }
-    if(!e.shiftKey || !anchor) return;
+    // Ctrl+Shift+Arrow is deliberately left alone here — that combination is the browser's
+    // own standard shortcut for selecting text word-by-word within the focused field, which
+    // is exactly what's wanted for selecting part of ONE cell's own swara/sahitya text
+    // (plain Shift+Arrow alone is already fully claimed by this cell-to-cell range-select
+    // gesture, so it can't also do in-field text selection — this is the deliberate
+    // alternative). Bailing out here — and the equivalent bail-out in
+    // wireGlobalCtrlNavigation's own Ctrl+Arrow handler — is what actually lets that
+    // native behavior through; neither custom handler would otherwise prevent it.
+    if(!e.shiftKey || e.ctrlKey || !anchor) return;
     if(mixedSeq.indexOf(active) === -1) return;
     const farEnd = selectionPath[selectionPath.length - 1];
     if(!farEnd || mixedSeq.indexOf(farEnd) === -1) return;
@@ -10625,8 +10633,52 @@ document.getElementById('closeQuotaBtn').onclick = closeStorageQuota;
 document.getElementById('quotaOverlay').addEventListener('click', e=>{
   if(e.target.id === 'quotaOverlay') closeStorageQuota();
 });
+// Every overlay in the app that has its own simple "X" close button, paired up so Escape
+// can close whichever one is actually open without needing its own copy of each overlay's
+// close logic — clicking the SAME button a user would themselves reuses whatever cleanup
+// that button already does (resetting a target variable, clearing a form, etc.) exactly,
+// rather than risking a second, slightly-different close path drifting out of sync with
+// the real one over time. conflictOverlay is deliberately left out: an unresolved sync
+// conflict needs an actual choice (keep mine / keep theirs), and Escape doesn't get to
+// silently pick one on the user's behalf.
+const ESCAPE_CLOSEABLE_OVERLAYS = [
+  ['checkKritiOverlay', 'closeCheckKritiBtn'],
+  ['docxChoiceOverlay', 'closeDocxChoiceBtn'],
+  ['editFileDetailsOverlay', 'closeEditFileDetailsBtn'],
+  ['fileViewerOverlay', 'closeFileViewerBtn'],
+  ['fillLineSahityaOverlay', 'closeFillLineSahityaBtn'],
+  ['fillSahityaModeOverlay', 'closeFillSahityaModeBtn'],
+  ['fillSwaraOverlay', 'closeFillSwaraBtn'],
+  ['findReplaceOverlay', 'closeFindReplaceBtn'],
+  ['importOverlay', 'closeImportBtn'],
+  ['importTalaOverlay', 'closeImportTalaBtn'],
+  ['lineRowWidthOverlay', 'closeLineRowWidthBtn'],
+  ['newKritiFormOverlay', 'closeNewKritiFormBtn'],
+  ['previewOverlay', 'closePreviewBtn'],
+  ['printReadyOverlay', 'closePrintReadyBtn'],
+  ['quotaOverlay', 'closeQuotaBtn'],
+  ['splitSectionOverlay', 'closeSplitSectionBtn'],
+  ['spreadPatternOverlay', 'closeSpreadPatternBtn'],
+];
 document.addEventListener('keydown', e=>{
-  if(e.key === 'Escape'){ closePreview(); closeStorageQuota(); closeFindReplace(); closeCheckKriti(); }
+  if(e.key === 'Escape'){
+    let closedSomething = false;
+    ESCAPE_CLOSEABLE_OVERLAYS.forEach(([overlayId, btnId])=>{
+      const overlay = document.getElementById(overlayId);
+      const btn = document.getElementById(btnId);
+      if(overlay && btn && overlay.classList.contains('show')){
+        btn.click();
+        closedSomething = true;
+      }
+    });
+    // No popup was open to close — fall back to clearing whichever kind of multi-select is
+    // currently active. Cell-range selection (for swara/sahitya copy/paste) already clears
+    // itself via its own Escape handler right where it's tracked (see wireCellCopyPaste);
+    // this adds the other kind — checked lines waiting for Cut/Copy/Move/Delete — as an
+    // equally-universal Escape target, so either kind of selection is one Escape away from
+    // gone, same as any open popup.
+    if(!closedSomething && selectedLines.size) clearLineSelection();
+  }
   if(e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'z'){ e.preventDefault(); performUndo(); }
   else if(e.ctrlKey && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))){ e.preventDefault(); performRedo(); }
   else if(e.ctrlKey && e.key.toLowerCase() === 'h'){ e.preventDefault(); openFindReplace(); }
