@@ -5665,8 +5665,28 @@ function generateImportCellMarkup(cellTokens){
     if(run.speed === 1){
       return run.tokens.map(t=>t.display).join(' ');
     }
+    if(run.speed === 3){
+      // A case-sensitive source varies a 3rd-speed token's OWN weight by case — capital
+      // (or ';') = 1 akshara, lowercase = 0.5 (sourceTokenValue's documented rule,
+      // confirmed against real data) — but this app's own double-underline convention
+      // weighs every token flatly at 0.5 regardless of case. A capital letter glued in
+      // directly therefore silently loses half its own weight the moment it's displayed
+      // under this app's flat convention — confirmed as a real, reported cause of many
+      // swara/capacity mismatches on import. One comma filler right after such a token
+      // makes up the missing half exactly (0.5 + 0.5 = 1, matching what it actually
+      // represents). A genuine DOCX double-underline run (not case-derived) is already
+      // flat 0.5 per token by construction — sourceTokenValue returns 0.5 uniformly
+      // there too — so this adds zero fillers and is a complete no-op for that case.
+      const pieces = [];
+      run.tokens.forEach(t=>{
+        pieces.push(t.display);
+        const fillers = Math.round(t.weight / 0.5) - 1;
+        for(let i=0;i<fillers;i++) pieces.push(',');
+      });
+      return `**${pieces.join('')}**`;
+    }
     const glued = run.tokens.map(t=>t.display).join('');
-    return run.speed === 2 ? `*${glued}*` : `**${glued}**`;
+    return `*${glued}*`;
   });
   return parts.join(' ');
 }
