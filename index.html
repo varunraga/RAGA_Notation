@@ -7497,8 +7497,20 @@ function tokenizeSwaraForAlign(raw){
    into individual "-" continuation pieces (one per held note), the same shape a spaced-out
    "sha- -" already produces naturally. A single leading/trailing hyphen is left exactly as
    typed — that's the normal, already-correct "held over one note, no new syllable" marker
-   used throughout ("sha-" on its own is fine and shouldn't be touched). */
+   used throughout ("sha-" on its own is fine and shouldn't be touched).
+   A word that's PURELY dashes with no real syllable at all ("--", "---") is deliberately
+   left untouched as ONE piece, not exploded — confirmed as a real, wrong split: typing a
+   single space between two swara notes groups them into ONE combined token (e.g. "PD"), and
+   the natural way to mark that whole group as a held continuation is one dash-only word
+   ("--") matching it one-for-one. Exploding "--" into two separate "-" pieces gave that one
+   grouped token two syllable-slots instead of one, producing a syllable-count mismatch
+   against notation that was otherwise correctly grouped and lined up. Since a dash-only word
+   has no core syllable to attach leading/trailing dashes TO, the "dya--" reasoning above
+   doesn't apply to it in the first place — if separate continuation notes are genuinely
+   wanted, typing them with their own spaces ("- -") already produces separate words on its
+   own, with no exploding needed. */
 function explodeContinuationDashes(word){
+  if(/^-+$/.test(word)) return [word];
   const m = word.match(/^(-*)([^-]*?)(-*)$/);
   if(!m) return [word];
   const [, lead, core, trail] = m;
@@ -7515,6 +7527,17 @@ function explodeContinuationDashes(word){
 function buildAlignedColumns(rawSwara, rawLyric){
   const tokens = tokenizeSwaraForAlign(rawSwara);
   const trimmedLyric = (rawLyric||'').trim();
+  const plainWords = trimmedLyric ? trimmedLyric.split(/\s+/).filter(Boolean) : [];
+  // Exploding a dash-trailing word into several continuation pieces (see
+  // explodeContinuationDashes) exists for when the swara side has MORE separate notes than
+  // there are typed sahitya words to cover them — but now that swara can be deliberately
+  // GROUPED (a single space, or |...|, merging several notes into one token), the same
+  // explosion applied on top of an ALREADY-matching word count over-splits a word like
+  // "ti--" into two pieces for what both sides already agree is one unit, confirmed as a
+  // real, reported mismatch against otherwise correctly grouped notation. Gated here so
+  // explosion only ever fires to fill a genuine shortfall — when the typed word count
+  // already covers (or exceeds) the token count, every word is trusted exactly as typed.
+  const rawWords = plainWords.length >= tokens.length ? plainWords : plainWords.flatMap(explodeContinuationDashes);
   // "|word|" marks ONE syllable as an intentional unbreakable word (e.g. a
   // name that can't be split into one-per-note pieces) — the pipes are a
   // typed marker only, stripped before rendering, never shown in the output.
@@ -7523,7 +7546,6 @@ function buildAlignedColumns(rawSwara, rawLyric){
   // and when it's one word among several normal syllables in the same cell
   // ("abc |defghij| klm") — previously only the whole-cell case was handled,
   // so a mid-cell wrapped word kept its literal "|" characters in the output.
-  const rawWords = trimmedLyric ? trimmedLyric.split(/\s+/).flatMap(explodeContinuationDashes) : [];
   let forcedNoMismatch = false;
   const syllables = rawWords.map(w=>{
     if(w.length >= 2 && w.startsWith('|') && w.endsWith('|')){
