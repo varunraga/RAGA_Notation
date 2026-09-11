@@ -9745,11 +9745,26 @@ async function downloadDocxToDevice(song){
    BEFORE generating anything, so a not-connected person gets a clear,
    immediate message rather than a mid-flow OAuth popup or a silent failure
    after the file's already been built. */
+let driveDocxExportInFlight = false; // hard lock — see below
 async function exportDocxToDrive(song){
   if(!driveAccessToken){
     showToast('Connect to Drive first (use the Sync button), then try exporting again');
     return;
   }
+  // Without this, clicking Export twice in a row — e.g. a second click while
+  // the first is still mid-upload, with no visual feedback in between to
+  // suggest anything is already happening — lets both calls check "does
+  // this file already exist?" before EITHER has actually finished creating
+  // it. Both see no existing file, both then create one: two duplicate
+  // files instead of one replaced file. Confirmed as a real, reported
+  // case. This closes that off at the root rather than trying to make the
+  // find-then-upload check itself atomic (which Drive's own API doesn't
+  // offer a clean way to do).
+  if(driveDocxExportInFlight){
+    showToast('Already exporting to Drive — hang on a moment');
+    return;
+  }
+  driveDocxExportInFlight = true;
   try{
     const { blob, filename } = await buildDocxBlob(song);
     if(!driveFolderId) driveFolderId = await driveFindOrCreateFolder(DRIVE_FOLDER_NAME);
@@ -9758,6 +9773,8 @@ async function exportDocxToDrive(song){
   }catch(e){
     console.error('[drive docx export] failed:', e);
     showToast('Could not export to Drive — see console for details');
+  } finally {
+    driveDocxExportInFlight = false;
   }
 }
 
