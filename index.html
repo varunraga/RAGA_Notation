@@ -8715,29 +8715,7 @@ function renderSections(){
       jumpNav.style.display = 'none'; // not useful with only one section
     }
   }
-  // Whole-kriti sangati jump-to, grouped by section (an <optgroup> per section, so the
-  // labels stay unambiguous across sections that reuse the same numbering — two different
-  // sections can both have a line labeled "1)"). Lines with no label typed are skipped
-  // entirely, same as the per-section dropdown.
-  const globalSangatiEl = document.getElementById('globalSangatiJump');
-  if(globalSangatiEl){
-    const groups = song.sections
-      .map((sec, si) => ({ si, name: sec.name || 'Untitled section', lines: sec.lines.map((line, li) => ({ li, label: (line.label||'').trim() })).filter(l => l.label) }))
-      .filter(g => g.lines.length);
-    if(groups.length){
-      globalSangatiEl.style.display = '';
-      globalSangatiEl.innerHTML = '<option value="">Jump to sangati…</option>' +
-        groups.map(g => `<optgroup label="${escapeHtml(g.name)}">${g.lines.map(l=>`<option value="${g.si}|${l.li}">${escapeHtml(l.label)}</option>`).join('')}</optgroup>`).join('');
-      globalSangatiEl.onchange = e=>{
-        if(!e.target.value) return;
-        const [si, li] = e.target.value.split('|').map(Number);
-        scrollToLine(si, li);
-        e.target.value = '';
-      };
-    } else {
-      globalSangatiEl.style.display = 'none';
-    }
-  }
+  refreshSangatiJumpDropdowns();
 
   wireGlobalCtrlNavigation(host);
   wireCellCopyPaste(host);
@@ -8753,6 +8731,55 @@ function scrollToSection(si){
   const offset = (jumpNav ? jumpNav.offsetHeight : 0) + 14;
   const top = card.offsetTop - offset;
   main.scrollTo({ top, behavior: 'smooth' });
+}
+// Refreshes the global and per-section sangati jump-to dropdowns' own options/visibility in
+// place — deliberately NOT a full renderSections() call. A label is typically the last thing
+// typed after a line's swara/sahitya, and a full re-render on every keystroke there would
+// interrupt typing (moved focus, lost cursor position); this only touches the dropdowns
+// themselves, so a freshly-typed sangati label shows up in "Jump to sangati" immediately
+// without needing some unrelated action (adding a line, switching sections) to happen first
+// and force a render in the meantime. Confirmed as a real, reported case: a section's own
+// labels went in last, with no subsequent action to trigger a render, so its dropdown stayed
+// empty even though the labels themselves had saved correctly.
+function refreshSangatiJumpDropdowns(){
+  const song = getSong();
+  if(!song) return;
+  document.querySelectorAll('.card[data-si]').forEach(card=>{
+    const si = Number(card.dataset.si);
+    const sec = song.sections[si];
+    const el = card.querySelector('.sangati-jump-select');
+    if(!sec || !el) return;
+    const labeled = sec.lines.map((line, li)=>({ li, label: (line.label||'').trim() })).filter(l => l.label);
+    el.style.display = labeled.length ? '' : 'none';
+    el.innerHTML = '<option value="">Jump to sangati…</option>' +
+      labeled.map(l=>`<option value="${l.li}">${escapeHtml(l.label)}</option>`).join('');
+  });
+  // Whole-kriti sangati jump-to, grouped by section (an <optgroup> per section, so the
+  // labels stay unambiguous across sections that reuse the same numbering — two different
+  // sections can both have a line labeled "1)"). Lines with no label typed are skipped
+  // entirely, same as the per-section dropdown.
+  const globalSangatiEl = document.getElementById('globalSangatiJump');
+  if(globalSangatiEl){
+    const groups = song.sections
+      .map((sec, si) => ({ si, name: sec.name || 'Untitled section', lines: sec.lines.map((line, li) => ({ li, label: (line.label||'').trim() })).filter(l => l.label) }))
+      .filter(g => g.lines.length);
+    if(groups.length){
+      globalSangatiEl.style.display = '';
+      globalSangatiEl.innerHTML = '<option value="">Jump to sangati…</option>' +
+        groups.map(g => `<optgroup label="${escapeHtml(g.name)}">${g.lines.map(l=>`<option value="${g.si}|${l.li}">${escapeHtml(l.label)}</option>`).join('')}</optgroup>`).join('');
+    } else {
+      globalSangatiEl.style.display = 'none';
+    }
+    // Assigned every refresh (idempotent — always the same handler) rather than only once
+    // at full-render time, since this function is also what's keeping the global dropdown
+    // usable between full renders, with no separate one-time wiring pass to rely on.
+    globalSangatiEl.onchange = e=>{
+      if(!e.target.value) return;
+      const [si, li] = e.target.value.split('|').map(Number);
+      scrollToLine(si, li);
+      e.target.value = '';
+    };
+  }
 }
 // Jumps straight to one specific line (sangati) by its section + line index, rather than
 // just the top of its section — used by both the per-section and global sangati jump-to
@@ -8917,7 +8944,7 @@ function renderLines(host, sec, sectionCfg, kalai){
     host.appendChild(row);
 
     const labelInput = row.querySelector('.label');
-    labelInput.oninput = e=>{ line.label = e.target.value; queueSave(); updatePreview(row, line, noSahitya, cfg, kalai); };
+    labelInput.oninput = e=>{ line.label = e.target.value; queueSave(); updatePreview(row, line, noSahitya, cfg, kalai); refreshSangatiJumpDropdowns(); };
     const selectCheck = row.querySelector('.lineSelectCheck');
     selectCheck.checked = selectedLines.has(line);
     selectCheck._line = line; // resolves a checkbox back to its own line object — used by the Shift+Up/Down range-select handler below, which only has the DOM element to start from
