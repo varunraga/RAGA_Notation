@@ -1103,6 +1103,21 @@
   }
   .file-viewer-body{ flex:1; min-height:0; overflow:auto; border:1px solid var(--line); border-radius:var(--radius-sm); }
   .file-viewer-body iframe{ width:100%; height:100%; border:none; display:block; }
+  .pdf-canvas-toolbar{
+    position:sticky; top:0; z-index:5; display:flex; align-items:center; gap:10px;
+    padding:8px 12px; background:var(--paper); border-bottom:1px solid var(--line);
+  }
+  .pdf-canvas-toolbar button{
+    width:28px; height:28px; border-radius:6px; border:1px solid var(--line); background:var(--surface);
+    cursor:pointer; font-size:16px; font-weight:700; display:flex; align-items:center; justify-content:center;
+    font-family:'Inter',sans-serif; color:var(--ink);
+  }
+  .pdf-canvas-toolbar button:hover:not(:disabled){ background:var(--surface-deep); }
+  .pdf-canvas-toolbar button:disabled{ opacity:0.4; cursor:not-allowed; }
+  .pdf-canvas-zoom-label{ font-size:13px; font-weight:700; min-width:46px; text-align:center; font-family:'Inter',sans-serif; }
+  .pdf-canvas-page-count{ margin-left:auto; font-size:12px; color:var(--ink-soft); font-family:'Inter',sans-serif; }
+  .pdf-canvas-pages{ display:flex; flex-direction:column; align-items:center; gap:16px; padding:16px; background:var(--surface); }
+  .pdf-page-canvas{ box-shadow:0 2px 10px rgba(0,0,0,0.15); max-width:100%; height:auto; background:#fff; }
   .file-viewer-doc{ font-family:'Inter',sans-serif; font-size:14px; line-height:1.65; color:var(--ink); padding:16px 20px; }
   .file-viewer-doc p{ margin:0 0 10px; }
   /* No width:100% here on purpose — a notation table's real columns (read from Word's own
@@ -10203,6 +10218,67 @@ function renderDocxItemsAsHtml(items){
 /* The shared entry point for viewing any file in-app — a just-picked local File (no Drive
    round-trip needed at all) or a Blob fetched back from Drive for something uploaded earlier
    both work identically here. */
+/* Renders every page of a PDF onto its own <canvas> via PDF.js, instead of handing the raw
+   file to the browser's own built-in PDF plugin. The iframe approach this replaces meant
+   the app had zero control over rendering fidelity — each browser's own PDF engine draws
+   fine details (like a double-underline's two closely-spaced strokes) slightly differently,
+   confirmed as a real, reported case of double-underline (3rd speed) simply not showing at
+   all in one browser's native viewer. PDF.js renders identically regardless of which
+   browser it's running in, so this makes the preview match the source file consistently
+   rather than inheriting whatever gaps a given browser's own plugin happens to have.
+   Rendered at scale × the screen's own device pixel ratio for crisp text on high-DPI
+   displays, then displayed back down at the intended logical size — the standard technique
+   for sharp canvas rendering regardless of screen density. */
+async function renderPdfCanvasView(blob, body){
+  if(window.pdfjsLib && !pdfjsLib.GlobalWorkerOptions.workerSrc){
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  }
+  const arrayBuffer = await blob.arrayBuffer();
+  const doc = await pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) }).promise;
+  let scale = 1.5; // 150% — a readable starting point for typical text-dense reference documents; 100% is a PDF's own native (often quite small) size
+  const dpr = window.devicePixelRatio || 1;
+
+  body.innerHTML = `
+    <div class="pdf-canvas-toolbar">
+      <button type="button" id="pdfZoomOutBtn" title="Zoom out">\u2212</button>
+      <span class="pdf-canvas-zoom-label" id="pdfZoomLabel">150%</span>
+      <button type="button" id="pdfZoomInBtn" title="Zoom in">+</button>
+      <span class="pdf-canvas-page-count">${doc.numPages} page${doc.numPages===1?'':'s'}</span>
+    </div>
+    <div class="pdf-canvas-pages" id="pdfCanvasPages"></div>
+  `;
+  const pagesHost = body.querySelector('#pdfCanvasPages');
+  const zoomLabel = body.querySelector('#pdfZoomLabel');
+  const zoomInBtn = body.querySelector('#pdfZoomInBtn');
+  const zoomOutBtn = body.querySelector('#pdfZoomOutBtn');
+
+  async function renderAllPages(){
+    zoomInBtn.disabled = zoomOutBtn.disabled = true;
+    pagesHost.innerHTML = '<div class="quota-loading">Rendering…</div>';
+    const canvases = [];
+    for(let pageNum = 1; pageNum <= doc.numPages; pageNum++){
+      const page = await doc.getPage(pageNum);
+      const viewport = page.getViewport({ scale: scale * dpr });
+      const canvas = document.createElement('canvas');
+      canvas.className = 'pdf-page-canvas';
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      canvas.style.width = (viewport.width / dpr) + 'px';
+      canvas.style.height = (viewport.height / dpr) + 'px';
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+      canvases.push(canvas);
+    }
+    pagesHost.innerHTML = '';
+    canvases.forEach(c => pagesHost.appendChild(c));
+    zoomLabel.textContent = Math.round(scale * 100) + '%';
+    zoomInBtn.disabled = scale >= 3;
+    zoomOutBtn.disabled = scale <= 0.5;
+  }
+  zoomInBtn.onclick = () => { scale = Math.min(scale + 0.25, 3); renderAllPages(); };
+  zoomOutBtn.onclick = () => { scale = Math.max(scale - 0.25, 0.5); renderAllPages(); };
+
+  await renderAllPages();
+}
 async function openFileViewerModal(blob, filename, mimeType){
   const overlay = document.getElementById('fileViewerOverlay');
   const body = document.getElementById('fileViewerBody');
@@ -10213,9 +10289,16 @@ async function openFileViewerModal(blob, filename, mimeType){
   const isDocx = /\.docx$/i.test(filename) || mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
   try{
     if(isPdf){
-      // The browser's own built-in PDF renderer, right inside the app — no separate tab,
-      // no Drive, nothing else involved.
-      body.innerHTML = `<iframe src="${URL.createObjectURL(blob)}"></iframe>`;
+      try{
+        await renderPdfCanvasView(blob, body);
+      }catch(pdfErr){
+        // PDF.js failed for some reason (a malformed file, a CDN hiccup loading the
+        // worker script, etc.) — fall back to the browser's own built-in PDF viewer rather
+        // than showing nothing at all. Lower rendering fidelity is a better outcome here
+        // than no preview.
+        console.error('[file viewer] PDF.js render failed, falling back to native viewer:', pdfErr);
+        body.innerHTML = `<iframe src="${URL.createObjectURL(blob)}"></iframe>`;
+      }
     } else if(isDocx){
       const items = await readDocxDocumentInOrder(await blob.arrayBuffer());
       body.innerHTML = `<div class="file-viewer-doc">${renderDocxItemsAsHtml(items) || '<p><i>(empty document)</i></p>'}</div>`;
