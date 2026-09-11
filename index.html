@@ -4087,6 +4087,7 @@ function songSearchHaystack(song){
   });
   return parts.filter(Boolean).join(' ').toLowerCase();
 }
+let songListSortMode = 'modified-desc'; // resets to this default each time the app loads — not persisted, matching the rest of the dashboard's own search/filter state
 function renderSongList(){
   const list = document.getElementById('songList');
   if(!list) return; // dashboard isn't the current view — nothing to render into
@@ -4102,6 +4103,16 @@ function renderSongList(){
     if(ragaFilter && (s.raga||'').trim() !== ragaFilter) return false;
     if(composerFilter && (s.composer||'').trim() !== composerFilter) return false;
     return true;
+  });
+  // Sorted AFTER filtering (cheaper — fewer items to sort — and filtering doesn't care
+  // about order anyway). Falls back to 0 for updatedAt on any song that predates this
+  // field existing, so those just settle to one end rather than sorting unpredictably.
+  const collator = (a, b) => (a||'').localeCompare(b||'');
+  filtered.sort((a, b) => {
+    if(songListSortMode === 'name-asc') return collator(a.title, b.title);
+    if(songListSortMode === 'name-desc') return collator(b.title, a.title);
+    if(songListSortMode === 'modified-asc') return (a.updatedAt||0) - (b.updatedAt||0);
+    return (b.updatedAt||0) - (a.updatedAt||0); // modified-desc — the default
   });
   if(!library.length){
     list.innerHTML = '<div class="empty-note">No kritis yet. Click <b>+ New Kriti</b> to start your library — everything you add stays saved here.</div>';
@@ -4432,8 +4443,20 @@ function wireCellCopyPaste(host){
     // A single cell with a genuine partial text selection (the user dragged
     // or shift-selected part of the value) keeps the browser's own native
     // copy of just that substring — only a plain caret (no substring
-    // highlighted) triggers copying the whole cell's value.
-    if(selected.length === 1 && active.selectionStart !== active.selectionEnd) return;
+    // highlighted) triggers copying the whole cell's value. Clearing
+    // copiedCells here is what actually makes that handoff to the browser's
+    // own copy/paste complete: without it, whatever was copied earlier
+    // through THIS app's own multi-cell mechanism (even a much earlier,
+    // unrelated multi-cell or single-cell copy) was still sitting there, so
+    // the very next Ctrl+V — meant to paste this native selection — instead
+    // replayed that stale app-level clipboard onto the cell, overwriting
+    // whatever the user actually just copied. Confirmed as a real, reported
+    // bug: copying part of one cell's text and pasting it elsewhere was
+    // pasting old multi-cell content instead.
+    if(selected.length === 1 && active.selectionStart !== active.selectionEnd){
+      copiedCells = null;
+      return;
+    }
     e.preventDefault();
     // Record each cell's row/column OFFSET from the first selected cell, not just its flat
     // position in some sequence — this is what paste below replays, and it's what makes a
@@ -7893,6 +7916,12 @@ function renderDashboard(){
           <select class="filter-select" id="filterTala"><option value="">All talas</option></select>
           <select class="filter-select" id="filterRaga"><option value="">All ragas</option></select>
           <select class="filter-select" id="filterComposer"><option value="">All composers</option></select>
+          <select class="filter-select" id="sortSongs">
+            <option value="modified-desc">Recently modified</option>
+            <option value="modified-asc">Oldest modified</option>
+            <option value="name-asc">Name (A–Z)</option>
+            <option value="name-desc">Name (Z–A)</option>
+          </select>
         </div>
         <div class="dashboard-grid song-list" id="songList"></div>
       </div>`;
@@ -7900,6 +7929,8 @@ function renderDashboard(){
     document.getElementById('filterTala').onchange = renderSongList;
     document.getElementById('filterRaga').onchange = renderSongList;
     document.getElementById('filterComposer').onchange = renderSongList;
+    document.getElementById('sortSongs').value = songListSortMode;
+    document.getElementById('sortSongs').onchange = e=>{ songListSortMode = e.target.value; renderSongList(); };
   }
   if(dashboardSubView === 'list') renderSongList();
 }
